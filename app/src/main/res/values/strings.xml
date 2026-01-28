@@ -1,0 +1,81 @@
+<resources>
+    <string name="app_name">PlayerID</string>
+    
+    <!-- Camera permissions -->
+    <string name="camera_permission_title">Camera Access Required</string>
+    <string name="camera_permission_message">PlayerID needs camera access to detect jersey numbers and identify players in real-time augmented reality.</string>
+    <string name="grant_camera_permission">Grant Camera Permission</string>
+    
+    <!-- AR Messages -->
+    <string name="ar_session_paused">AR session paused</string>
+    <string name="ar_session_resumed">AR session resumed</string>
+    <string name="ar_tracking_lost">AR tracking lost</string>
+    <string name="ar_tracking_restored">AR tracking restored</string>
+    
+    <!-- Player Management -->
+    <string name="add_player">Add Player</string>
+    <string name="edit_player">Edit Player</string>
+    <string name="delete_player">Delete Player</string>
+    <string name="player_name">Player Name</string>
+    <string name="jersey_number">Jersey Number</string>
+    <string name="position">Position</string>
+    <string name="team">Team</string>
+    <string name="academic_year">Academic Year</string>
+    
+    <!-- Academic Years -->
+    <string name="freshman">Freshman</string>
+    <string name="sophomore">Sophomore</string>
+    <string name="junior">Junior</string>
+    <string name="senior">Senior</string>
+    
+    <!-- Teams -->
+    <string name="red_team">Red Team</string>
+    <string name="blue_team">Blue Team</string>
+    <string name="green_team">Green Team</string>
+    <string name="yellow_team">Yellow Team</string>
+    
+    <!-- Admin -->
+    <string name="admin_login">Administrator Login</string>
+    <string name="admin_password">Password</string>
+    <string name="login">Login</string>
+    <string name="logout">Logout</string>
+    <string name="invalid_password">Invalid password</string>
+    
+    <!-- Navigation -->
+    <string name="camera_tab">Camera</string>
+    <string name="players_tab">Players</string>
+    <string name="team_tab">My Team</string>
+    <string name="admin_tab">Admin</string>
+    <string name="settings_tab">Settings</string>
+    
+    <!-- Search -->
+    <string name="search_players">Search players...</string>
+    <string name="no_players_found">No players found</string>
+    <string name="try_adjusting_search">Try adjusting your search</string>
+    
+    <!-- Team Management -->
+    <string name="select_team">Select Your Team</string>
+    <string name="team_selection_message">Choose your team to manage players and collaborate with teammates.</string>
+    <string name="tap_to_learn_tip">💡 Tip: Tap-to-Learn</string>
+    <string name="tap_to_learn_message">In the camera view, tap on a player wearing your team colors to automatically learn your team!</string>
+    
+    <!-- Error Messages -->
+    <string name="camera_error">Camera error occurred</string>
+    <string name="detection_error">Detection error</string>
+    <string name="database_error">Database error</string>
+    
+    <!-- Success Messages -->
+    <string name="player_added">Player added successfully</string>
+    <string name="player_updated">Player updated successfully</string>
+    <string name="player_deleted">Player deleted successfully</string>
+    
+    <!-- Common Actions -->
+    <string name="add">Add</string>
+    <string name="edit">Edit</string>
+    <string name="delete">Delete</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+</resources>

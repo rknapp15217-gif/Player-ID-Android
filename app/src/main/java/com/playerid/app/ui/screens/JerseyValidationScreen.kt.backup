@@ -1,0 +1,473 @@
+package com.playerid.app.ui.screens
+
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import com.playerid.app.ml.*
+import com.playerid.app.ui.components.BatchImportDialog
+import com.playerid.app.ui.components.BatchLoadingDialog
+import kotlinx.coroutines.launch
+import android.util.Log
+
+/**
+ * 🌐 Jersey Photo Validation Screen
+ * 
+ * Import photos from URLs and validate jersey numbers for training data.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun JerseyValidationScreen() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    // State management
+    var importUrl by remember { mutableStateOf("") }
+    var isImporting by remember { mutableStateOf(false) }
+    var importedPhotos by remember { mutableStateOf<List<ImportedJerseyData>>(emptyList()) }
+    var selectedPhoto by remember { mutableStateOf<ImportedJerseyData?>(null) }
+    var validationResults by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showBatchDialog by remember { mutableStateOf(false) }
+    var showBatchLoadingDialog by remember { mutableStateOf(false) }
+    
+    // Initialize services
+    val datasetCollector = remember { JerseyDatasetCollector(context) }
+    val importer = remember { OnlineJerseyImporter(context, datasetCollector) }
+    val bundledPhotos = remember { BundledJerseyPhotos(context) }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // Compact Header
+        Text(
+            text = "🌐 Training Data Validation",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        
+        // Simple Load Control - Only show when no photos loaded
+        if (importedPhotos.isEmpty()) {
+            Button(
+                onClick = { showBatchLoadingDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isImporting
+            ) {
+                if (isImporting) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                } else {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Load Training Photos", style = MaterialTheme.typography.titleMedium)
+            }
+        } else {
+            // Show progress when photos are loaded
+            Text(
+                text = "📊 ${importedPhotos.size} photos ready for validation",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+                
+                // Compact Load Controls
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            showBatchLoadingDialog = true
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = !isImporting
+                    ) {
+                        if (isImporting) {
+                            CircularProgressIndicator(modifier = Modifier.size(12.dp))
+                        } else {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Load Training Set", style = MaterialTheme.typography.labelMedium)
+                    }
+                    
+                    OutlinedButton(
+                        onClick = { 
+                            showBatchDialog = true 
+                        },
+                        modifier = Modifier.weight(0.6f)
+                    ) {
+                        Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("URLs", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                
+                // Bundled Photos Section
+                Text(
+                    text = "� Use Bundled Photos (Offline):",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            showBatchLoadingDialog = true
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = !isImporting
+                    ) {
+                        if (isImporting) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        } else {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Load Training Set")
+                    }
+                    
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                val stats = bundledPhotos.getValidationStats()
+                                // Show stats dialog
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Dataset Info")
+                    }
+                }
+                
+                // Sport-specific bundled photos
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    listOf("soccer", "basketball", "football").forEach { sport ->
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    isImporting = true
+                                    val sportPhotos = bundledPhotos.getPhotosBySport(sport)
+                                    val loadedPhotos = mutableListOf<ImportedJerseyData>()
+                                    
+                                    sportPhotos.forEach { bundledPhoto ->
+                                        val bitmap = bundledPhotos.loadPhotoBitmap(bundledPhoto.filename)
+                                        if (bitmap != null) {
+                                            loadedPhotos.add(
+                                                ImportedJerseyData(
+                                                    originalUrl = "bundled://${bundledPhoto.filename}",
+                                                    bitmap = bitmap,
+                                                    suggestedNumber = bundledPhoto.expectedNumber,
+                                                    teamName = bundledPhoto.team,
+                                                    sport = bundledPhoto.sport,
+                                                    downloadTimestamp = System.currentTimeMillis()
+                                                )
+                                            )
+                                        }
+                                    }
+                                    
+                                    importedPhotos = importedPhotos + loadedPhotos
+                                    isImporting = false
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = !isImporting
+                        ) {
+                            Text(sport, style = MaterialTheme.typography.labelSmall)
+                        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        // MAIN VALIDATION SECTION - PROMINENT DISPLAY
+        if (importedPhotos.isNotEmpty()) {
+            Text(
+                text = "✅ VALIDATE JERSEY NUMBERS",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(bottom = 16.dp),
+                color = MaterialTheme.colorScheme.primary
+            )
+            
+            Text(
+                text = "📊 Progress: ${importedPhotos.size} photos remaining to validate",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(bottom = 8.dp),
+                color = MaterialTheme.colorScheme.secondary
+            )
+            
+
+            
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(importedPhotos) { photo ->
+                    JerseyValidationCard(
+                        photo = photo,
+                        onValidate = { jerseyNumber, boundingBox, metadata ->
+                            scope.launch {
+                                val result = importer.validateAndSave(photo, jerseyNumber, boundingBox, metadata)
+                                if (result != null) {
+                                    validationResults = validationResults + "Saved: Jersey #$jerseyNumber"
+                                    // Remove from validation list
+                                    importedPhotos = importedPhotos - photo
+                                }
+                            }
+                        },
+                        onSkip = {
+                            importedPhotos = importedPhotos - photo
+                        }
+                    )
+                }
+            }
+        }
+        
+        // Results Summary
+        if (validationResults.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Card {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "📊 Validation Results (${validationResults.size} samples)",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    validationResults.takeLast(5).forEach { result ->
+                        Text(
+                            text = "• $result",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    } // End of main Column
+        
+    // Batch Import Dialog  
+    if (showBatchDialog) {
+        BatchImportDialog(
+            onDismiss = { showBatchDialog = false },
+            onImport = { urls ->
+                showBatchDialog = false
+                scope.launch {
+                    isImporting = true
+                    urls.forEach { url ->
+                        val result = importer.importJerseyPhoto(url)
+                        when (result) {
+                            is ImportResult.Success -> {
+                                importedPhotos = importedPhotos + result.data
+                            }
+                            is ImportResult.Error -> {
+                                // Log error but continue with other URLs
+                            }
+                        }
+                    }
+                    isImporting = false
+                }
+            }
+        )
+    }
+        
+    // Batch Loading Dialog for Bundled Photos
+    if (showBatchLoadingDialog) {
+        BatchLoadingDialog(
+            onDismiss = { showBatchLoadingDialog = false },
+            onPhotosLoaded = { photos ->
+                showBatchLoadingDialog = false
+                importedPhotos = importedPhotos + photos
+            }
+        )
+    }
+} // End of JerseyValidationScreen function
+
+@Composable
+fun JerseyValidationCard(
+    photo: ImportedJerseyData,
+    onValidate: (Int, android.graphics.RectF, CaptureMetadata) -> Unit,
+    onSkip: () -> Unit
+) {
+    var jerseyNumber by remember { mutableStateOf(photo.suggestedNumber?.toString() ?: "") }
+    var lightingCondition by remember { mutableStateOf("normal") }
+    var distance by remember { mutableStateOf("medium") }
+    var angle by remember { mutableStateOf("front") }
+    
+    Card(
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            // Photo Preview
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp)  // Bigger image display
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Image(
+                    bitmap = photo.bitmap.asImageBitmap(),
+                    contentDescription = "Jersey Photo",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // Photo Info
+            Text(
+                text = "Source: ${photo.originalUrl.take(50)}...",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            if (photo.teamName != null) {
+                Text(
+                    text = "Team: ${photo.teamName}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // Validation Controls
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = jerseyNumber,
+                    onValueChange = { 
+                        if (it.length <= 2 && it.all { char -> char.isDigit() }) {
+                            jerseyNumber = it
+                        }
+                    },
+                    label = { Text("Jersey Number", style = MaterialTheme.typography.titleMedium) },
+                    placeholder = { Text("Enter 0-99") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier
+                        .weight(1.5f)
+                        .height(70.dp),  // Bigger text field
+                    textStyle = MaterialTheme.typography.headlineMedium,  // Bigger text
+                    singleLine = true
+                )
+                
+                Column(modifier = Modifier.weight(2f)) {
+                    Text("Conditions:", style = MaterialTheme.typography.labelSmall)
+                    
+                    // Quick condition selectors
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("bright", "normal", "dark").forEach { condition ->
+                            if (lightingCondition == condition) {
+                                Button(
+                                    onClick = { lightingCondition = condition },
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(condition.take(1).uppercase(), style = MaterialTheme.typography.labelSmall)
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { lightingCondition = condition },
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(condition.take(1).uppercase(), style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                    
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("close", "medium", "far").forEach { dist ->
+                            if (distance == dist) {
+                                Button(
+                                    onClick = { distance = dist },
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(dist.take(1).uppercase(), style = MaterialTheme.typography.labelSmall)
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { distance = dist },
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(dist.take(1).uppercase(), style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onSkip,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.SkipNext, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Skip")
+                }
+                
+                Button(
+                    onClick = {
+                        val number = jerseyNumber.toIntOrNull()
+                        if (number != null && number in 0..99) {
+                            // Create bounding box for full image (will be refined later)
+                            val boundingBox = android.graphics.RectF(
+                                0f, 0f, 
+                                photo.bitmap.width.toFloat(), 
+                                photo.bitmap.height.toFloat()
+                            )
+                            
+                            val metadata = CaptureMetadata(
+                                captureMode = "imported",
+                                confidence = 1.0f,
+                                detectionSource = "manual_validation",
+                                lightingCondition = lightingCondition,
+                                distance = distance,
+                                angle = angle
+                            )
+                            
+                            onValidate(number, boundingBox, metadata)
+                        }
+                    },
+                    enabled = jerseyNumber.toIntOrNull()?.let { it in 0..99 } == true,
+                    modifier = Modifier.weight(2f)
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("✅ Validate & Save")
+                }
+            } // Row
+        } // Column
+    } // Card
+} // JerseyValidationCard function

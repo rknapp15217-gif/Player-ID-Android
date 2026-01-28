@@ -1,0 +1,269 @@
+package com.playerid.app.ml
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.util.Log
+// TEMPORARILY DISABLED FOR DEBUGGING
+// import org.tensorflow.lite.Interpreter
+import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.channels.FileChannel
+
+/**
+ * 🤖 Custom Jersey Detection Manager
+ * Handles trained TensorFlow Lite model for jersey number detection
+ */
+class CustomJerseyDetectionManager(private val context: Context) {
+    
+    private var interpreter: Interpreter? = null
+    private var isModelLoaded = false
+    
+    companion object {
+        private const val TAG = "CustomJerseyDetection"
+        private const val MODEL_FILE = "jersey_detector_v1.tflite" // Updated for AutoML model
+        private const val INPUT_SIZE = 320 // AutoML Vision Edge typically uses 320x320
+        private const val CONFIDENCE_THRESHOLD = 0.7f // Higher threshold for better precision
+        
+        // Jersey number class mapping based on our trained dataset (0, 1, 2, 5, 6, 7, 8, 9, 10, etc.)
+        private val CLASS_NAMES = listOf("0", "1", "2", "5", "6", "7", "8", "9", "10") // Add others as needed
+    }
+    
+    init {
+        loadModel()
+    }
+    
+    /**
+     * 📥 Load the custom trained TensorFlow Lite model
+     */
+    private fun loadModel() {
+        try {
+            val modelFile = context.assets.open(MODEL_FILE)
+            val modelBuffer = ByteBuffer.allocateDirect(modelFile.available())
+            modelFile.use { input ->
+                val channel = (input as FileInputStream).channel
+                channel.read(modelBuffer)
+            }
+            modelBuffer.rewind()
+            
+            val options = Interpreter.Options().apply {
+                setNumThreads(4) // Use multiple threads for better performance
+                setUseNNAPI(true) // Use Android Neural Networks API if available
+            }
+            
+            interpreter = Interpreter(modelBuffer, options)
+            isModelLoaded = true
+            
+            Log.d(TAG, "✅ Custom jersey detection model loaded successfully")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to load custom model: ${e.message}")
+            isModelLoaded = false
+        }
+    }
+    
+    /**
+     * 🔍 Detect jersey numbers in the provided bitmap
+     */
+    fun detectJerseyNumbers(bitmap: Bitmap): List<JerseyDetection> {
+        if (!isModelLoaded || interpreter == null) {
+            Log.w(TAG, "⚠️ Custom model not loaded, falling back to ML Kit")
+            return emptyList()
+        }
+        
+        try {
+            // Preprocess input image
+            val inputBuffer = preprocessImage(bitmap)
+            
+            // Prepare output tensors
+            val outputShape = interpreter!!.getOutputTensor(0).shape()
+            val numDetections = outputShape[1]
+            val outputBuffer = Array(1) { Array(numDetections) { FloatArray(6) } } // [x, y, w, h, conf, class]
+            
+            // Run inference
+            interpreter!!.run(inputBuffer, outputBuffer)
+            
+            // Post-process results
+            return postprocessDetections(outputBuffer[0], bitmap.width, bitmap.height)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "💥 Detection failed: ${e.message}")
+            return emptyList()
+        }
+    }
+    
+    /**
+     * 🖼️ Preprocess input image for model inference
+     */
+    private fun preprocessImage(bitmap: Bitmap): ByteBuffer {
+        val inputBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * 3)
+        inputBuffer.order(ByteOrder.nativeOrder())
+        
+        // Resize bitmap to model input size
+        val resizedBitmap = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
+        
+        // Convert to RGB and normalize
+        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+        resizedBitmap.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
+        
+        for (pixel in pixels) {
+            val r = ((pixel shr 16) and 0xFF) / 255.0f
+            val g = ((pixel shr 8) and 0xFF) / 255.0f
+            val b = (pixel and 0xFF) / 255.0f
+            
+            inputBuffer.putFloat(r)
+            inputBuffer.putFloat(g)
+            inputBuffer.putFloat(b)
+        }
+        
+        return inputBuffer
+    }
+    
+    /**
+     * 🎯 Post-process model outputs to extract jersey number detections
+     */
+    private fun postprocessDetections(
+        outputs: Array<FloatArray>, 
+        imageWidth: Int, 
+        imageHeight: Int
+    ): List<JerseyDetection> {
+        val detections = mutableListOf<JerseyDetection>()
+        
+        for (detection in outputs) {
+            val confidence = detection[4]
+            
+            if (confidence >= CONFIDENCE_THRESHOLD) {
+                // Convert normalized coordinates to pixel coordinates
+                val centerX = detection[0] * imageWidth
+                val centerY = detection[1] * imageHeight
+                val width = detection[2] * imageWidth
+                val height = detection[3] * imageHeight
+                
+                val left = (centerX - width / 2).coerceIn(0f, imageWidth.toFloat())
+                val top = (centerY - height / 2).coerceIn(0f, imageHeight.toFloat())
+                val right = (centerX + width / 2).coerceIn(0f, imageWidth.toFloat())
+                val bottom = (centerY + height / 2).coerceIn(0f, imageHeight.toFloat())
+                
+                // Get predicted class
+                val classId = detection[5].toInt()
+                val jerseyNumber = if (classId in 0 until CLASS_NAMES.size) {
+                    CLASS_NAMES[classId]
+                } else {
+                    "?"
+                }
+                
+                detections.add(
+                    JerseyDetection(
+                        jerseyNumber = jerseyNumber,
+                        confidence = confidence,
+                        boundingBox = BoundingBox(left, top, right, bottom),
+                        source = "CustomModel"
+                    )
+                )
+                
+                Log.d(TAG, "🎯 Detected jersey #$jerseyNumber (confidence: ${String.format("%.2f", confidence)})")
+            }
+        }
+        
+        return detections.sortedByDescending { it.confidence }
+    }
+    
+    /**
+     * 📊 Get model performance metrics
+     */
+    fun getModelInfo(): CustomModelInfo {
+        return CustomModelInfo(
+            isLoaded = isModelLoaded,
+            modelName = "Custom Jersey Detector v1.0",
+            inputSize = INPUT_SIZE,
+            numClasses = CLASS_NAMES.size,
+            supportedNumbers = CLASS_NAMES
+        )
+    }
+    
+    /**
+     * 🧹 Clean up resources
+     */
+    fun cleanup() {
+        interpreter?.close()
+        interpreter = null
+        isModelLoaded = false
+    }
+}
+
+/**
+ * 📊 Custom model information
+ */
+data class CustomModelInfo(
+    val isLoaded: Boolean,
+    val modelName: String,
+    val inputSize: Int,
+    val numClasses: Int,
+    val supportedNumbers: List<String>
+)
+
+/**
+ * 🎯 Jersey detection result from custom model
+ */
+data class JerseyDetection(
+    val jerseyNumber: String,
+    val confidence: Float,
+    val boundingBox: BoundingBox,
+    val source: String
+)
+
+// BoundingBox is defined in JerseyDatasetCollector.kt
+
+/**
+ * 🚀 Enhanced Jersey Detection Manager with Custom Model Integration
+ */
+class HybridJerseyDetectionManager(
+    private val context: Context
+) {
+    private val customManager = CustomJerseyDetectionManager(context)
+    // TODO: Add reference to existing ML Kit manager when available
+    
+    /**
+     * 🎯 Detect jersey numbers using best available method
+     */
+    fun detectJerseyNumbers(bitmap: Bitmap): List<JerseyDetection> {
+        // Try custom model first (higher accuracy)
+        val customDetections = customManager.detectJerseyNumbers(bitmap)
+        
+        if (customDetections.isNotEmpty()) {
+            Log.d("HybridDetection", "✅ Using custom model results (${customDetections.size} detections)")
+            return customDetections
+        }
+        
+        // Fallback to ML Kit if custom model fails or finds nothing
+        Log.d("HybridDetection", "🔄 Falling back to ML Kit detection")
+        
+        // Convert ML Kit results to unified format
+        // TODO: Implement ML Kit to JerseyDetection conversion
+        return emptyList()
+    }
+    
+    /**
+     * 📊 Get detection system status
+     */
+    fun getSystemStatus(): DetectionSystemStatus {
+        val customInfo = customManager.getModelInfo()
+        
+        return DetectionSystemStatus(
+            customModelAvailable = customInfo.isLoaded,
+            mlKitAvailable = true, // Assume ML Kit is always available
+            preferredMethod = if (customInfo.isLoaded) "Custom" else "ML Kit",
+            modelInfo = customInfo
+        )
+    }
+}
+
+/**
+ * 📊 Detection system status
+ */
+data class DetectionSystemStatus(
+    val customModelAvailable: Boolean,
+    val mlKitAvailable: Boolean,
+    val preferredMethod: String,
+    val modelInfo: CustomModelInfo
+)

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme -->
+    <style name="Base.Theme.PlayerID" parent="Theme.AppCompat.Light.DarkActionBar">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/playerid_blue</item>
+        <item name="colorPrimaryDark">@color/playerid_dark_blue</item>
+        <item name="colorAccent">@color/playerid_green</item>
+        
+        <!-- Status bar color -->
+        <item name="android:statusBarColor">@color/playerid_dark_blue</item>
+        
+        <!-- Customize your theme here -->
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+
+    <style name="Theme.PlayerID" parent="Base.Theme.PlayerID" />
+</resources>

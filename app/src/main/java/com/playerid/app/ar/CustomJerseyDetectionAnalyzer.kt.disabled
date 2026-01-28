@@ -1,0 +1,493 @@
+package com.playerid.app.ar
+
+import android.content.Context
+import android.graphics.*
+import android.media.Image
+import android.util.Log
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import java.io.ByteArrayOutputStream
+import com.playerid.app.data.DetectedPlayer
+import com.playerid.app.data.PlayerDatabase
+import kotlinx.coroutines.*
+// TEMPORARILY DISABLED FOR DEBUGGING - TensorFlow Lite dependencies removed
+// import org.tensorflow.lite.Interpreter
+// import org.tensorflow.lite.gpu.GpuDelegate
+// import org.tensorflow.lite.support.common.FileUtil
+// import org.tensorflow.lite.support.image.ImageProcessor
+// import org.tensorflow.lite.support.image.TensorImage
+// import org.tensorflow.lite.support.image.ops.ResizeOp
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import kotlin.math.*
+
+/**
+ * 🧠 Custom Jersey Number Detection Analyzer
+ * 
+ * Replaces ML Kit with a TensorFlow Lite model specifically trained for jersey number detection.
+ * Designed for >80% reliability in sports scenarios with:
+ * - Motion blur tolerance
+ * - Angle/perspective robustness  
+ * - Variable lighting adaptation
+ * - Multi-font jersey support
+ */
+class CustomJerseyDetectionAnalyzer(
+    private val context: Context,
+    private val onPlayersDetected: (List<DetectedPlayer>) -> Unit,
+    private val onFrameDimensions: ((Int, Int) -> Unit)? = null
+) : ImageAnalysis.Analyzer {
+
+    // 🧠 TensorFlow Lite Model Components
+    private var interpreter: Interpreter? = null
+    private var imageProcessor: ImageProcessor? = null
+    private var isModelLoaded = false
+    
+    // 📊 Model Configuration
+    private val modelFileName = "jersey_number_detector.tflite" // Our custom model
+    private val inputSize = 416 // YOLO-style input (will be configurable based on model)
+    private val maxDetections = 10
+    private val confidenceThreshold = 0.6f // Higher confidence for custom model
+    private val nmsThreshold = 0.4f // Non-max suppression threshold
+    
+    // 🎯 Detection Tracking & Stability
+    private val detectionHistory = mutableMapOf<Int, MutableList<DetectedPlayer>>()
+    private val maxHistoryFrames = 3
+    private var frameCount = 0
+    private var frameWidth = 0
+    private var frameHeight = 0
+    
+    // 🔄 Optical Flow Tracking (for smooth movement)
+    private var previousFrame: Bitmap? = null
+    private val opticalFlowTracker = OpticalFlowTracker()
+    
+    // ⚡ Performance Optimization
+    private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    
+    companion object {
+        private const val TAG = "CustomJerseyDetection"
+    }
+
+    init {
+        initializeModel()
+    }
+
+    /**
+     * 🚀 Initialize TensorFlow Lite Model
+     */
+    private fun initializeModel() {
+        coroutineScope.launch {
+            try {
+                Log.d(TAG, "🧠 Initializing custom jersey number detection model...")
+                
+                // Load model from assets (will be created during training phase)
+                val modelFile = try {
+                    FileUtil.loadMappedFile(context, modelFileName)
+                } catch (e: Exception) {
+                    Log.w(TAG, "⚠️ Custom model not found, creating placeholder model")
+                    createPlaceholderModel()
+                    return@launch
+                }
+                
+                // Configure TensorFlow Lite interpreter with GPU acceleration
+                val options = Interpreter.Options().apply {
+                    numThreads = 4 // Multi-threaded for performance
+                    // GPU acceleration will be added separately using GpuDelegate
+                }
+                
+                interpreter = Interpreter(modelFile, options)
+                
+                // Configure image preprocessing
+                imageProcessor = ImageProcessor.Builder()
+                    .add(ResizeOp(inputSize, inputSize, ResizeOp.ResizeMethod.BILINEAR))
+                    .build()
+                
+                isModelLoaded = true
+                Log.d(TAG, "✅ Custom jersey detection model loaded successfully")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to load custom model: ${e.message}")
+                // Fallback to ML Kit will be implemented
+                isModelLoaded = false
+            }
+        }
+    }
+    
+    /**
+     * 📦 Create placeholder model structure for development
+     * This will be replaced with actual trained model
+     */
+    private fun createPlaceholderModel() {
+        Log.d(TAG, "📦 Using placeholder model for development")
+        // For now, we'll fall back to enhanced ML Kit detection
+        // Real model will be trained separately
+        isModelLoaded = false
+    }
+
+    override fun analyze(imageProxy: ImageProxy) {
+        frameCount++
+        
+        val mediaImage = imageProxy.image
+        if (mediaImage != null) {
+            // Update frame dimensions
+            val newWidth = mediaImage.width
+            val newHeight = mediaImage.height
+            
+            if (frameWidth != newWidth || frameHeight != newHeight) {
+                frameWidth = newWidth
+                frameHeight = newHeight
+                onFrameDimensions?.invoke(frameWidth, frameHeight)
+                Log.d(TAG, "🎯 Updated frame dimensions: ${frameWidth}x${frameHeight}")
+            }
+            
+            // Convert to bitmap for processing
+            val bitmap = imageProxyToBitmap(imageProxy)
+            
+            if (isModelLoaded) {
+                // 🧠 Use custom TensorFlow Lite model
+                processWithCustomModel(bitmap)
+            } else {
+                // 🔄 Fallback to enhanced ML Kit detection
+                processWithMLKitFallback(bitmap)
+            }
+            
+            previousFrame = bitmap
+        }
+        
+        imageProxy.close()
+    }
+    
+    /**
+     * 🧠 Process frame with custom TensorFlow Lite model
+     */
+    private fun processWithCustomModel(bitmap: Bitmap) {
+        coroutineScope.launch {
+            try {
+                val detections = runCustomInference(bitmap)
+                val stableDetections = applyMultiFrameStability(detections)
+                val trackedDetections = applyOpticalFlowTracking(stableDetections, bitmap)
+                
+                // Update UI on main thread
+                withContext(Dispatchers.Main) {
+                    onPlayersDetected(trackedDetections)
+                }
+                
+                Log.d(TAG, "🎯 Custom model detected ${trackedDetections.size} jersey numbers")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Custom model inference failed: ${e.message}")
+                // Could fall back to ML Kit here
+            }
+        }
+    }
+    
+    /**
+     * 🔄 Fallback to enhanced ML Kit detection
+     * This will be used until custom model is trained
+     */
+    private fun processWithMLKitFallback(bitmap: Bitmap) {
+        // For now, return empty list - we'll integrate enhanced ML Kit later
+        // or keep current ML Kit analyzer running in parallel
+        Log.d(TAG, "🔄 Using ML Kit fallback (custom model not ready)")
+    }
+    
+    /**
+     * 🚀 Run inference with custom TensorFlow Lite model
+     */
+    private fun runCustomInference(bitmap: Bitmap): List<DetectedPlayer> {
+        val interpreter = this.interpreter ?: return emptyList()
+        val imageProcessor = this.imageProcessor ?: return emptyList()
+        
+        try {
+            // Preprocess image
+            val tensorImage = TensorImage.fromBitmap(bitmap)
+            val processedImage = imageProcessor.process(tensorImage)
+            
+            // Prepare input buffer
+            val inputBuffer = processedImage.buffer
+            
+            // Prepare output buffers (YOLO-style detection)
+            val outputBoxes = Array(1) { Array(maxDetections) { FloatArray(4) } } // [batch, detections, coordinates]
+            val outputScores = Array(1) { FloatArray(maxDetections) } // [batch, detections]
+            val outputClasses = Array(1) { FloatArray(maxDetections) } // [batch, detections] 
+            
+            // Run inference
+            val outputs = mapOf(
+                0 to outputBoxes,
+                1 to outputScores, 
+                2 to outputClasses
+            )
+            
+            interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
+            
+            // Parse detections
+            return parseModelOutput(outputBoxes[0], outputScores[0], outputClasses[0])
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Model inference error: ${e.message}")
+            return emptyList()
+        }
+    }
+    
+    /**
+     * 📊 Parse model output into DetectedPlayer objects
+     */
+    private fun parseModelOutput(
+        boxes: Array<FloatArray>, 
+        scores: FloatArray, 
+        classes: FloatArray
+    ): List<DetectedPlayer> {
+        val detections = mutableListOf<DetectedPlayer>()
+        
+        for (i in 0 until maxDetections) {
+            val confidence = scores[i]
+            if (confidence > confidenceThreshold) {
+                
+                val box = boxes[i]
+                val classId = classes[i].toInt()
+                
+                // Convert normalized coordinates to pixel coordinates
+                val left = (box[0] * frameWidth).coerceIn(0f, frameWidth.toFloat())
+                val top = (box[1] * frameHeight).coerceIn(0f, frameHeight.toFloat())
+                val right = (box[2] * frameWidth).coerceIn(0f, frameWidth.toFloat())
+                val bottom = (box[3] * frameHeight).coerceIn(0f, frameHeight.toFloat())
+                
+                val boundingBox = RectF(left, top, right, bottom)
+                
+                // Map class ID to jersey number (depends on how model is trained)
+                val jerseyNumber = mapClassToJerseyNumber(classId)
+                
+                if (jerseyNumber in 0..99) { // Valid jersey numbers
+                    detections.add(DetectedPlayer(
+                        number = jerseyNumber,
+                        boundingBox = boundingBox,
+                        confidence = confidence,
+                        player = null // Will be looked up from database
+                    ))
+                }
+            }
+        }
+        
+        return applyNonMaxSuppression(detections)
+    }
+    
+    /**
+     * 🎯 Map model class ID to jersey number
+     * This mapping depends on how the model is trained
+     */
+    private fun mapClassToJerseyNumber(classId: Int): Int {
+        // For now, assume direct mapping (0-99 classes)
+        // This will be configured based on actual model training
+        return classId
+    }
+    
+    /**
+     * 🔄 Apply Non-Max Suppression to remove duplicate detections
+     */
+    private fun applyNonMaxSuppression(detections: List<DetectedPlayer>): List<DetectedPlayer> {
+        if (detections.size <= 1) return detections
+        
+        val sortedDetections = detections.sortedByDescending { it.confidence }
+        val finalDetections = mutableListOf<DetectedPlayer>()
+        
+        for (detection in sortedDetections) {
+            var shouldKeep = true
+            
+            for (keepDetection in finalDetections) {
+                val iou = calculateIoU(detection.boundingBox, keepDetection.boundingBox)
+                if (iou > nmsThreshold) {
+                    shouldKeep = false
+                    break
+                }
+            }
+            
+            if (shouldKeep) {
+                finalDetections.add(detection)
+            }
+        }
+        
+        return finalDetections
+    }
+    
+    /**
+     * 📐 Calculate Intersection over Union (IoU) for NMS
+     */
+    private fun calculateIoU(box1: RectF, box2: RectF): Float {
+        val intersectionArea = maxOf(0f, minOf(box1.right, box2.right) - maxOf(box1.left, box2.left)) *
+                              maxOf(0f, minOf(box1.bottom, box2.bottom) - maxOf(box1.top, box2.top))
+        
+        val box1Area = box1.width() * box1.height()
+        val box2Area = box2.width() * box2.height()
+        val unionArea = box1Area + box2Area - intersectionArea
+        
+        return if (unionArea > 0) intersectionArea / unionArea else 0f
+    }
+    
+    /**
+     * 📊 Apply multi-frame stability for consistent detection
+     */
+    private fun applyMultiFrameStability(currentDetections: List<DetectedPlayer>): List<DetectedPlayer> {
+        val stableDetections = mutableListOf<DetectedPlayer>()
+        
+        // Add current detections to history
+        for (detection in currentDetections) {
+            val number = detection.number
+            if (!detectionHistory.containsKey(number)) {
+                detectionHistory[number] = mutableListOf()
+            }
+            
+            detectionHistory[number]?.add(detection)
+            
+            // Keep only recent frames
+            val history = detectionHistory[number]!!
+            if (history.size > maxHistoryFrames) {
+                history.removeAt(0)
+            }
+        }
+        
+        // Clean up old detections
+        val numbersToRemove = mutableListOf<Int>()
+        for ((number, history) in detectionHistory) {
+            if (!currentDetections.any { it.number == number }) {
+                if (history.isNotEmpty()) {
+                    history.removeAt(history.size - 1)
+                }
+                if (history.isEmpty()) {
+                    numbersToRemove.add(number)
+                }
+            }
+        }
+        numbersToRemove.forEach { detectionHistory.remove(it) }
+        
+        // Only include stable detections
+        for ((number, history) in detectionHistory) {
+            if (history.size >= 2) { // Require consistency across frames
+                // Average positions for stability
+                val avgX = history.map { it.boundingBox.centerX() }.average().toFloat()
+                val avgY = history.map { it.boundingBox.centerY() }.average().toFloat()
+                val avgWidth = history.map { it.boundingBox.width() }.average().toFloat()
+                val avgHeight = history.map { it.boundingBox.height() }.average().toFloat()
+                val avgConfidence = history.map { it.confidence }.average().toFloat()
+                
+                val stableBounds = RectF(
+                    avgX - avgWidth/2,
+                    avgY - avgHeight/2, 
+                    avgX + avgWidth/2,
+                    avgY + avgHeight/2
+                )
+                
+                stableDetections.add(DetectedPlayer(
+                    number = number,
+                    boundingBox = stableBounds,
+                    confidence = avgConfidence,
+                    player = history.last().player
+                ))
+            }
+        }
+        
+        return stableDetections
+    }
+    
+    /**
+     * 🎯 Apply optical flow tracking for smooth movement
+     */
+    private fun applyOpticalFlowTracking(detections: List<DetectedPlayer>, currentFrame: Bitmap): List<DetectedPlayer> {
+        // TODO: Implement OpenCV optical flow tracking
+        // For now, return detections as-is
+        return detections
+    }
+    
+    /**
+     * 🖼️ Convert ImageProxy to Bitmap for processing
+     */
+    @androidx.camera.core.ExperimentalGetImage
+    private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap {
+        val mediaImage = imageProxy.image ?: throw IllegalArgumentException("Image is null")
+        
+        // Handle different image formats
+        return when (mediaImage.format) {
+            ImageFormat.YUV_420_888 -> {
+                // Convert YUV to RGB bitmap
+                yuvToRgbBitmap(mediaImage)
+            }
+            ImageFormat.JPEG -> {
+                // JPEG format - can decode directly
+                val buffer = mediaImage.planes[0].buffer
+                val bytes = ByteArray(buffer.remaining())
+                buffer.get(bytes)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: throw IllegalStateException("Failed to decode JPEG image")
+            }
+            else -> {
+                throw IllegalArgumentException("Unsupported image format: ${mediaImage.format}")
+            }
+        }
+    }
+    
+    /**
+     * 🎨 Convert YUV_420_888 to RGB Bitmap
+     */
+    private fun yuvToRgbBitmap(image: Image): Bitmap {
+        val yBuffer = image.planes[0].buffer // Y
+        val uBuffer = image.planes[1].buffer // U
+        val vBuffer = image.planes[2].buffer // V
+        
+        val ySize = yBuffer.remaining()
+        val uSize = uBuffer.remaining()
+        val vSize = vBuffer.remaining()
+        
+        val nv21 = ByteArray(ySize + uSize + vSize)
+        
+        // Copy Y, U, V data into NV21 format
+        yBuffer.get(nv21, 0, ySize)
+        
+        val pixelStride = image.planes[1].pixelStride
+        if (pixelStride == 1) {
+            uBuffer.get(nv21, ySize, uSize)
+            vBuffer.get(nv21, ySize + uSize, vSize)
+        } else {
+            // Handle interleaved UV data
+            val uvPixelStride = image.planes[1].pixelStride
+            val uvBuffer = ByteArray(uSize + vSize)
+            uBuffer.get(uvBuffer, 0, uSize)
+            vBuffer.get(uvBuffer, uSize, vSize)
+            
+            var uvIndex = ySize
+            for (i in 0 until uSize step uvPixelStride) {
+                nv21[uvIndex++] = uvBuffer[i + uSize] // V
+                nv21[uvIndex++] = uvBuffer[i] // U
+            }
+        }
+        
+        // Convert NV21 to bitmap
+        val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+        val out = ByteArrayOutputStream()
+        yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 100, out)
+        val imageBytes = out.toByteArray()
+        
+        return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            ?: throw IllegalStateException("Failed to convert YUV to bitmap")
+    }
+    
+    /**
+     * 🧹 Cleanup resources
+     */
+    fun cleanup() {
+        interpreter?.close()
+        coroutineScope.cancel()
+        Log.d(TAG, "🧹 Custom jersey detection analyzer cleaned up")
+    }
+}
+
+/**
+ * 🎯 Optical Flow Tracker for smooth bubble movement
+ * Uses OpenCV for tracking jersey numbers between detections
+ */
+class OpticalFlowTracker {
+    // TODO: Implement OpenCV optical flow tracking
+    // This will provide smooth tracking between TensorFlow detections
+    
+    fun trackPoints(previousFrame: Bitmap, currentFrame: Bitmap, points: List<PointF>): List<PointF> {
+        // Placeholder for optical flow implementation
+        return points
+    }
+}

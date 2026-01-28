@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PlayerID brand colors -->
+    <color name="playerid_blue">#1976D2</color>
+    <color name="playerid_dark_blue">#0D47A1</color>
+    <color name="playerid_green">#4CAF50</color>
+    <color name="playerid_orange">#FF9800</color>
+    <color name="playerid_red">#F44336</color>
+    
+    <!-- Academic year colors -->
+    <color name="freshman_green">#4CAF50</color>
+    <color name="sophomore_blue">#2196F3</color>
+    <color name="junior_orange">#FF9800</color>
+    <color name="senior_red">#F44336</color>
+    
+    <!-- Standard Material colors -->
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
