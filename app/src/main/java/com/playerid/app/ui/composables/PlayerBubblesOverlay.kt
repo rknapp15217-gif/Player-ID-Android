@@ -19,20 +19,26 @@ fun PlayerBubblesOverlay(
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier.fillMaxSize()) {
+        val canvasWidth = size.width
+        val canvasHeight = size.height
+
         trackedPlayers.filter { it.first.disappearedFrames == 0 }.forEach { (trackedPlayer, player) ->
             val playerName = player?.name ?: "Unknown"
             val jerseyNumber = trackedPlayer.jerseyNumber
 
-            // "FREEZE" LOGIC: We use initialBox dimensions instead of currentBox
+            // Detection size frozen at first identification
             val frozenWidth = trackedPlayer.initialBox.width().toInt()
             val frozenHeight = trackedPlayer.initialBox.height().toInt()
 
+            // SCALE COORDINATES: currentBox is normalized [0,1], scale to canvas pixels
+            // CRITICAL FIX: The preview resolution is likely 1280x720, but the Canvas is screen size.
+            // We scale the normalized box [0,1] to the Canvas dimensions.
             val centerPosition = Offset(
-                trackedPlayer.currentBox.centerX(),
-                trackedPlayer.currentBox.centerY()
+                trackedPlayer.currentBox.centerX() * canvasWidth,
+                trackedPlayer.currentBox.centerY() * canvasHeight
             )
 
-            // Always draw blue box around detected number
+            // Draw player bubble and box
             drawPlayerOverlay(
                 playerName = playerName,
                 jerseyNumber = jerseyNumber,
@@ -40,7 +46,7 @@ fun PlayerBubblesOverlay(
                 isSelected = false,
                 debugWidth = frozenWidth,
                 debugHeight = frozenHeight,
-                pulseFraction = 1f // Always show box for detected
+                pulseFraction = 1f
             )
         }
     }

@@ -25,15 +25,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedTeam = MutableStateFlow<String?>(null)
     val selectedTeam: StateFlow<String?> = _selectedTeam.asStateFlow()
     
-    // Updated to hold TrackedPlayer objects
     private val _trackedPlayers = MutableStateFlow<List<TrackedPlayer>>(emptyList())
     val trackedPlayers: StateFlow<List<TrackedPlayer>> = _trackedPlayers.asStateFlow()
 
-    // This will be enhanced to hold full player profiles
-    val detectedPlayersWithInfo = _trackedPlayers.map { tracked ->
+    val detectedPlayersWithInfo = combine(_trackedPlayers, _selectedTeam) { tracked, team ->
         tracked.map { 
-            val player = selectedTeam.value?.let {
-                 team -> playerDao.getPlayerByNumber(it.jerseyNumber, team)
+            val player = team?.let { t -> 
+                playerDao.getPlayerByNumber(it.jerseyNumber, t)
             } ?: findPlayerByNumber(it.jerseyNumber)
             Pair(it, player)
         }
@@ -47,15 +45,21 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     
     val filteredPlayers = combine(
         allPlayers,
+        _selectedTeam,
         searchQuery
-    ) { players, query ->
-        if (query.isEmpty()) {
-            players
+    ) { players, team, query ->
+        val teamPlayers = if (team != null) {
+            players.filter { it.team == team }
         } else {
-            players.filter { player ->
+            emptyList() 
+        }
+
+        if (query.isEmpty()) {
+            teamPlayers
+        } else {
+            teamPlayers.filter { player ->
                 player.name.contains(query, ignoreCase = true) ||
                 player.number.contains(query) ||
-                player.team.contains(query, ignoreCase = true) ||
                 player.position.contains(query, ignoreCase = true)
             }
         }
@@ -77,18 +81,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         _selectedTeam.value = team
     }
     
-    // Renamed and updated to accept TrackedPlayer
     fun updateTrackedPlayers(tracked: List<TrackedPlayer>) {
-        Log.d(TAG, "🧠 Tracking ${tracked.size} players.")
         _trackedPlayers.value = tracked
-    }
-    
-    /**
-     * Add manual bubble for manual detection mode
-     */
-    fun addManualBubble(playerName: String, playerNumber: String, position: PointF) {
-        Log.d(TAG, "➕ Adding manual bubble: $playerName #$playerNumber at (${position.x}, ${position.y})")
-        // TODO: Implement manual bubble creation
     }
     
     private suspend fun findPlayerByNumber(number: String): Player? {
@@ -106,7 +100,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             playerDao.insertPlayer(newPlayer)
         }
     }
-    
+
     fun updatePlayer(player: Player) {
         viewModelScope.launch {
             val updatedPlayer = player.copy(updatedAt = System.currentTimeMillis())
@@ -119,17 +113,17 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             playerDao.deletePlayer(player)
         }
     }
-    
-    suspend fun getAllTeams(): List<String> {
-        return playerDao.getAllTeams()
-    }
 
     fun exportDatabase() {
         viewModelScope.launch {
             val players = allPlayers.first()
-            println("Exporting ${players.size} players:")
-            players.forEach { println(it) }
+            Log.d(TAG, "Exporting ${players.size} players to log console")
+            players.forEach { Log.d(TAG, "EXPORT: $it") }
         }
+    }
+
+    fun importDatabase() {
+        initializeSampleData()
     }
 
     fun clearCache() {
@@ -137,16 +131,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             database.clearAllTables()
         }
     }
-
-    fun importDatabase() {
-        initializeSampleData()
-    }
     
     private fun initializeSampleData() {
         viewModelScope.launch {
             val playerCount = playerDao.getPlayerCount()
-            if (playerCount == 0) {
+            if (playerCount < 20) {
                 val samplePlayers = listOf(
+                    Player(id = UUID.randomUUID().toString(), number = "00", name = "Benny Zero", position = "Forward", team = "Ryan's Team", academicYear = "Senior", addedBy = "Ryan"),
                     Player(id = UUID.randomUUID().toString(), number = "10", name = "Sofia Martinez", position = "Forward", team = "Eagles High School", academicYear = "Senior", addedBy = "Coach_Martinez"),
                     Player(id = UUID.randomUUID().toString(), number = "7", name = "Diego Santos", position = "Midfielder", team = "Eagles High School", academicYear = "Junior", addedBy = "Parent_Maria"),
                     Player(id = UUID.randomUUID().toString(), number = "1", name = "Tyler Johnson", position = "Goalkeeper", team = "Eagles High School", academicYear = "Sophomore", addedBy = "Coach_Martinez"),

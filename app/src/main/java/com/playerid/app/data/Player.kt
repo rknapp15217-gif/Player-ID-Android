@@ -6,6 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
+import com.playerid.app.data.teamsnap.TeamSnapSyncStatus
 
 @Parcelize
 @Entity(tableName = "players")
@@ -25,7 +26,7 @@ data class Player(
     val teamSnapId: String? = null,
     val teamSnapTeamId: String? = null,
     val lastSyncDate: Long? = null,
-    val syncStatus: com.playerid.app.data.teamsnap.TeamSnapSyncStatus = com.playerid.app.data.teamsnap.TeamSnapSyncStatus.NOT_SYNCED
+    val syncStatus: TeamSnapSyncStatus = TeamSnapSyncStatus.NOT_SYNCED
 ) : Parcelable
 
 enum class AcademicYear(val displayName: String) {

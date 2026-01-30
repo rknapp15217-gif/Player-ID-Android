@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.RectF
 import android.util.Log
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
@@ -16,18 +17,30 @@ import java.nio.channels.FileChannel
 /**
  * A specialized locator that uses a single-class object detection model to find the
  * bounding boxes of potential jersey numbers.
+ * Optimized with GPU acceleration for high-speed tiling passes.
  */
 class NumberLocator(context: Context, modelFileName: String = "model.tflite") {
 
-    private val interpreter: Interpreter
+    private var interpreter: Interpreter
+    private var gpuDelegate: GpuDelegate? = null
 
     init {
         val options = Interpreter.Options()
+        try {
+            // Attempt to use GPU delegate for significantly faster tiled detection
+            gpuDelegate = GpuDelegate()
+            options.addDelegate(gpuDelegate)
+            Log.i("NumberLocator", "TFLite GPU Delegate initialized successfully")
+        } catch (e: Exception) {
+            Log.w("NumberLocator", "GPU Delegate not supported, falling back to CPU (XNNPACK)", e)
+            options.setUseXNNPACK(true)
+            options.setNumThreads(4)
+        }
+        
         interpreter = Interpreter(loadModelFile(context, modelFileName), options)
         
-        // DEBUG: Print model input requirements
         val inputTensor = interpreter.getInputTensor(0)
-        Log.i("NumberLocator", "Model Input Type: ${inputTensor.dataType()}, Shape: ${inputTensor.shape().contentToString()}")
+        Log.i("NumberLocator", "Model Input: ${inputTensor.dataType()}, Shape: ${inputTensor.shape().contentToString()}")
     }
 
     @Throws(IOException::class)
@@ -44,32 +57,21 @@ class NumberLocator(context: Context, modelFileName: String = "model.tflite") {
     private data class DetectionResult(val box: RectF, val score: Float)
 
     private fun runInference(bitmap: Bitmap): List<DetectionResult> {
-        Log.d("NumberLocator", "Running inference on bitmap: ${bitmap.width}x${bitmap.height}")
-        // 1. Create a TensorImage explicitly as UINT8
         val tensorImage = TensorImage(org.tensorflow.lite.DataType.UINT8)
         tensorImage.load(bitmap)
 
-        // 2. Define the processor. Ensure NO normalization/float ops are added.
         val imageProcessor = ImageProcessor.Builder()
             .add(ResizeOp(320, 320, ResizeOp.ResizeMethod.BILINEAR))
             .build()
 
-        // 3. Process the image. The result should still be UINT8.
         val processedImage = imageProcessor.process(tensorImage)
         val inputBuffer = processedImage.buffer
-        inputBuffer.rewind() // Ensure we start from the beginning
+        inputBuffer.rewind()
 
-        // Log buffer size for verification
-        Log.v("NumberLocator", "Input Buffer capacity: ${inputBuffer.remaining()} bytes")
-
-        // 4. Prepare output buffers (match model output shape: 40 detections)
         val outputBoxes = Array(1) { Array(40) { FloatArray(4) { 0f } } }
         val outputClasses = Array(1) { FloatArray(40) { 0f } }
         val outputScores = Array(1) { FloatArray(40) { 0f } }
         val numDetections = FloatArray(1) { 0f }
-
-        // Log output buffer shapes before inference
-        Log.d("NumberLocator", "Output buffer shapes: boxes=${outputBoxes.size}x${outputBoxes[0].size}x${outputBoxes[0][0].size}, classes=${outputClasses.size}x${outputClasses[0].size}, scores=${outputScores.size}x${outputScores[0].size}, numDetections=${numDetections.size}")
 
         val outputs = mapOf(
             0 to outputBoxes,
@@ -80,12 +82,8 @@ class NumberLocator(context: Context, modelFileName: String = "model.tflite") {
 
         try {
             interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
-            Log.d("NumberLocator", "Inference complete. numDetections: ${numDetections[0]}")
-            Log.d("NumberLocator", "Scores: ${outputScores[0].joinToString()}")
-            Log.d("NumberLocator", "Boxes: ${outputBoxes[0].joinToString { it.joinToString(prefix = "[", postfix = "]") }}")
         } catch (e: Exception) {
-            Log.e("NumberLocator", "Inference failed! (Ask Gemini)", e)
-            Log.e("NumberLocator", "Output buffer state on failure: numDetections=${numDetections[0]}, scores=${outputScores[0].joinToString()}, boxes=${outputBoxes[0].joinToString { it.joinToString(prefix = "[", postfix = "]") }}")
+            Log.e("NumberLocator", "Inference failed!", e)
             return emptyList()
         }
 
@@ -95,27 +93,21 @@ class NumberLocator(context: Context, modelFileName: String = "model.tflite") {
         for (i in 0 until numDetectionsInt) {
             val score = outputScores[0][i]
             val box = outputBoxes[0][i]
-            // Detection models often output: [ymin, xmin, ymax, xmax]
             detections.add(DetectionResult(RectF(box[1], box[0], box[3], box[2]), score))
         }
         return detections
     }
 
-    /**
-     * Runs detection and returns a list of bounding boxes in absolute pixel coordinates.
-     */
     fun locate(bitmap: Bitmap, confidenceThreshold: Float = 0.5f): List<RectF> {
         val w = bitmap.width
         val h = bitmap.height
 
-        // Lowered confidence threshold to 0.2f for more detections
         val rawDetections = runInference(bitmap)
-        val candidates = rawDetections.filter { it.score >= 0.2f }
+        val candidates = rawDetections.filter { it.score >= confidenceThreshold }
 
         val sortedCandidates = candidates.sortedByDescending { it.score }
         val suppressedResults = mutableListOf<DetectionResult>()
 
-        // Lowered IoU threshold for NMS to 0.3f (was 0.4f)
         for (detection in sortedCandidates) {
             var shouldAdd = true
             for (suppressed in suppressedResults) {
@@ -144,5 +136,10 @@ class NumberLocator(context: Context, modelFileName: String = "model.tflite") {
         val box2Area = (box2.right - box2.left) * (box2.bottom - box2.top)
         val unionArea = box1Area + box2Area - interArea
         return if (unionArea <= 0) 0f else interArea / unionArea
+    }
+    
+    fun close() {
+        interpreter.close()
+        gpuDelegate?.close()
     }
 }
