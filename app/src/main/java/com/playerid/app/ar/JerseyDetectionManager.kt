@@ -32,9 +32,10 @@ class JerseyDetectionManager(
     private var bitmapBuffer: Bitmap? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
-    // FIX: Must use SINGLE thread for TFLite as the interpreter is not thread-safe.
+    // CRITICAL: TFLite interpreter is NOT thread-safe. Must use a single-threaded executor.
     private val tfliteDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     private val isProcessing = AtomicBoolean(false)
+    private val isPaused = AtomicBoolean(false)
     
     private var frameCounter = 0
     private var activeRosterNumbers: Set<String> = emptySet()
@@ -47,8 +48,12 @@ class JerseyDetectionManager(
         this.activeRosterNumbers = numbers
     }
 
+    fun setPaused(paused: Boolean) {
+        isPaused.set(paused)
+    }
+
     override fun analyze(imageProxy: ImageProxy) {
-        if (isProcessing.get()) {
+        if (isPaused.get() || isProcessing.get()) {
             imageProxy.close()
             return
         }
@@ -72,8 +77,11 @@ class JerseyDetectionManager(
                 val scaledBitmap = Bitmap.createScaledBitmap(rotatedBitmap, detectionSize, detectionSize, true)
                 val rawLocations = mutableListOf<RectF>()
 
-                // Process all detection passes sequentially on the background thread to avoid crashes
+                // Serialize all TFLite calls on the single-thread dispatcher to avoid SIGSEGV
+                // and correctly handling the suspend function call.
                 withContext(tfliteDispatcher) {
+                    if (isPaused.get()) return@withContext
+
                     // 1. Wide Pass
                     numberLocator.locate(scaledBitmap, 0.15f).forEach { det ->
                         rawLocations.add(RectF(
@@ -84,7 +92,7 @@ class JerseyDetectionManager(
                         ))
                     }
 
-                    // 2. High-Priority Center Tiles (Optimized for speed)
+                    // 2. High-Priority Center Tiles
                     val centerTiles = listOf(
                         RectF(0.25f, 0.25f, 0.75f, 0.75f),
                         RectF(0.1f, 0.1f, 0.6f, 0.6f),
@@ -92,17 +100,34 @@ class JerseyDetectionManager(
                     )
                     
                     centerTiles.forEach { tile ->
-                        processTile(rotatedBitmap, tile, rawLocations)
+                        if (!isPaused.get()) {
+                            // processTile logic integrated here to maintain suspend context
+                            val tileBitmap = cropNormalizedBitmap(rotatedBitmap, tile)
+                            if (tileBitmap != null) {
+                                val tile320 = Bitmap.createScaledBitmap(tileBitmap, 320, 320, true)
+                                numberLocator.locate(tile320, 0.15f).forEach { det ->
+                                    rawLocations.add(RectF(
+                                        tile.left + (det.left / 320f * tile.width()),
+                                        tile.top + (det.top / 320f * tile.height()),
+                                        tile.left + (det.right / 320f * tile.width()),
+                                        tile.top + (det.bottom / 320f * tile.height())
+                                    ))
+                                }
+                                tile320.recycle()
+                                tileBitmap.recycle()
+                            }
+                        }
                     }
                 }
 
-                val combinedLocations = performNMS(rawLocations, 0.3f)
-                val detections = processLocationsParallelOCR(combinedLocations.take(5), rotatedBitmap)
-
-                val trackedPlayers = playerTracker.update(detections, rotatedBitmap.width, rotatedBitmap.height)
-                
-                withContext(Dispatchers.Main) {
-                    onPlayersTracked(trackedPlayers)
+                if (!isPaused.get()) {
+                    val combinedLocations = performNMS(rawLocations, 0.3f)
+                    val detections = processLocationsParallelOCR(combinedLocations.take(5), rotatedBitmap)
+                    val trackedPlayers = playerTracker.update(detections, rotatedBitmap.width, rotatedBitmap.height)
+                    
+                    withContext(Dispatchers.Main) {
+                        onPlayersTracked(trackedPlayers)
+                    }
                 }
 
                 scaledBitmap.recycle()
@@ -116,27 +141,8 @@ class JerseyDetectionManager(
         }
     }
 
-    private fun processTile(fullBitmap: Bitmap, tile: RectF, outLocations: MutableList<RectF>) {
-        val tileBitmap = cropNormalizedBitmap(fullBitmap, tile) ?: return
-        try {
-            val tile320 = Bitmap.createScaledBitmap(tileBitmap, 320, 320, true)
-            numberLocator.locate(tile320, 0.15f).forEach { det ->
-                outLocations.add(RectF(
-                    tile.left + (det.left / 320f * tile.width()),
-                    tile.top + (det.top / 320f * tile.height()),
-                    tile.left + (det.right / 320f * tile.width()),
-                    tile.top + (det.bottom / 320f * tile.height())
-                ))
-            }
-            tile320.recycle()
-        } finally {
-            tileBitmap.recycle()
-        }
-    }
-
     private suspend fun processLocationsParallelOCR(locations: List<RectF>, bitmap: Bitmap): List<Pair<RectF, String>> {
         if (locations.isEmpty()) return emptyList()
-
         return locations.map { normalizedBox ->
             scope.async {
                 val crop = cropNormalizedBitmap(bitmap, normalizedBox) ?: return@async null
@@ -148,13 +154,10 @@ class JerseyDetectionManager(
                     } else {
                         crop
                     }
-
                     val result = textRecognizer.process(InputImage.fromBitmap(ocrBitmap, 0)).await()
                     if (ocrBitmap != crop) ocrBitmap.recycle()
-
                     val digits = result.textBlocks.flatMap { it.lines }.map { it.text.filter { c -> c.isDigit() } }
                     val rawNumber = digits.filter { it.length in 1..3 }.maxByOrNull { it.length }
-                    
                     if (rawNumber != null) {
                         val matchedNumber = when {
                             activeRosterNumbers.isEmpty() -> rawNumber

@@ -6,10 +6,16 @@
 package com.playerid.app.ui.screens
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.speech.RecognizerIntent
 import android.util.Log
 import android.util.Size
+import android.view.WindowManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.Quality
@@ -17,13 +23,16 @@ import androidx.camera.video.QualitySelector
 import androidx.camera.video.Recorder
 import androidx.camera.video.VideoCapture
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -44,6 +54,9 @@ import com.playerid.app.ui.composables.PlayerBubblesOverlay
 import com.playerid.app.utils.RecordingManager
 import com.playerid.app.utils.RecordingState
 import com.playerid.app.viewmodels.PlayerViewModel
+import com.playerid.app.viewmodels.VoiceAction
+import com.playerid.app.viewmodels.VoiceAssistantResult
+import kotlinx.coroutines.delay
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -63,18 +76,69 @@ fun CameraScreen(
     val selectedTeam by viewModel.selectedTeam.collectAsState()
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
     val currentRoster by viewModel.filteredPlayers.collectAsState()
+    val voiceResult by viewModel.voiceResult.collectAsState()
+    val isVoiceSessionActive by viewModel.isVoiceSessionActive.collectAsState()
     
     val recordingManager = remember { RecordingManager(context) }
     val recordingState by recordingManager.recordingState.collectAsState()
 
-    // CRITICAL FIX: Remember detectionManager to avoid re-creating it on every frame (prevent crash)
+    // Standby Mode State
+    var isStandby by remember { mutableStateOf(false) }
+
+    // LOGIC: Auto-start background recording as soon as permissions are granted
+    // This enables "Capture the Past" from the moment the app opens.
+    LaunchedEffect(recordingState, cameraPermissionsState.allPermissionsGranted, isVoiceSessionActive) {
+        if (cameraPermissionsState.allPermissionsGranted && 
+            recordingState == RecordingState.IDLE && 
+            !isVoiceSessionActive) {
+            
+            // Give camera hardware a moment to stabilize before starting background record
+            delay(1000)
+            recordingManager.startRecording { uri ->
+                uri?.let { onVideoSaved(it) }
+            }
+        }
+    }
+
+    // Listen for voice actions from the global assistant
+    LaunchedEffect(Unit) {
+        viewModel.voiceActions.collect { action ->
+            when (action) {
+                is VoiceAction.StopRecording -> {
+                    if (recordingState == RecordingState.RECORDING) {
+                        recordingManager.stopRecording()
+                    }
+                }
+                is VoiceAction.StopRecordingSilent -> {
+                    // Resource conflict fix: releases mic without saving/navigating
+                    if (recordingState == RecordingState.RECORDING) {
+                        recordingManager.stopAndDiscardRecording()
+                    }
+                }
+            }
+        }
+    }
+
+    // Voice recognition launcher
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val data = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            data?.firstOrNull()?.let { spokenText ->
+                viewModel.processVoiceCommand(spokenText)
+            }
+        }
+    }
 
     var processing by remember { mutableStateOf(false) }
     val detectionManager = remember {
         JerseyDetectionManager(
             context = context,
             onPlayersTracked = { tracked ->
-                viewModel.updateTrackedPlayers(tracked)
+                if (!isStandby) {
+                    viewModel.updateTrackedPlayers(tracked)
+                }
                 processing = false
             },
             onDetectionProcessing = {
@@ -83,9 +147,33 @@ fun CameraScreen(
         )
     }
 
+    LaunchedEffect(isStandby) {
+        detectionManager.setPaused(isStandby)
+    }
+
     LaunchedEffect(currentRoster) {
         val validNumbers = currentRoster.map { it.number }.toSet()
         detectionManager.setRosterFilter(validNumbers)
+    }
+
+    val activity = context as? Activity
+    DisposableEffect(isStandby) {
+        if (isStandby) {
+            activity?.window?.apply {
+                addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                attributes = attributes?.apply {
+                    screenBrightness = 0.01f
+                }
+            }
+        } else {
+            activity?.window?.apply {
+                addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                attributes = attributes?.apply {
+                    screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                }
+            }
+        }
+        onDispose {}
     }
 
     var arMode by remember { mutableStateOf(true) }
@@ -99,53 +187,70 @@ fun CameraScreen(
     if (cameraPermissionsState.allPermissionsGranted) {
         Scaffold(
             floatingActionButton = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                ) {
-                    // Record Button in Center
-                    FloatingActionButton(
-                        onClick = { 
-                            if (recordingState == RecordingState.RECORDING) {
-                                recordingManager.stopRecording()
-                            } else if (recordingState == RecordingState.IDLE) {
-                                recordingManager.startRecording { uri ->
-                                    uri?.let { onVideoSaved(it) }
+                if (!isStandby) {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        FloatingActionButton(
+                            onClick = { isStandby = true },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = CircleShape
+                        ) {
+                            Icon(Icons.Default.PowerSettingsNew, "Standby")
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        ) {
+                            // Record Button logic: 
+                            // Since we are now always recording in the background,
+                            // this button now acts as a "FINALIZE/CAPTURE" button.
+                            FloatingActionButton(
+                                onClick = { 
+                                    if (recordingState == RecordingState.RECORDING) {
+                                        recordingManager.stopRecording()
+                                    } else if (recordingState == RecordingState.IDLE) {
+                                        // Fallback in case background recording stopped
+                                        recordingManager.startRecording { uri ->
+                                            uri?.let { onVideoSaved(it) }
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.Center),
+                                containerColor = if (recordingState == RecordingState.RECORDING) Color.Red else MaterialTheme.colorScheme.primary
+                            ) {
+                                when (recordingState) {
+                                    RecordingState.RECORDING -> Icon(Icons.Default.Stop, "Capture")
+                                    RecordingState.FINALIZING -> CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                                    else -> Icon(Icons.Default.FiberManualRecord, "Record")
                                 }
                             }
-                        },
-                        modifier = Modifier.align(Alignment.Center),
-                        containerColor = if (recordingState == RecordingState.RECORDING) Color.Red else MaterialTheme.colorScheme.primary
-                    ) {
-                        when (recordingState) {
-                            RecordingState.RECORDING -> Icon(Icons.Default.Stop, "Stop")
-                            RecordingState.FINALIZING -> CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
-                            else -> Icon(Icons.Default.FiberManualRecord, "Record")
-                        }
-                    }
 
-                    // Player ID Toggle on the Right, in line with Record Button
-                    Surface(
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                        shape = RoundedCornerShape(24.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                        tonalElevation = 4.dp
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("ID", style = MaterialTheme.typography.labelMedium)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Switch(
-                                checked = arMode,
-                                onCheckedChange = { arMode = it },
-                                modifier = Modifier.scale(0.7f),
-                                thumbContent = if (arMode) {
-                                    { Icon(Icons.Default.Check, null, modifier = Modifier.size(12.dp)) }
-                                } else null
-                            )
+                            Surface(
+                                modifier = Modifier.align(Alignment.CenterEnd),
+                                shape = RoundedCornerShape(24.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                tonalElevation = 4.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("ID", style = MaterialTheme.typography.labelMedium)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Switch(
+                                        checked = arMode,
+                                        onCheckedChange = { arMode = it },
+                                        modifier = Modifier.scale(0.7f),
+                                        thumbContent = if (arMode) {
+                                            { Icon(Icons.Default.Check, null, modifier = Modifier.size(12.dp)) }
+                                        } else null
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -163,9 +268,11 @@ fun CameraScreen(
                     .padding(padding)
                     .pointerInput(Unit) {
                         detectTransformGestures { _, _, zoomChange, _ ->
-                            camera?.let { cam ->
-                                scaleFactor = (scaleFactor * zoomChange).coerceIn(minZoom, maxZoom)
-                                cam.cameraControl.setZoomRatio(scaleFactor)
+                            if (!isStandby) {
+                                camera?.let { cam ->
+                                    scaleFactor = (scaleFactor * zoomChange).coerceIn(minZoom, maxZoom)
+                                    cam.cameraControl.setZoomRatio(scaleFactor)
+                                }
                             }
                         }
                     }
@@ -183,14 +290,13 @@ fun CameraScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                if (arMode) {
+                if (arMode && !isStandby) {
                     PlayerBubblesOverlay(
                         trackedPlayers = trackedPlayersWithInfo,
                         processing = processing,
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // Team selection overlay: always visible
                     Column(
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -204,7 +310,7 @@ fun CameraScreen(
                                 teamViewModel.selectTeam(teamName ?: "")
                             }
                         )
-                        // AR Info card: only show if there are visible players
+                        
                         val visiblePlayers = trackedPlayersWithInfo.filter { it.first.disappearedFrames == 0 }
                         if (visiblePlayers.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(12.dp))
@@ -238,10 +344,121 @@ fun CameraScreen(
                         }
                     }
                 }
+
+                if (isStandby) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.98f))
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            ) {
+                                // TAP TO WAKE: UI resumes, recording stays active
+                                isStandby = false
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.FlashOn, 
+                                contentDescription = null, 
+                                tint = Color.White.copy(alpha = 0.2f),
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "SPOTR STANDBY",
+                                color = Color.White.copy(alpha = 0.2f),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Recording past moments... Tap to wake UI",
+                                color = Color.White.copy(alpha = 0.1f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+
+                if (!isStandby) {
+                    voiceResult?.let { result ->
+                        VoiceResultCard(
+                            result = result,
+                            onDismiss = { viewModel.clearVoiceResult() },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 100.dp, start = 16.dp, end = 16.dp)
+                        )
+                    }
+                }
             }
         }
     } else {
         CameraPermissionScreen { cameraPermissionsState.launchMultiplePermissionRequest() }
+    }
+}
+
+@Composable
+fun VoiceResultCard(
+    result: VoiceAssistantResult,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LaunchedEffect(result) {
+        delay(4000)
+        onDismiss()
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = when (result) {
+                is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.primaryContainer
+                is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.errorContainer
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = when (result) {
+                    is VoiceAssistantResult.Success -> Icons.Default.RecordVoiceOver
+                    is VoiceAssistantResult.Error -> Icons.Default.Error
+                },
+                contentDescription = null,
+                tint = when (result) {
+                    is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.onPrimaryContainer
+                    is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.onErrorContainer
+                }
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = when (result) {
+                        is VoiceAssistantResult.Success -> "Voice ID Found"
+                        is VoiceAssistantResult.Error -> "Try Again"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = when (result) {
+                        is VoiceAssistantResult.Success -> result.message
+                        is VoiceAssistantResult.Error -> result.message
+                    },
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, "Dismiss")
+            }
+        }
     }
 }
 
@@ -278,10 +495,25 @@ private fun TeamSelectionDropdown(
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor().fillMaxWidth()
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("🚫 No team (detect all)") }, onClick = { onTeamSelected(null); expanded = false })
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("🚫 No team (detect all)") },
+                onClick = { 
+                    onTeamSelected(null)
+                    expanded = false 
+                }
+            )
             availableTeams.forEach { team ->
-                DropdownMenuItem(text = { Text(team.name) }, onClick = { onTeamSelected(team.name); expanded = false })
+                DropdownMenuItem(
+                    text = { Text(team.name) },
+                    onClick = { 
+                        onTeamSelected(team.name)
+                        expanded = false 
+                    }
+                )
             }
         }
     }

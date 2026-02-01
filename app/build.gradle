@@ -7,23 +7,23 @@ plugins {
 }
 
 android {
-    namespace 'com.playerid.app'
-    compileSdk 35
+    namespace = 'com.playerid.app'
+    compileSdk = 35
 
     defaultConfig {
-        applicationId "com.playerid.app"
-        minSdk 26
-        targetSdk 35
-        versionCode 1
-        versionName "1.0"
+        applicationId = "com.playerid.app"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0"
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
-            useSupportLibrary true
+            useSupportLibrary = true
         }
         
-        renderscriptTargetApi 34
-        renderscriptSupportModeEnabled true
+        renderscriptTargetApi = 34
+        renderscriptSupportModeEnabled = true
     }
 
     buildTypes {
@@ -40,14 +40,14 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
         jvmTarget = '17'
     }
     buildFeatures {
-        compose true
+        compose = true
     }
     
     packaging {
@@ -68,6 +68,7 @@ dependencies {
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-graphics'
     implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.foundation:foundation'
     implementation 'androidx.compose.material3:material3'
     implementation "androidx.compose.material:material-icons-extended:1.7.7"
     implementation 'androidx.navigation:navigation-compose:2.8.6'
@@ -80,11 +81,11 @@ dependencies {
 
     implementation "com.google.accompanist:accompanist-permissions:0.37.0"
     
-    // TensorFlow Lite with GPU acceleration support
-    implementation 'org.tensorflow:tensorflow-lite:2.17.0'
-    implementation 'org.tensorflow:tensorflow-lite-gpu:2.17.0'
-    implementation 'org.tensorflow:tensorflow-lite-gpu-api:2.17.0'
-    implementation 'org.tensorflow:tensorflow-lite-support:0.5.0'
+    // REVERTED to 2.16.1 for maximum stability with GPU Delegate
+    implementation 'org.tensorflow:tensorflow-lite:2.16.1'
+    implementation 'org.tensorflow:tensorflow-lite-gpu:2.16.1'
+    implementation 'org.tensorflow:tensorflow-lite-gpu-api:2.16.1'
+    implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
     
     implementation 'androidx.room:room-runtime:2.7.0-alpha11'
     implementation 'androidx.room:room-ktx:2.7.0-alpha11'

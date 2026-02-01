@@ -1,8 +1,11 @@
 package com.playerid.app.ui.screens
 
 import android.net.Uri
+import android.util.Log
+import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -14,7 +17,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -24,10 +26,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player as Media3Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.playerid.app.data.Player
 import com.playerid.app.ui.composables.drawPlayerOverlay
+import kotlinx.coroutines.delay
+
+private const val TAG = "VideoEditorScreen"
 
 data class NameBubble(
     val id: String,
@@ -38,7 +45,8 @@ data class NameBubble(
     val isSelected: Boolean = false
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(UnstableApi::class)
+@ExperimentalMaterial3Api
 @Composable
 fun VideoEditorScreen(
     videoUri: Uri,
@@ -52,16 +60,58 @@ fun VideoEditorScreen(
     var isPlaying by remember { mutableStateOf(false) }
     var showPlayerSelector by remember { mutableStateOf(false) }
     var tapPosition by remember { mutableStateOf(Offset.Zero) }
+    
+    // Video Trimming & Playback State
+    var videoDuration by remember { mutableLongStateOf(0L) }
+    var currentPosition by remember { mutableLongStateOf(0L) }
+    var trimRange by remember { mutableStateOf(0f..1f) }
 
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(videoUri))
+            Log.d(TAG, "Initializing ExoPlayer with URI: $videoUri")
+            val mediaItem = MediaItem.fromUri(videoUri)
+            setMediaItem(mediaItem)
+            repeatMode = Media3Player.REPEAT_MODE_ONE
             prepare()
         }
     }
 
+    // Sync isPlaying state with player
+    LaunchedEffect(isPlaying) {
+        exoPlayer.playWhenReady = isPlaying
+    }
+
+    // Track current position and enforce trim range
+    LaunchedEffect(exoPlayer, trimRange, videoDuration) {
+        while (true) {
+            currentPosition = exoPlayer.currentPosition
+            if (videoDuration > 0) {
+                val startMs = (trimRange.start * videoDuration).toLong()
+                val endMs = (trimRange.endInclusive * videoDuration).toLong()
+                
+                if (currentPosition < startMs || currentPosition > endMs) {
+                    exoPlayer.seekTo(startMs)
+                }
+            }
+            delay(50) // High frequency update for smooth UI
+        }
+    }
+
     DisposableEffect(Unit) {
+        val listener = object : Media3Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Media3Player.STATE_READY) {
+                    videoDuration = exoPlayer.duration
+                    Log.d(TAG, "Video ready. Duration: $videoDuration ms")
+                }
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                Log.e(TAG, "ExoPlayer Error: ${error.message}", error)
+            }
+        }
+        exoPlayer.addListener(listener)
         onDispose {
+            exoPlayer.removeListener(listener)
             exoPlayer.release()
         }
     }
@@ -69,27 +119,19 @@ fun VideoEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
-                    Text(
-                        "Edit Video",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    ) 
-                },
+                title = { Text("Edit & Trim Clip", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, "Back")
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { onSaveVideo(nameBubbles) }
-                    ) {
+                    IconButton(onClick = { onSaveVideo(nameBubbles) }) {
                         Icon(Icons.Default.Save, "Save")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF1976D2),
+                    containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White,
                     actionIconContentColor = Color.White
@@ -97,38 +139,48 @@ fun VideoEditorScreen(
             )
         },
         bottomBar = {
-            VideoEditorControls(
-                isPlaying = isPlaying,
-                onPlayPause = { 
-                    if (isPlaying) {
-                        exoPlayer.pause()
-                    } else {
-                        exoPlayer.play()
-                    }
-                    isPlaying = !isPlaying
-                },
-                onAutoDetect = {
-                    // TODO: Implement auto-detection
-                },
-                nameBubbles = nameBubbles,
-                onBubbleVisibilityToggle = { bubbleId ->
-                    nameBubbles = nameBubbles.map { bubble ->
-                        if (bubble.id == bubbleId) {
-                            bubble.copy(isVisible = !bubble.isVisible)
-                        } else bubble
-                    }
-                },
-                onDeleteBubble = { bubbleId ->
-                    nameBubbles = nameBubbles.filter { it.id != bubbleId }
+            Column(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(bottom = 16.dp)
+            ) {
+                // Playback scrubbing slider
+                if (videoDuration > 0) {
+                    Slider(
+                        value = currentPosition.toFloat(),
+                        onValueChange = { exoPlayer.seekTo(it.toLong()) },
+                        valueRange = 0f..videoDuration.toFloat(),
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
                 }
-            )
+
+                // Trimming Slider
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Trim", style = MaterialTheme.typography.labelSmall)
+                    RangeSlider(
+                        value = trimRange,
+                        onValueChange = { trimRange = it },
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                }
+                
+                VideoEditorControls(
+                    isPlaying = isPlaying,
+                    onPlayPause = { isPlaying = !isPlaying },
+                    onAutoDetect = { /* TODO */ },
+                    nameBubbles = nameBubbles,
+                    onBubbleVisibilityToggle = { id ->
+                        nameBubbles = nameBubbles.map { if (it.id == id) it.copy(isVisible = !it.isVisible) else it }
+                    },
+                    onDeleteBubble = { id -> nameBubbles = nameBubbles.filter { it.id != id } }
+                )
+            }
         }
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -136,8 +188,8 @@ fun VideoEditorScreen(
                     .background(Color.Black)
             ) {
                 AndroidView(
-                    factory = { context ->
-                        PlayerView(context).apply {
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
                             player = exoPlayer
                             useController = false
                         }
@@ -152,12 +204,11 @@ fun VideoEditorScreen(
                             detectDragGestures(
                                 onDragStart = { offset ->
                                     val tappedBubble = nameBubbles.find { bubble ->
-                                        val bubbleCenter = bubble.position
                                         val distance = kotlin.math.sqrt(
-                                            (offset.x - bubbleCenter.x) * (offset.x - bubbleCenter.x) +
-                                            (offset.y - bubbleCenter.y) * (offset.y - bubbleCenter.y)
+                                            (offset.x - bubble.position.x) * (offset.x - bubble.position.x) +
+                                            (offset.y - bubble.position.y) * (offset.y - bubble.position.y)
                                         )
-                                        distance < 50f 
+                                        distance < 60f 
                                     }
                                     
                                     if (tappedBubble != null) {
@@ -168,22 +219,13 @@ fun VideoEditorScreen(
                                     }
                                 },
                                 onDrag = { _, dragAmount ->
-                                    selectedBubble?.let { bubbleId ->
-                                        nameBubbles = nameBubbles.map { bubble ->
-                                            if (bubble.id == bubbleId) {
-                                                bubble.copy(
-                                                    position = Offset(
-                                                        bubble.position.x + dragAmount.x,
-                                                        bubble.position.y + dragAmount.y
-                                                    )
-                                                )
-                                            } else bubble
+                                    selectedBubble?.let { id ->
+                                        nameBubbles = nameBubbles.map {
+                                            if (it.id == id) it.copy(position = it.position + dragAmount) else it
                                         }
                                     }
                                 },
-                                onDragEnd = {
-                                    selectedBubble = null
-                                }
+                                onDragEnd = { selectedBubble = null }
                             )
                         }
                 ) {
@@ -201,18 +243,14 @@ fun VideoEditorScreen(
             }
             
             Card(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.Black.copy(alpha = 0.7f)
-                )
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp, top = 200.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.6f))
             ) {
                 Text(
-                    "Tap to add name bubble\nDrag to move bubbles",
+                    "Tap video to tag player\nDrag bubbles to move",
                     color = Color.White,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(12.dp)
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(8.dp)
                 )
             }
         }
@@ -221,7 +259,7 @@ fun VideoEditorScreen(
     if (showPlayerSelector) {
         AlertDialog(
             onDismissRequest = { showPlayerSelector = false },
-            title = { Text("Select Player") },
+            title = { Text("Tag Player") },
             text = {
                 LazyRow {
                     items(roster) { player ->
@@ -231,7 +269,7 @@ fun VideoEditorScreen(
                                 val newBubble = NameBubble(
                                     id = "bubble_${System.currentTimeMillis()}",
                                     playerName = player.name,
-                                    jerseyNumber = player.number.toString(),
+                                    jerseyNumber = player.number,
                                     position = tapPosition
                                 )
                                 nameBubbles = nameBubbles + newBubble
@@ -241,57 +279,34 @@ fun VideoEditorScreen(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showPlayerSelector = false }) {
-                    Text("Cancel")
-                }
-            }
+            confirmButton = {}
         )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerSelectionCard(
-    player: Player,
-    onSelect: () -> Unit
-) {
+fun PlayerSelectionCard(player: Player, onSelect: () -> Unit) {
     Card(
         onClick = onSelect,
-        modifier = Modifier
-            .padding(4.dp)
-            .width(80.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF1976D2)
-        )
+        modifier = Modifier.padding(4.dp).width(100.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         Column(
             modifier = Modifier.padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .background(Color.White, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    player.number.toString(),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1976D2)
-                )
+            Surface(shape = CircleShape, color = Color.White, modifier = Modifier.size(32.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(player.number, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
             }
-            Text(
-                player.name,
-                fontSize = 10.sp,
-                color = Color.White,
-                maxLines = 2
-            )
+            Text(player.name, fontSize = 10.sp, maxLines = 1)
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoEditorControls(
     isPlaying: Boolean,
@@ -302,112 +317,38 @@ fun VideoEditorControls(
     onDeleteBubble: (String) -> Unit
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        )
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
+        Row(
+            modifier = Modifier.padding(8.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onPlayPause) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play"
-                    )
-                }
-                
-                Button(
-                    onClick = onAutoDetect,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4CAF50)
-                    )
-                ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Auto-Detect", fontSize = 12.sp)
-                }
-                
-                Text(
-                    "${nameBubbles.size} bubbles",
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
+            IconButton(onClick = onPlayPause) {
+                Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null)
+            }
+            
+            Button(onClick = onAutoDetect, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))) {
+                Text("Auto-Tag", fontSize = 12.sp)
             }
             
             if (nameBubbles.isNotEmpty()) {
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
-                
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(nameBubbles) { bubble ->
-                        BubbleControlCard(
-                            bubble = bubble,
-                            onVisibilityToggle = { onBubbleVisibilityToggle(bubble.id) },
-                            onDelete = { onDeleteBubble(bubble.id) }
+                        InputChip(
+                            selected = true,
+                            onClick = { onBubbleVisibilityToggle(bubble.id) },
+                            label = { Text("#${bubble.jerseyNumber}", fontSize = 10.sp) },
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Cancel, 
+                                    contentDescription = null, 
+                                    modifier = Modifier.size(14.dp).clickable { onDeleteBubble(bubble.id) }
+                                )
+                            }
                         )
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun BubbleControlCard(
-    bubble: NameBubble,
-    onVisibilityToggle: () -> Unit,
-    onDelete: () -> Unit
-) {
-    Card(
-        modifier = Modifier.width(100.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (bubble.isVisible) Color(0xFFE3F2FD) else Color(0xFFF5F5F5)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "#${bubble.jerseyNumber}",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                bubble.playerName,
-                fontSize = 10.sp,
-                maxLines = 1
-            )
-            
-            Row {
-                IconButton(
-                    onClick = onVisibilityToggle,
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        if (bubble.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = "Toggle visibility",
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        modifier = Modifier.size(16.dp),
-                        tint = Color.Red
-                    )
                 }
             }
         }

@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
 import android.util.Log
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.image.ImageProcessor
@@ -17,24 +19,25 @@ import java.nio.channels.FileChannel
 /**
  * A specialized locator that uses a single-class object detection model to find the
  * bounding boxes of potential jersey numbers.
- * Optimized with GPU acceleration for high-speed tiling passes.
+ * Optimized with Mutex for thread-safety and GPU acceleration.
  */
 class NumberLocator(context: Context, modelFileName: String = "model.tflite") {
 
     private var interpreter: Interpreter
     private var gpuDelegate: GpuDelegate? = null
+    private val inferenceMutex = Mutex()
 
     init {
         val options = Interpreter.Options()
         try {
-            // Attempt to use GPU delegate for significantly faster tiled detection
+            // Attempt to use GPU delegate
             gpuDelegate = GpuDelegate()
             options.addDelegate(gpuDelegate)
             Log.i("NumberLocator", "TFLite GPU Delegate initialized successfully")
         } catch (e: Exception) {
-            Log.w("NumberLocator", "GPU Delegate not supported, falling back to CPU (XNNPACK)", e)
+            Log.w("NumberLocator", "GPU Delegate not supported, falling back to CPU", e)
             options.setUseXNNPACK(true)
-            options.setNumThreads(4)
+            options.setNumThreads(2)
         }
         
         interpreter = Interpreter(loadModelFile(context, modelFileName), options)
@@ -56,7 +59,7 @@ class NumberLocator(context: Context, modelFileName: String = "model.tflite") {
 
     private data class DetectionResult(val box: RectF, val score: Float)
 
-    private fun runInference(bitmap: Bitmap): List<DetectionResult> {
+    private suspend fun runInference(bitmap: Bitmap): List<DetectionResult> = inferenceMutex.withLock {
         val tensorImage = TensorImage(org.tensorflow.lite.DataType.UINT8)
         tensorImage.load(bitmap)
 
@@ -93,12 +96,16 @@ class NumberLocator(context: Context, modelFileName: String = "model.tflite") {
         for (i in 0 until numDetectionsInt) {
             val score = outputScores[0][i]
             val box = outputBoxes[0][i]
+            // Detection models often output: [ymin, xmin, ymax, xmax]
             detections.add(DetectionResult(RectF(box[1], box[0], box[3], box[2]), score))
         }
-        return detections
+        return@withLock detections
     }
 
-    fun locate(bitmap: Bitmap, confidenceThreshold: Float = 0.5f): List<RectF> {
+    /**
+     * Runs detection and returns a list of bounding boxes in absolute pixel coordinates.
+     */
+    suspend fun locate(bitmap: Bitmap, confidenceThreshold: Float = 0.5f): List<RectF> {
         val w = bitmap.width
         val h = bitmap.height
 
