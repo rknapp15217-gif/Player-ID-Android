@@ -90,7 +90,11 @@ fun PlayerIDApp() {
                 // Ensure session is cleared on error so recording resumes
                 playerViewModel.clearVoiceResult()
                 
-                if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                // IGNORE ERROR_CLIENT (5) which triggers on manual cancel, 
+                // and typical timeouts/no-matches.
+                if (error != SpeechRecognizer.ERROR_NO_MATCH && 
+                    error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT &&
+                    error != SpeechRecognizer.ERROR_CLIENT) {
                     playerViewModel.reportVoiceError("Speech recognition failed ($error).")
                 }
             }
@@ -160,9 +164,11 @@ fun PlayerIDApp() {
             )
         },
         floatingActionButton = {
+            val isListeningCurrent by playerViewModel.isListening.collectAsState()
+            
             FloatingActionButton(
                 onClick = {
-                    if (!isListening) {
+                    if (!isListeningCurrent) {
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                             startListening()
                         } else {
@@ -172,11 +178,11 @@ fun PlayerIDApp() {
                         cancelListening()
                     }
                 },
-                containerColor = if (isListening) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-                contentColor = if (isListening) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                containerColor = if (isListeningCurrent) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                contentColor = if (isListeningCurrent) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
                 shape = CircleShape
             ) {
-                if (isListening) {
+                if (isListeningCurrent) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 } else {
                     Icon(Icons.Default.Mic, "Voice Assistant")

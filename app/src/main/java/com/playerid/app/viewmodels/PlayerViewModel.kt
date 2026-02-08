@@ -27,7 +27,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             "five" to "5", "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
             "double zero" to "00", "zero zero" to "00"
         )
-        // Aggressive fuzzy wake word variations
         private val WAKE_WORDS_REGEX = Regex("(?i)^(spotter|spottr|spotr|sport|spot|potter|hey spotter|hey spotr|hey spottr)\\b")
     }
     
@@ -40,18 +39,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     private val _trackedPlayers = MutableStateFlow<List<TrackedPlayer>>(emptyList())
     val trackedPlayers: StateFlow<List<TrackedPlayer>> = _trackedPlayers.asStateFlow()
 
-    // Global Voice Assistant State
     private val _voiceResult = MutableStateFlow<VoiceAssistantResult?>(null)
     val voiceResult: StateFlow<VoiceAssistantResult?> = _voiceResult.asStateFlow()
 
     private val _isListening = MutableStateFlow(false)
     val isListening: StateFlow<Boolean> = _isListening.asStateFlow()
 
-    // Flag to prevent recorder from auto-starting during a voice session
     private val _isVoiceSessionActive = MutableStateFlow(false)
     val isVoiceSessionActive: StateFlow<Boolean> = _isVoiceSessionActive.asStateFlow()
 
-    // Action flow to trigger UI/Camera events from voice
     private val _voiceActions = MutableSharedFlow<VoiceAction>()
     val voiceActions = _voiceActions.asSharedFlow()
 
@@ -75,26 +71,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         _selectedTeam,
         searchQuery
     ) { players, team, query ->
-        val teamPlayers = if (team != null) {
-            players.filter { it.team == team }
-        } else {
-            emptyList() 
-        }
-
-        if (query.isEmpty()) {
-            teamPlayers
-        } else {
+        val teamPlayers = if (team != null) players.filter { it.team == team } else emptyList() 
+        if (query.isEmpty()) teamPlayers else {
             teamPlayers.filter { player ->
                 player.name.contains(query, ignoreCase = true) ||
                 player.number.contains(query) ||
                 player.position.contains(query, ignoreCase = true)
             }
         }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     
     init {
         initializeSampleData()
@@ -109,60 +94,36 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     }
 
     private fun speak(text: String) {
-        if (isTtsReady) {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
-        }
+        if (isTtsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
     }
 
     fun setListening(listening: Boolean) {
         _isListening.value = listening
-        if (listening) {
-            _isVoiceSessionActive.value = true
-        }
+        if (listening) _isVoiceSessionActive.value = true
     }
     
-    fun updateSearchQuery(query: String) {
-        _searchQuery.value = query
-    }
-    
-    fun setSelectedTeam(team: String?) {
-        _selectedTeam.value = team
-    }
-    
-    fun updateTrackedPlayers(tracked: List<TrackedPlayer>) {
-        _trackedPlayers.value = tracked
-    }
-    
-    private suspend fun findPlayerByNumber(number: String): Player? {
-        return allPlayers.first().find { it.number == number }
-    }
+    fun updateSearchQuery(query: String) = _searchQuery.update { query }
+    fun setSelectedTeam(team: String?) = _selectedTeam.update { team }
+    fun updateTrackedPlayers(tracked: List<TrackedPlayer>) = _trackedPlayers.update { tracked }
+    private suspend fun findPlayerByNumber(number: String) = allPlayers.first().find { it.number == number }
 
-    /**
-     * Core logic for Voice Assistant with Robust Wake Word Handling
-     */
     fun processVoiceCommand(spokenText: String) {
         viewModelScope.launch {
             _isListening.value = false
             val originalText = spokenText.lowercase().trim()
-            Log.d(TAG, "Voice assistant processing: $originalText")
             
-            // 1. PRIORITY ACTION: STOP/CAPTURE (Works even without wake word)
             if (originalText.contains("capture") || originalText.contains("stop") || 
                 originalText.contains("finish") || originalText.contains("done")) {
-                
                 _voiceActions.emit(VoiceAction.StopRecording)
                 val msg = "Moment captured!"
                 _voiceResult.value = VoiceAssistantResult.Success(msg)
                 speak(msg)
-                // Session ends after capture
                 _isVoiceSessionActive.value = false
                 return@launch
             }
 
-            // 2. FUZZY WAKE WORD CLEANING
             var cleanText = originalText.replace(WAKE_WORDS_REGEX, "").trim()
 
-            // 3. Handle Team Switching
             if (cleanText.contains("team") || cleanText.contains("switch") || cleanText.contains("select")) {
                 val teams = teamDao.getAllActiveTeams().first()
                 val targetTeam = teams.find { cleanText.contains(it.name.lowercase()) }
@@ -186,19 +147,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             }
 
             val roster = allPlayers.first().filter { it.team == team }
-
-            // 4. Clean up filler words
             val fillerWords = listOf("number", "jersey", "player", "who is", "what is", "is", "the", "find", "identify")
             var processedText = cleanText
-            fillerWords.forEach { word ->
-                processedText = processedText.replace("\\b$word\\b".toRegex(), "").trim()
-            }
+            fillerWords.forEach { processedText = processedText.replace("\\b$it\\b".toRegex(), "").trim() }
+            NUMBER_WORDS.forEach { (word, digit) -> if (processedText == word) processedText = digit }
 
-            NUMBER_WORDS.forEach { (word, digit) ->
-                if (processedText == word) processedText = digit
-            }
-
-            // 5. Try number match
             val numericOnly = processedText.filter { it.isDigit() }
             if (numericOnly.isNotEmpty()) {
                 val player = roster.find { it.number == numericOnly }
@@ -206,15 +159,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                     val msg = "Number $numericOnly is ${player.name}"
                     _voiceResult.value = VoiceAssistantResult.Success(msg, player)
                     speak(msg)
+                    _isVoiceSessionActive.value = false
                     return@launch
                 }
             }
 
-            // 6. Try name match
-            val matches = roster.filter { 
-                processedText.isNotEmpty() && (it.name.lowercase().contains(processedText) || processedText.contains(it.name.lowercase()))
-            }
-
+            val matches = roster.filter { processedText.isNotEmpty() && (it.name.lowercase().contains(processedText) || processedText.contains(it.name.lowercase())) }
             when {
                 matches.size == 1 -> {
                     val p = matches.first()
@@ -223,15 +173,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                     speak(msg)
                 }
                 matches.size > 1 -> {
-                    val names = matches.joinToString(" and ") { "${it.name} #${it.number}" }
-                    val msg = "I found ${matches.size} players: $names"
                     _voiceResult.value = VoiceAssistantResult.Error("Multiple players found. Be more specific.")
                     speak("I found multiple players. Please specify.")
                 }
                 else -> {
-                    val msg = "I couldn't find a player matching '$spokenText'"
-                    _voiceResult.value = VoiceAssistantResult.Error(msg)
-                    speak("Player not found")
+                    _voiceResult.value = VoiceAssistantResult.Error("Player not found")
+                    speak("I couldn't find that player")
                 }
             }
             _isVoiceSessionActive.value = false
@@ -241,19 +188,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     fun clearVoiceResult() {
         _voiceResult.value = null
         _isVoiceSessionActive.value = false
+        _isListening.value = false
     }
 
     fun stopRecordingForVoice() {
         _isVoiceSessionActive.value = true
-        viewModelScope.launch {
-            _voiceActions.emit(VoiceAction.StopRecordingSilent)
-        }
+        viewModelScope.launch { _voiceActions.emit(VoiceAction.StopRecordingSilent) }
     }
 
     fun reportVoiceError(message: String) {
         _voiceResult.value = VoiceAssistantResult.Error(message)
         speak(message)
         _isVoiceSessionActive.value = false
+        _isListening.value = false
     }
 
     override fun onCleared() {
@@ -264,51 +211,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     
     fun addPlayer(player: Player, addedBy: String = "Unknown") {
         viewModelScope.launch {
-            val newPlayer = player.copy(
-                id = UUID.randomUUID().toString(),
-                addedBy = addedBy,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
-            )
-            playerDao.insertPlayer(newPlayer)
+            playerDao.insertPlayer(player.copy(id = UUID.randomUUID().toString(), addedBy = addedBy, createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()))
         }
     }
 
-    fun updatePlayer(player: Player) {
-        viewModelScope.launch {
-            val updatedPlayer = player.copy(updatedAt = System.currentTimeMillis())
-            playerDao.updatePlayer(updatedPlayer)
-        }
-    }
-    
-    fun deletePlayer(player: Player) {
-        viewModelScope.launch {
-            playerDao.deletePlayer(player)
-        }
-    }
-
-    fun exportDatabase() {
-        viewModelScope.launch {
-            val players = allPlayers.first()
-            Log.d(TAG, "Exporting ${players.size} players to log console")
-            players.forEach { Log.d(TAG, "EXPORT: $it") }
-        }
-    }
-
-    fun importDatabase() {
-        initializeSampleData()
-    }
-
-    fun clearCache() {
-        viewModelScope.launch {
-            database.clearAllTables()
-        }
-    }
+    fun updatePlayer(player: Player) = viewModelScope.launch { playerDao.updatePlayer(player.copy(updatedAt = System.currentTimeMillis())) }
+    fun deletePlayer(player: Player) = viewModelScope.launch { playerDao.deletePlayer(player) }
+    fun exportDatabase() = viewModelScope.launch { allPlayers.first().forEach { Log.d(TAG, "EXPORT: $it") } }
+    fun importDatabase() = initializeSampleData()
+    fun clearCache() = viewModelScope.launch { database.clearAllTables() }
     
     private fun initializeSampleData() {
         viewModelScope.launch {
-            val playerCount = playerDao.getPlayerCount()
-            if (playerCount < 20) {
+            if (playerDao.getPlayerCount() < 20) {
                 val samplePlayers = listOf(
                     Player(id = UUID.randomUUID().toString(), number = "00", name = "Benny Zero", position = "Forward", team = "Ryan's Team", academicYear = "Senior", addedBy = "Ryan"),
                     Player(id = UUID.randomUUID().toString(), number = "10", name = "Sofia Martinez", position = "Forward", team = "Eagles High School", academicYear = "Senior", addedBy = "Coach_Martinez"),

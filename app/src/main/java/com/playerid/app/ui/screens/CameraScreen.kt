@@ -82,17 +82,13 @@ fun CameraScreen(
     val recordingManager = remember { RecordingManager(context) }
     val recordingState by recordingManager.recordingState.collectAsState()
 
-    // Standby Mode State
     var isStandby by remember { mutableStateOf(false) }
 
-    // LOGIC: Auto-start background recording as soon as permissions are granted
-    // This enables "Capture the Past" from the moment the app opens.
+    // Auto-start background recording
     LaunchedEffect(recordingState, cameraPermissionsState.allPermissionsGranted, isVoiceSessionActive) {
         if (cameraPermissionsState.allPermissionsGranted && 
             recordingState == RecordingState.IDLE && 
             !isVoiceSessionActive) {
-            
-            // Give camera hardware a moment to stabilize before starting background record
             delay(1000)
             recordingManager.startRecording { uri ->
                 uri?.let { onVideoSaved(it) }
@@ -100,7 +96,6 @@ fun CameraScreen(
         }
     }
 
-    // Listen for voice actions from the global assistant
     LaunchedEffect(Unit) {
         viewModel.voiceActions.collect { action ->
             when (action) {
@@ -110,7 +105,6 @@ fun CameraScreen(
                     }
                 }
                 is VoiceAction.StopRecordingSilent -> {
-                    // Resource conflict fix: releases mic without saving/navigating
                     if (recordingState == RecordingState.RECORDING) {
                         recordingManager.stopAndDiscardRecording()
                     }
@@ -119,7 +113,6 @@ fun CameraScreen(
         }
     }
 
-    // Voice recognition launcher
     val speechLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -141,9 +134,7 @@ fun CameraScreen(
                 }
                 processing = false
             },
-            onDetectionProcessing = {
-                processing = true
-            }
+            onDetectionProcessing = { processing = true }
         )
     }
 
@@ -161,16 +152,12 @@ fun CameraScreen(
         if (isStandby) {
             activity?.window?.apply {
                 addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                attributes = attributes?.apply {
-                    screenBrightness = 0.01f
-                }
+                attributes = attributes?.apply { screenBrightness = 0.01f }
             }
         } else {
             activity?.window?.apply {
                 addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                attributes = attributes?.apply {
-                    screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                }
+                attributes = attributes?.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
             }
         }
         onDispose {}
@@ -179,9 +166,7 @@ fun CameraScreen(
     var arMode by remember { mutableStateOf(true) }
 
     DisposableEffect(Unit) {
-        onDispose {
-            recordingManager.stopAndDiscardRecording()
-        }
+        onDispose { recordingManager.stopAndDiscardRecording() }
     }
 
     if (cameraPermissionsState.allPermissionsGranted) {
@@ -201,19 +186,13 @@ fun CameraScreen(
                         }
 
                         Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                         ) {
-                            // Record Button logic: 
-                            // Since we are now always recording in the background,
-                            // this button now acts as a "FINALIZE/CAPTURE" button.
                             FloatingActionButton(
                                 onClick = { 
                                     if (recordingState == RecordingState.RECORDING) {
                                         recordingManager.stopRecording()
                                     } else if (recordingState == RecordingState.IDLE) {
-                                        // Fallback in case background recording stopped
                                         recordingManager.startRecording { uri ->
                                             uri?.let { onVideoSaved(it) }
                                         }
@@ -263,19 +242,16 @@ fun CameraScreen(
             var maxZoom by remember { mutableStateOf(8f) }
 
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, _, zoomChange, _ ->
-                            if (!isStandby) {
-                                camera?.let { cam ->
-                                    scaleFactor = (scaleFactor * zoomChange).coerceIn(minZoom, maxZoom)
-                                    cam.cameraControl.setZoomRatio(scaleFactor)
-                                }
+                modifier = Modifier.fillMaxSize().padding(padding).pointerInput(Unit) {
+                    detectTransformGestures { _, _, zoomChange, _ ->
+                        if (!isStandby) {
+                            camera?.let { cam ->
+                                scaleFactor = (scaleFactor * zoomChange).coerceIn(minZoom, maxZoom)
+                                cam.cameraControl.setZoomRatio(scaleFactor)
                             }
                         }
                     }
+                }
             ) {
                 AndroidView(
                     factory = { ctx ->
@@ -298,9 +274,7 @@ fun CameraScreen(
                     )
 
                     Column(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(16.dp)
+                        modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
                     ) {
                         TeamSelectionDropdown(
                             selectedTeam = selectedTeam,
@@ -315,15 +289,11 @@ fun CameraScreen(
                         if (visiblePlayers.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(12.dp))
                             Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
-                                ),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                                 shape = RoundedCornerShape(16.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(16.dp)
-                                ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
                                     Text("Spotr AR Active", style = MaterialTheme.typography.titleMedium)
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -334,10 +304,8 @@ fun CameraScreen(
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text("| Size: ${frozenW}x${frozenH}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                     }
-                                    visiblePlayers.firstOrNull()?.let { (tracked, player) ->
-                                        val displayText = player?.let { "${it.name} #${it.number}" } ?: "Unknown #${tracked.jerseyNumber}"
-                                        val textColor = if (player != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                                        Text(displayText, style = MaterialTheme.typography.bodyMedium, color = textColor)
+                                    visiblePlayers.firstOrNull()?.let { (_, player) ->
+                                        player?.let { Text("${it.name} #${it.number}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
                                     }
                                 }
                             }
@@ -347,50 +315,21 @@ fun CameraScreen(
 
                 if (isStandby) {
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.98f))
-                            .clickable(
-                                indication = null,
-                                interactionSource = remember { MutableInteractionSource() }
-                            ) {
-                                // TAP TO WAKE: UI resumes, recording stays active
-                                isStandby = false
-                            },
+                        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.98f)).clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { isStandby = false },
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.FlashOn, 
-                                contentDescription = null, 
-                                tint = Color.White.copy(alpha = 0.2f),
-                                modifier = Modifier.size(64.dp)
-                            )
+                            Icon(Icons.Default.FlashOn, null, tint = Color.White.copy(alpha = 0.2f), modifier = Modifier.size(64.dp))
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "SPOTR STANDBY",
-                                color = Color.White.copy(alpha = 0.2f),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "Recording past moments... Tap to wake UI",
-                                color = Color.White.copy(alpha = 0.1f),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                            Text("SPOTR STANDBY", color = Color.White.copy(alpha = 0.2f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("Recording past moments... Tap to wake UI", color = Color.White.copy(alpha = 0.1f), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
 
                 if (!isStandby) {
                     voiceResult?.let { result ->
-                        VoiceResultCard(
-                            result = result,
-                            onDismiss = { viewModel.clearVoiceResult() },
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 100.dp, start = 16.dp, end = 16.dp)
-                        )
+                        VoiceResultCard(result = result, onDismiss = { viewModel.clearVoiceResult() }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp, start = 16.dp, end = 16.dp))
                     }
                 }
             }
@@ -401,74 +340,32 @@ fun CameraScreen(
 }
 
 @Composable
-fun VoiceResultCard(
-    result: VoiceAssistantResult,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+fun VoiceResultCard(result: VoiceAssistantResult, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     LaunchedEffect(result) {
         delay(4000)
         onDismiss()
     }
-
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = when (result) {
-                is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.primaryContainer
-                is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.errorContainer
-            }
-        ),
+        colors = CardDefaults.cardColors(containerColor = when (result) { is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.primaryContainer is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.errorContainer }),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = when (result) {
-                    is VoiceAssistantResult.Success -> Icons.Default.RecordVoiceOver
-                    is VoiceAssistantResult.Error -> Icons.Default.Error
-                },
-                contentDescription = null,
-                tint = when (result) {
-                    is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.onPrimaryContainer
-                    is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.onErrorContainer
-                }
-            )
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(imageVector = when (result) { is VoiceAssistantResult.Success -> Icons.Default.RecordVoiceOver is VoiceAssistantResult.Error -> Icons.Default.Error }, contentDescription = null, tint = when (result) { is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.onPrimaryContainer is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.onErrorContainer })
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = when (result) {
-                        is VoiceAssistantResult.Success -> "Voice ID Found"
-                        is VoiceAssistantResult.Error -> "Try Again"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = when (result) {
-                        is VoiceAssistantResult.Success -> result.message
-                        is VoiceAssistantResult.Error -> result.message
-                    },
-                    style = MaterialTheme.typography.bodyLarge
-                )
+                Text(text = when (result) { is VoiceAssistantResult.Success -> "Voice ID Found" is VoiceAssistantResult.Error -> "Try Again" }, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Text(text = when (result) { is VoiceAssistantResult.Success -> result.message is VoiceAssistantResult.Error -> result.message }, style = MaterialTheme.typography.bodyLarge)
             }
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.Default.Close, "Dismiss")
-            }
+            IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Dismiss") }
         }
     }
 }
 
 @Composable
 private fun CameraPermissionScreen(onRequestPermission: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("Camera Access Required", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = onRequestPermission) { Text("Grant Permissions") }
@@ -477,86 +374,32 @@ private fun CameraPermissionScreen(onRequestPermission: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TeamSelectionDropdown(
-    selectedTeam: String?,
-    availableTeams: List<com.playerid.app.data.Team>,
-    onTeamSelected: (String?) -> Unit
-) {
+private fun TeamSelectionDropdown(selectedTeam: String?, availableTeams: List<com.playerid.app.data.Team>, onTeamSelected: (String?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = !expanded }
-    ) {
-        OutlinedTextField(
-            value = selectedTeam ?: "No team selected",
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Active Team") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.menuAnchor().fillMaxWidth()
-        )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text("🚫 No team (detect all)") },
-                onClick = { 
-                    onTeamSelected(null)
-                    expanded = false 
-                }
-            )
-            availableTeams.forEach { team ->
-                DropdownMenuItem(
-                    text = { Text(team.name) },
-                    onClick = { 
-                        onTeamSelected(team.name)
-                        expanded = false 
-                    }
-                )
-            }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+        OutlinedTextField(value = selectedTeam ?: "No team selected", onValueChange = {}, readOnly = true, label = { Text("Active Team") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("🚫 No team (detect all)") }, onClick = { onTeamSelected(null); expanded = false })
+            availableTeams.forEach { team -> DropdownMenuItem(text = { Text(team.name) }, onClick = { onTeamSelected(team.name); expanded = false }) }
         }
     }
 }
 
-private fun startCamera(
-    context: Context,
-    lifecycleOwner: LifecycleOwner,
-    previewView: PreviewView,
-    analyzer: JerseyDetectionManager,
-    recordingManager: RecordingManager,
-    onCameraReady: (Camera) -> Unit
-) {
+private fun startCamera(context: Context, lifecycleOwner: LifecycleOwner, previewView: PreviewView, analyzer: JerseyDetectionManager, recordingManager: RecordingManager, onCameraReady: (Camera) -> Unit) {
     val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
     val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    
     cameraProviderFuture.addListener({
         val cameraProvider = cameraProviderFuture.get()
-        val preview = Preview.Builder().build().also {
-            it.setSurfaceProvider(previewView.surfaceProvider)
-        }
+        val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
         val recorder = Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HIGHEST)).build()
         val videoCapture = VideoCapture.withOutput(recorder)
         recordingManager.setVideoCapture(videoCapture)
-
-        val imageAnalyzer = ImageAnalysis.Builder()
-            .setTargetResolution(Size(1280, 720))
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .build()
+        val imageAnalyzer = ImageAnalysis.Builder().setTargetResolution(Size(1280, 720)).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
         imageAnalyzer.setAnalyzer(cameraExecutor, analyzer)
-
         try {
             cameraProvider.unbindAll()
-            val camera = cameraProvider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                videoCapture,
-                imageAnalyzer
-            )
+            val camera = cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, videoCapture, imageAnalyzer)
             onCameraReady(camera)
-        } catch (e: Exception) {
-            Log.e("CameraScreen", "Binding failed", e)
-        }
+        } catch (e: Exception) { Log.e("CameraScreen", "Binding failed", e) }
     }, ContextCompat.getMainExecutor(context))
 }
