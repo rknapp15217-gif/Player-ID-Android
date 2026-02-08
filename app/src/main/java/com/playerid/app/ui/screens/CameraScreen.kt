@@ -265,15 +265,6 @@ fun CameraScreen(
                     Column(
                         modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
                     ) {
-                        TeamSelectionDropdown(
-                            selectedTeam = selectedTeam,
-                            availableTeams = subscribedTeams,
-                            onTeamSelected = { teamName ->
-                                viewModel.setSelectedTeam(teamName)
-                                teamViewModel.selectTeam(teamName ?: "")
-                            }
-                        )
-                        
                         val visiblePlayers = trackedPlayersWithInfo.filter { it.first.disappearedFrames == 0 }
                         if (visiblePlayers.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(12.dp))
@@ -318,15 +309,7 @@ fun CameraScreen(
                     }
                 }
 
-                if (!isStandby) {
-                    voiceResult?.let { result ->
-                        VoiceResultCard(
-                            result = result, 
-                            onDismiss = { viewModel.clearVoiceResult() }, 
-                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp, start = 16.dp, end = 16.dp)
-                        )
-                    }
-                }
+                // Voice result is handled at the app level to avoid duplicate overlays
             }
         }
     } else {
@@ -392,19 +375,6 @@ private fun CameraPermissionScreen(onRequestPermission: () -> Unit) {
         Text("Camera Access Required", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = onRequestPermission) { Text("Grant Permissions") }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TeamSelectionDropdown(selectedTeam: String?, availableTeams: List<com.playerid.app.data.Team>, onTeamSelected: (String?) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-        OutlinedTextField(value = selectedTeam ?: "No team selected", onValueChange = {}, readOnly = true, label = { Text("Active Team") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("🚫 No team (detect all)") }, onClick = { onTeamSelected(null); expanded = false })
-            availableTeams.forEach { team -> DropdownMenuItem(text = { Text(team.name) }, onClick = { onTeamSelected(team.name); expanded = false }) }
-        }
     }
 }
 

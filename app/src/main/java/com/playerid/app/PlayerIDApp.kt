@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -43,6 +44,7 @@ import com.playerid.app.subscription.SubscriptionViewModel
 import com.playerid.app.subscription.SubscriptionViewModelFactory
 import com.playerid.app.data.teamsnap.TeamSnapRepository
 import com.playerid.app.data.PlayerDatabase
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,8 +69,18 @@ fun PlayerIDApp() {
     val isPaywallVisible by subscriptionViewModel.isPaywallVisible.collectAsState()
     val voiceResult by playerViewModel.voiceResult.collectAsState()
     val isListening by playerViewModel.isListening.collectAsState()
+    val selectedTeam by playerViewModel.selectedTeam.collectAsState()
+    val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
+
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    var teamMenuExpanded by remember { mutableStateOf(false) }
+    val teamMenuWidth by animateDpAsState(
+        targetValue = if (teamMenuExpanded) 280.dp else 180.dp,
+        label = "teamMenuWidth"
+    )
 
     // Direct SpeechRecognizer API
     val speechRecognizer = remember { SpeechRecognizer.createSpeechRecognizer(context) }
@@ -138,154 +150,238 @@ fun PlayerIDApp() {
         if (granted) startListening()
     }
 
-    Scaffold(
-        bottomBar = {
-            val navItems = listOf(
-                BottomNavItem("Camera", Icons.Default.PhotoCamera, "camera"),
-                BottomNavItem("Validate", Icons.Default.CloudDownload, "validate"),
-                BottomNavItem("My Team", Icons.Default.Groups, "team"),
-                BottomNavItem("Settings", Icons.Default.Settings, "settings")
-            )
-            
-            val selectedIndex = navItems.indexOfFirst { item -> 
-                currentRoute?.startsWith(item.route) == true 
-            }.coerceAtLeast(0)
-            
-            SpotrBottomNavigationBar(
-                items = navItems,
-                selectedIndex = selectedIndex,
-                onItemSelected = { index ->
-                    navController.navigate(navItems[index].route) {
-                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                }
-            )
-        },
-        floatingActionButton = {
-            val isListeningCurrent by playerViewModel.isListening.collectAsState()
-            
-            FloatingActionButton(
-                onClick = {
-                    if (!isListeningCurrent) {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                            startListening()
-                        } else {
-                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    } else {
-                        cancelListening()
-                    }
-                },
-                containerColor = if (isListeningCurrent) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-                contentColor = if (isListeningCurrent) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = CircleShape
+    val navItems = listOf(
+        BottomNavItem("Camera", Icons.Default.PhotoCamera, "camera"),
+        BottomNavItem("Validate", Icons.Default.CloudDownload, "validate"),
+        BottomNavItem("My Team", Icons.Default.Groups, "team"),
+        BottomNavItem("Settings", Icons.Default.Settings, "settings")
+    )
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                modifier = Modifier
+                    .width(IntrinsicSize.Min)
+                    .height(IntrinsicSize.Min)
             ) {
-                if (isListeningCurrent) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Default.Mic, "Voice Assistant")
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Menu",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+                navItems.forEach { item ->
+                    val isSelected = currentRoute?.startsWith(item.route) == true
+                    NavigationDrawerItem(
+                        icon = { Icon(item.icon, contentDescription = item.label) },
+                        label = { Text(item.label) },
+                        selected = isSelected,
+                        onClick = {
+                            navController.navigate(item.route) {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
                 }
             }
         }
-    ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            NavHost(
-                navController = navController,
-                startDestination = "camera"
-            ) {
-                composable("camera") {
-                    CameraScreen(
-                        viewModel = playerViewModel,
-                        teamViewModel = teamViewModel,
-                        onVideoSaved = { videoUri ->
-                            val encodedUri = Uri.encode(videoUri.toString())
-                            navController.navigate("video_editor?videoUri=$encodedUri")
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "PlayerID")
+                            Spacer(modifier = Modifier.width(12.dp))
+                            ExposedDropdownMenuBox(
+                                expanded = teamMenuExpanded,
+                                onExpandedChange = { teamMenuExpanded = !teamMenuExpanded }
+                            ) {
+                                TextButton(
+                                    onClick = { teamMenuExpanded = true },
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .width(teamMenuWidth)
+                                ) {
+                                    Text(
+                                        text = selectedTeam ?: "Select team",
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                }
+                                ExposedDropdownMenu(
+                                    expanded = teamMenuExpanded,
+                                    onDismissRequest = { teamMenuExpanded = false },
+                                    modifier = Modifier.width(teamMenuWidth)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("None", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                                        onClick = {
+                                            teamMenuExpanded = false
+                                            playerViewModel.setSelectedTeam(null)
+                                            teamViewModel.clearTeamSelection()
+                                        }
+                                    )
+                                    if (subscribedTeams.isEmpty()) {
+                                        DropdownMenuItem(
+                                            text = { Text("No teams", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                                            onClick = { teamMenuExpanded = false },
+                                            enabled = false
+                                        )
+                                    } else {
+                                        subscribedTeams.forEach { team ->
+                                            DropdownMenuItem(
+                                                text = { Text(team.name, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                                                onClick = {
+                                                    teamMenuExpanded = false
+                                                    playerViewModel.setSelectedTeam(team.name)
+                                                    teamViewModel.selectTeam(team.name)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Open navigation menu")
+                        }
+                    }
+                )
+            },
+            floatingActionButton = {
+                val isListeningCurrent by playerViewModel.isListening.collectAsState()
+
+                FloatingActionButton(
+                    onClick = {
+                        if (!isListeningCurrent) {
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                startListening()
+                            } else {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        } else {
+                            cancelListening()
+                        }
+                    },
+                    containerColor = if (isListeningCurrent) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = if (isListeningCurrent) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = CircleShape
+                ) {
+                    if (isListeningCurrent) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Mic, "Voice Assistant")
+                    }
                 }
-                composable("validate") {
-                    JerseyValidationScreen()
-                }
-                composable(
-                    route = "video_editor?videoUri={videoUri}",
-                    arguments = listOf(navArgument("videoUri") { type = NavType.StringType })
-                ) { backStackEntry ->
-                    val videoUriString = backStackEntry.arguments?.getString("videoUri")
-                    if (videoUriString != null) {
-                        VideoEditorScreen(
-                            videoUri = Uri.parse(Uri.decode(videoUriString)),
-                            roster = playerViewModel.allPlayers.collectAsState(initial = emptyList()).value,
-                            onNavigateBack = { navController.popBackStack() },
-                            onSaveVideo = { navController.navigate("camera") }
+            }
+        ) { paddingValues ->
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                NavHost(
+                    navController = navController,
+                    startDestination = "camera"
+                ) {
+                    composable("camera") {
+                        CameraScreen(
+                            viewModel = playerViewModel,
+                            teamViewModel = teamViewModel,
+                            onVideoSaved = { videoUri ->
+                                val encodedUri = Uri.encode(videoUri.toString())
+                                navController.navigate("video_editor?videoUri=$encodedUri")
+                            }
+                        )
+                    }
+                    composable("validate") {
+                        JerseyValidationScreen()
+                    }
+                    composable(
+                        route = "video_editor?videoUri={videoUri}",
+                        arguments = listOf(navArgument("videoUri") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val videoUriString = backStackEntry.arguments?.getString("videoUri")
+                        if (videoUriString != null) {
+                            VideoEditorScreen(
+                                videoUri = Uri.parse(Uri.decode(videoUriString)),
+                                roster = playerViewModel.allPlayers.collectAsState(initial = emptyList()).value,
+                                onNavigateBack = { navController.popBackStack() },
+                                onSaveVideo = { navController.navigate("camera") }
+                            )
+                        }
+                    }
+                    composable("team") {
+                        TeamScreen(
+                            teamViewModel = teamViewModel,
+                            playerViewModel = playerViewModel,
+                            teamSnapRepository = teamSnapRepository,
+                            onNavigateToCrowdSourced = {
+                                navController.navigate("crowd_sourced_teams")
+                            }
+                        )
+                    }
+                    composable("settings") {
+                        SettingsScreen(
+                            teamViewModel = teamViewModel,
+                            playerViewModel = playerViewModel
                         )
                     }
                 }
-                composable("team") {
-                    TeamScreen(
-                        teamViewModel = teamViewModel,
-                        playerViewModel = playerViewModel,
-                        teamSnapRepository = teamSnapRepository,
-                        onNavigateToCrowdSourced = {
-                            navController.navigate("crowd_sourced_teams")
-                        }
-                    )
-                }
-                composable("settings") {
-                    SettingsScreen(
-                        teamViewModel = teamViewModel,
-                        playerViewModel = playerViewModel
-                    )
-                }
-            }
 
-            // Prominent Listening Overlay
-            if (isListening) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.4f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            // CANCEL when tapping outside the card
-                            cancelListening()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Card(
-                        modifier = Modifier.clickable(enabled = false) {}, // Don't cancel when clicking the card itself
-                        shape = RoundedCornerShape(28.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+                // Prominent Listening Overlay
+                if (isListening) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                // CANCEL when tapping outside the card
+                                cancelListening()
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            modifier = Modifier.padding(40.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        Card(
+                            modifier = Modifier.clickable(enabled = false) {}, // Don't cancel when clicking the card itself
+                            shape = RoundedCornerShape(28.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
                         ) {
-                            Icon(
-                                Icons.Default.Mic, 
-                                contentDescription = null, 
-                                modifier = Modifier.size(56.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Text("Speak Now", style = MaterialTheme.typography.headlineSmall)
-                            Text("Identifying player...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                            Column(
+                                modifier = Modifier.padding(40.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    Icons.Default.Mic,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(56.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Text("Speak Now", style = MaterialTheme.typography.headlineSmall)
+                                Text("Identifying player...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                            }
                         }
                     }
                 }
-            }
 
-            // Result Overlay
-            voiceResult?.let { result ->
-                Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)) {
-                    VoiceResultCard(
-                        result = result,
-                        onDismiss = { playerViewModel.clearVoiceResult() }
-                    )
+                // Result Overlay
+                voiceResult?.let { result ->
+                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)) {
+                        VoiceResultCard(
+                            result = result,
+                            onDismiss = { playerViewModel.clearVoiceResult() }
+                        )
+                    }
                 }
             }
         }
