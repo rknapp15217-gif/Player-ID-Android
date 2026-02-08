@@ -113,17 +113,6 @@ fun CameraScreen(
         }
     }
 
-    val speechLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val data = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            data?.firstOrNull()?.let { spokenText ->
-                viewModel.processVoiceCommand(spokenText)
-            }
-        }
-    }
-
     var processing by remember { mutableStateOf(false) }
     val detectionManager = remember {
         JerseyDetectionManager(
@@ -304,8 +293,10 @@ fun CameraScreen(
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text("| Size: ${frozenW}x${frozenH}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                     }
-                                    visiblePlayers.firstOrNull()?.let { (_, player) ->
-                                        player?.let { Text("${it.name} #${it.number}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) }
+                                    visiblePlayers.firstOrNull()?.let { (tracked, player) ->
+                                        val displayText = player?.let { "${it.name} #${it.number}" } ?: "Unknown #${tracked.jerseyNumber}"
+                                        val textColor = if (player != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                        Text(displayText, style = MaterialTheme.typography.bodyMedium, color = textColor)
                                     }
                                 }
                             }
@@ -329,7 +320,11 @@ fun CameraScreen(
 
                 if (!isStandby) {
                     voiceResult?.let { result ->
-                        VoiceResultCard(result = result, onDismiss = { viewModel.clearVoiceResult() }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp, start = 16.dp, end = 16.dp))
+                        VoiceResultCard(
+                            result = result, 
+                            onDismiss = { viewModel.clearVoiceResult() }, 
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp, start = 16.dp, end = 16.dp)
+                        )
                     }
                 }
             }
@@ -347,16 +342,44 @@ fun VoiceResultCard(result: VoiceAssistantResult, onDismiss: () -> Unit, modifie
     }
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = when (result) { is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.primaryContainer is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.errorContainer }),
+        colors = CardDefaults.cardColors(
+            containerColor = when (result) { 
+                is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.primaryContainer 
+                is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.errorContainer 
+            }
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         shape = RoundedCornerShape(16.dp)
     ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(imageVector = when (result) { is VoiceAssistantResult.Success -> Icons.Default.RecordVoiceOver is VoiceAssistantResult.Error -> Icons.Default.Error }, contentDescription = null, tint = when (result) { is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.onPrimaryContainer is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.onErrorContainer })
+            Icon(
+                imageVector = when (result) { 
+                    is VoiceAssistantResult.Success -> Icons.Default.RecordVoiceOver 
+                    is VoiceAssistantResult.Error -> Icons.Default.Error 
+                }, 
+                contentDescription = null, 
+                tint = when (result) { 
+                    is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.onPrimaryContainer 
+                    is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.onErrorContainer 
+                }
+            )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = when (result) { is VoiceAssistantResult.Success -> "Voice ID Found" is VoiceAssistantResult.Error -> "Try Again" }, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Text(text = when (result) { is VoiceAssistantResult.Success -> result.message is VoiceAssistantResult.Error -> result.message }, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text = when (result) { 
+                        is VoiceAssistantResult.Success -> "Voice ID Found" 
+                        is VoiceAssistantResult.Error -> "Try Again" 
+                    }, 
+                    style = MaterialTheme.typography.labelSmall, 
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = when (result) { 
+                        is VoiceAssistantResult.Success -> result.message 
+                        is VoiceAssistantResult.Error -> result.message 
+                    }, 
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
             IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Dismiss") }
         }

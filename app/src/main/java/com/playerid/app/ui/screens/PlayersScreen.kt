@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,8 +21,9 @@ import com.playerid.app.viewmodels.PlayerViewModel
 fun PlayersScreen(
     viewModel: PlayerViewModel
 ) {
-    val players by viewModel.filteredPlayers.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
+    // Providing explicit initial values to fix type inference errors
+    val players by viewModel.filteredPlayers.collectAsState(initial = emptyList())
+    val searchQuery by viewModel.searchQuery.collectAsState(initial = "")
     
     Column(
         modifier = Modifier
@@ -108,7 +110,7 @@ fun PlayerCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = player.number.toString(),
+                        text = player.number,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onPrimary
                     )

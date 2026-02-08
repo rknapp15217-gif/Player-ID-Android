@@ -30,9 +30,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         private val WAKE_WORDS_REGEX = Regex("(?i)^(spotter|spottr|spotr|sport|spot|potter|hey spotter|hey spotr|hey spottr)\\b")
     }
     
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
-    
     private val _selectedTeam = MutableStateFlow<String?>(null)
     val selectedTeam: StateFlow<String?> = _selectedTeam.asStateFlow()
     
@@ -51,6 +48,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     private val _voiceActions = MutableSharedFlow<VoiceAction>()
     val voiceActions = _voiceActions.asSharedFlow()
 
+    private val _micReleasedSignal = MutableSharedFlow<Unit>(replay = 0)
+    val micReleasedSignal = _micReleasedSignal.asSharedFlow()
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
     val detectedPlayersWithInfo = combine(_trackedPlayers, _selectedTeam) { tracked, team ->
         tracked.map { 
             val player = team?.let { t -> 
@@ -58,20 +61,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             } ?: findPlayerByNumber(it.jerseyNumber)
             Pair(it, player)
         }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    }.stateIn(scope = viewModelScope, started = SharingStarted.WhileSubscribed(5000), initialValue = emptyList())
 
     val allPlayers = playerDao.getAllActivePlayers()
     
-    val filteredPlayers = combine(
-        allPlayers,
-        _selectedTeam,
-        searchQuery
-    ) { players, team, query ->
-        val teamPlayers = if (team != null) players.filter { it.team == team } else emptyList() 
+    val filteredPlayers = combine(allPlayers, _selectedTeam, _searchQuery) { players, team, query ->
+        val teamPlayers = if (team != null) players.filter { it.team == team } else players
         if (query.isEmpty()) teamPlayers else {
             teamPlayers.filter { player ->
                 player.name.contains(query, ignoreCase = true) ||
@@ -102,9 +97,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         if (listening) _isVoiceSessionActive.value = true
     }
     
-    fun updateSearchQuery(query: String) = _searchQuery.update { query }
-    fun setSelectedTeam(team: String?) = _selectedTeam.update { team }
-    fun updateTrackedPlayers(tracked: List<TrackedPlayer>) = _trackedPlayers.update { tracked }
+    fun updateSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun setSelectedTeam(team: String?) {
+        _selectedTeam.value = team
+    }
+
+    fun updateTrackedPlayers(tracked: List<TrackedPlayer>) {
+        _trackedPlayers.value = tracked
+    }
+
     private suspend fun findPlayerByNumber(number: String) = allPlayers.first().find { it.number == number }
 
     fun processVoiceCommand(spokenText: String) {
@@ -173,7 +177,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                     speak(msg)
                 }
                 matches.size > 1 -> {
-                    _voiceResult.value = VoiceAssistantResult.Error("Multiple players found. Be more specific.")
+                    _voiceResult.value = VoiceAssistantResult.Error("Multiple matches. Be specific.")
                     speak("I found multiple players. Please specify.")
                 }
                 else -> {
@@ -196,11 +200,38 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         viewModelScope.launch { _voiceActions.emit(VoiceAction.StopRecordingSilent) }
     }
 
+    fun notifyMicReleased() {
+        viewModelScope.launch { _micReleasedSignal.emit(Unit) }
+    }
+
     fun reportVoiceError(message: String) {
         _voiceResult.value = VoiceAssistantResult.Error(message)
         speak(message)
         _isVoiceSessionActive.value = false
         _isListening.value = false
+    }
+
+    fun addPlayer(player: Player, addedBy: String = "Unknown") {
+        viewModelScope.launch {
+            playerDao.insertPlayer(player.copy(
+                id = UUID.randomUUID().toString(),
+                addedBy = addedBy,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis()
+            ))
+        }
+    }
+
+    fun updatePlayer(player: Player) {
+        viewModelScope.launch {
+            playerDao.updatePlayer(player.copy(updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun deletePlayer(player: Player) {
+        viewModelScope.launch {
+            playerDao.deletePlayer(player)
+        }
     }
 
     override fun onCleared() {
@@ -209,14 +240,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         super.onCleared()
     }
     
-    fun addPlayer(player: Player, addedBy: String = "Unknown") {
-        viewModelScope.launch {
-            playerDao.insertPlayer(player.copy(id = UUID.randomUUID().toString(), addedBy = addedBy, createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()))
-        }
-    }
-
-    fun updatePlayer(player: Player) = viewModelScope.launch { playerDao.updatePlayer(player.copy(updatedAt = System.currentTimeMillis())) }
-    fun deletePlayer(player: Player) = viewModelScope.launch { playerDao.deletePlayer(player) }
     fun exportDatabase() = viewModelScope.launch { allPlayers.first().forEach { Log.d(TAG, "EXPORT: $it") } }
     fun importDatabase() = initializeSampleData()
     fun clearCache() = viewModelScope.launch { database.clearAllTables() }
@@ -237,7 +260,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                     Player(id = UUID.randomUUID().toString(), number = "21", name = "Isabella Garcia", position = "Shooting Guard", team = "Riverside Rockets", academicYear = "Freshman", addedBy = "Assistant_Coach_Mike"),
                     Player(id = UUID.randomUUID().toString(), number = "12", name = "Emma Thompson", position = "Setter", team = "Thunder Volleyball", academicYear = "Senior", addedBy = "Player_Emma23"),
                     Player(id = UUID.randomUUID().toString(), number = "8", name = "Olivia Davis", position = "Outside Hitter", team = "Thunder Volleyball", academicYear = "Junior", addedBy = "Parent_Lisa_D"),
-                    Player(id = UUID.randomUUID().toString(), number = "5", name = "Ava Wilson", position = "Libero", team = "Thunder Volleyball", academicYear = "Sophomore", addedBy = "Player_Emma23"),
+                    Player(id = FloatArray(1).toString(), number = "5", name = "Ava Wilson", position = "Libero", team = "Thunder Volleyball", academicYear = "Sophomore", addedBy = "Player_Emma23"),
                     Player(id = UUID.randomUUID().toString(), number = "44", name = "Jayden Miller", position = "Running Back", team = "Warriors JV Football", academicYear = "Sophomore", addedBy = "Dad_CoachTom"),
                     Player(id = UUID.randomUUID().toString(), number = "12", name = "Ethan Rodriguez", position = "Quarterback", team = "Warriors JV Football", academicYear = "Junior", addedBy = "Parent_Carlos"),
                     Player(id = UUID.randomUUID().toString(), number = "10", name = "Tyson Knapp", position = "Forward", team = "Ryan's Team", academicYear = "Junior", addedBy = "Ryan"),
