@@ -14,6 +14,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -28,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -208,11 +215,37 @@ fun PlayerIDApp() {
                                         .menuAnchor()
                                         .width(teamMenuWidth)
                                 ) {
+                                    val isTeamSelected = selectedTeam != null
+                                    val labelText = selectedTeam ?: "Select team"
+                                    val labelColor = if (isTeamSelected) {
+                                        MaterialTheme.colorScheme.onBackground
+                                    } else {
+                                        MaterialTheme.colorScheme.primary
+                                    }
+                                    val labelWeight = if (isTeamSelected) FontWeight.Medium else FontWeight.SemiBold
+
                                     Text(
-                                        text = selectedTeam ?: "Select team",
+                                        text = labelText,
                                         maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        color = labelColor,
+                                        fontWeight = labelWeight
                                     )
+                                    if (!isTeamSelected) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                        ) {
+                                            Text(
+                                                text = "Required",
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                color = MaterialTheme.colorScheme.primary,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                                 }
@@ -255,35 +288,16 @@ fun PlayerIDApp() {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = "Open navigation menu")
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        titleContentColor = MaterialTheme.colorScheme.onBackground,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                        actionIconContentColor = MaterialTheme.colorScheme.onBackground
+                    )
                 )
             },
-            floatingActionButton = {
-                val isListeningCurrent by playerViewModel.isListening.collectAsState()
-
-                FloatingActionButton(
-                    onClick = {
-                        if (!isListeningCurrent) {
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                startListening()
-                            } else {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        } else {
-                            cancelListening()
-                        }
-                    },
-                    containerColor = if (isListeningCurrent) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = if (isListeningCurrent) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-                    shape = CircleShape
-                ) {
-                    if (isListeningCurrent) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Default.Mic, "Voice Assistant")
-                    }
-                }
-            }
+            floatingActionButton = {}
         ) { paddingValues ->
             Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                 NavHost(
@@ -294,9 +308,25 @@ fun PlayerIDApp() {
                         CameraScreen(
                             viewModel = playerViewModel,
                             teamViewModel = teamViewModel,
+                            showVoiceId = playerViewModel.selectedTeam.collectAsState().value != null,
+                            isVoiceListening = playerViewModel.isListening.collectAsState().value,
+                            onVoiceIdToggle = {
+                                val isListeningCurrent = playerViewModel.isListening.value
+                                if (!isListeningCurrent) {
+                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                        startListening()
+                                    } else {
+                                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                } else {
+                                    cancelListening()
+                                }
+                            },
                             onVideoSaved = { videoUri ->
                                 val encodedUri = Uri.encode(videoUri.toString())
-                                navController.navigate("video_editor?videoUri=$encodedUri")
+                                navController.navigate("video_editor?videoUri=$encodedUri") {
+                                    launchSingleTop = true
+                                }
                             }
                         )
                     }
@@ -312,8 +342,8 @@ fun PlayerIDApp() {
                             VideoEditorScreen(
                                 videoUri = Uri.parse(Uri.decode(videoUriString)),
                                 roster = playerViewModel.allPlayers.collectAsState(initial = emptyList()).value,
-                                onNavigateBack = { navController.popBackStack() },
-                                onSaveVideo = { navController.navigate("camera") }
+                                onNavigateBack = { navController.popBackStack("camera", false) },
+                                onSaveVideo = { navController.popBackStack("camera", false) }
                             )
                         }
                     }
@@ -337,6 +367,14 @@ fun PlayerIDApp() {
 
                 // Prominent Listening Overlay
                 if (isListening) {
+                    val pulseAlpha by rememberInfiniteTransition(label = "pulse").animateFloat(
+                        initialValue = 0.25f,
+                        targetValue = 0.75f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(700, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse
+                        )
+                    )
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -361,13 +399,27 @@ fun PlayerIDApp() {
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Icon(
-                                    Icons.Default.Mic,
+                                    Icons.Default.PersonSearch,
                                     contentDescription = null,
                                     modifier = Modifier.size(56.dp),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Spacer(modifier = Modifier.height(20.dp))
-                                Text("Speak Now", style = MaterialTheme.typography.headlineSmall)
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha),
+                                            shape = RoundedCornerShape(24.dp)
+                                        )
+                                        .padding(horizontal = 24.dp, vertical = 10.dp)
+                                ) {
+                                    Text(
+                                        "Speak Now",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
                                 Text("Identifying player...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                             }
                         }

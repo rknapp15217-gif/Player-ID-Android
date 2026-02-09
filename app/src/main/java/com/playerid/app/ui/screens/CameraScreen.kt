@@ -10,6 +10,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.speech.RecognizerIntent
 import android.util.Log
 import android.util.Size
@@ -25,6 +26,7 @@ import androidx.camera.video.VideoCapture
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -51,6 +53,10 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.playerid.app.ar.JerseyDetectionManager
 import com.playerid.app.ui.composables.PlayerBubblesOverlay
+import com.playerid.app.ui.theme.ErrorRed
+import com.playerid.app.ui.theme.SpotrHighlightOrange
+import com.playerid.app.ui.theme.SpotrPrimaryBlue
+import com.playerid.app.ui.theme.SpotrSuccessGreen
 import com.playerid.app.utils.RecordingManager
 import com.playerid.app.utils.RecordingState
 import com.playerid.app.viewmodels.PlayerViewModel
@@ -59,11 +65,16 @@ import com.playerid.app.viewmodels.VoiceAssistantResult
 import kotlinx.coroutines.delay
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 
 @Composable
 fun CameraScreen(
     viewModel: PlayerViewModel,
     teamViewModel: com.playerid.app.viewmodels.TeamViewModel,
+    showVoiceId: Boolean,
+    isVoiceListening: Boolean,
+    onVoiceIdToggle: () -> Unit,
     onVideoSaved: (Uri) -> Unit
 ) {
     val context = LocalContext.current
@@ -82,17 +93,45 @@ fun CameraScreen(
     val recordingManager = remember { RecordingManager(context) }
     val recordingState by recordingManager.recordingState.collectAsState()
 
+    var liveStartMs by remember { mutableStateOf<Long?>(null) }
+    var liveElapsedMs by remember { mutableStateOf(0L) }
+
     var isStandby by remember { mutableStateOf(false) }
+    val capturePastMode by viewModel.capturePastMode.collectAsState()
+    var wasCapturePast by remember { mutableStateOf(capturePastMode) }
 
     // Auto-start background recording
-    LaunchedEffect(recordingState, cameraPermissionsState.allPermissionsGranted, isVoiceSessionActive) {
-        if (cameraPermissionsState.allPermissionsGranted && 
-            recordingState == RecordingState.IDLE && 
+    LaunchedEffect(recordingState, cameraPermissionsState.allPermissionsGranted, isVoiceSessionActive, capturePastMode, isStandby) {
+        if (capturePastMode &&
+            !isStandby &&
+            cameraPermissionsState.allPermissionsGranted &&
+            recordingState == RecordingState.IDLE &&
             !isVoiceSessionActive) {
             delay(1000)
             recordingManager.startRecording { uri ->
                 uri?.let { onVideoSaved(it) }
             }
+        }
+    }
+
+    LaunchedEffect(capturePastMode) {
+        if (wasCapturePast && !capturePastMode) {
+            isStandby = false
+            if (recordingState == RecordingState.RECORDING) {
+                recordingManager.stopAndDiscardRecording()
+            }
+        }
+        wasCapturePast = capturePastMode
+    }
+
+    val isLiveRecording = !capturePastMode && recordingState == RecordingState.RECORDING
+
+    LaunchedEffect(isLiveRecording) {
+        liveStartMs = if (isLiveRecording) SystemClock.elapsedRealtime() else null
+        liveElapsedMs = 0L
+        while (isLiveRecording && liveStartMs != null) {
+            liveElapsedMs = SystemClock.elapsedRealtime() - (liveStartMs ?: 0L)
+            delay(1000)
         }
     }
 
@@ -162,62 +201,44 @@ fun CameraScreen(
         Scaffold(
             floatingActionButton = {
                 if (!isStandby) {
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                     ) {
                         FloatingActionButton(
-                            onClick = { isStandby = true },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = CircleShape
-                        ) {
-                            Icon(Icons.Default.PowerSettingsNew, "Standby")
-                        }
-
-                        Box(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                        ) {
-                            FloatingActionButton(
-                                onClick = { 
-                                    if (recordingState == RecordingState.RECORDING) {
-                                        recordingManager.stopRecording()
-                                    } else if (recordingState == RecordingState.IDLE) {
-                                        recordingManager.startRecording { uri ->
-                                            uri?.let { onVideoSaved(it) }
-                                        }
+                            onClick = {
+                                if (recordingState == RecordingState.RECORDING) {
+                                    recordingManager.stopRecording()
+                                } else if (recordingState == RecordingState.IDLE) {
+                                    recordingManager.startRecording { uri ->
+                                        uri?.let { onVideoSaved(it) }
                                     }
-                                },
-                                modifier = Modifier.align(Alignment.Center),
-                                containerColor = if (recordingState == RecordingState.RECORDING) Color.Red else MaterialTheme.colorScheme.primary
-                            ) {
-                                when (recordingState) {
-                                    RecordingState.RECORDING -> Icon(Icons.Default.Stop, "Capture")
-                                    RecordingState.FINALIZING -> CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
-                                    else -> Icon(Icons.Default.FiberManualRecord, "Record")
                                 }
-                            }
+                            },
+                            modifier = Modifier.align(Alignment.Center),
+                            containerColor = Color.Transparent,
+                            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp)
+                        ) {
+                            val innerSize by animateDpAsState(
+                                targetValue = if (isLiveRecording) 24.dp else 38.dp,
+                                animationSpec = tween(durationMillis = 200),
+                                label = "recordInnerSize"
+                            )
 
-                            Surface(
-                                modifier = Modifier.align(Alignment.CenterEnd),
-                                shape = RoundedCornerShape(24.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                                tonalElevation = 4.dp
+                            Box(
+                                modifier = Modifier.size(48.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("ID", style = MaterialTheme.typography.labelMedium)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Switch(
-                                        checked = arMode,
-                                        onCheckedChange = { arMode = it },
-                                        modifier = Modifier.scale(0.7f),
-                                        thumbContent = if (arMode) {
-                                            { Icon(Icons.Default.Check, null, modifier = Modifier.size(12.dp)) }
-                                        } else null
-                                    )
-                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(Color.Transparent, CircleShape)
+                                        .border(width = 2.dp, color = Color.White, shape = CircleShape)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(innerSize)
+                                        .background(Color.Red, CircleShape)
+                                )
                             }
                         }
                     }
@@ -229,6 +250,7 @@ fun CameraScreen(
             var scaleFactor by remember { mutableStateOf(1f) }
             var minZoom by remember { mutableStateOf(1f) }
             var maxZoom by remember { mutableStateOf(8f) }
+            var isCameraReady by remember { mutableStateOf(false) }
 
             Box(
                 modifier = Modifier.fillMaxSize().padding(padding).pointerInput(Unit) {
@@ -249,11 +271,127 @@ fun CameraScreen(
                                 camera = cam
                                 minZoom = cam.cameraInfo.zoomState.value?.minZoomRatio ?: 1f
                                 maxZoom = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 8f
+                                isCameraReady = true
                             }
                         }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                if (!isCameraReady && !isStandby) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                            tonalElevation = 6.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text("Warming camera...", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+
+                if (isLiveRecording) {
+                    val totalSeconds = (liveElapsedMs / 1000).toInt()
+                    val minutes = totalSeconds / 60
+                    val seconds = totalSeconds % 60
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 16.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Black.copy(alpha = 0.6f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(Color.Red, CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = String.format("%d:%02d", minutes, seconds),
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+
+                if (capturePastMode && !isStandby) {
+                    FloatingActionButton(
+                        onClick = { isStandby = true },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.Bedtime, "Sleep")
+                    }
+                }
+
+                if (showVoiceId && !isStandby) {
+                    FloatingActionButton(
+                        onClick = onVoiceIdToggle,
+                        containerColor = if (isVoiceListening) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = if (isVoiceListening) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.PersonSearch, "Voice Player ID")
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        tonalElevation = 6.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ModeChip(
+                                text = "Capture Past",
+                                selected = capturePastMode,
+                                selectedColor = MaterialTheme.colorScheme.primary,
+                                onClick = { viewModel.setCapturePastMode(true) }
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            ModeChip(
+                                text = "Live Camera",
+                                selected = !capturePastMode,
+                                selectedColor = MaterialTheme.colorScheme.secondary,
+                                onClick = { viewModel.setCapturePastMode(false) }
+                            )
+                        }
+                    }
+                }
 
                 if (arMode && !isStandby) {
                     PlayerBubblesOverlay(
@@ -303,8 +441,8 @@ fun CameraScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.FlashOn, null, tint = Color.White.copy(alpha = 0.2f), modifier = Modifier.size(64.dp))
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text("SPOTR STANDBY", color = Color.White.copy(alpha = 0.2f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text("Recording past moments... Tap to wake UI", color = Color.White.copy(alpha = 0.1f), style = MaterialTheme.typography.bodyMedium)
+                            Text("CAPTURE PAST", color = Color.White.copy(alpha = 0.25f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("Recording the last moments... Tap to wake UI", color = Color.White.copy(alpha = 0.15f), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -326,10 +464,11 @@ fun VoiceResultCard(result: VoiceAssistantResult, onDismiss: () -> Unit, modifie
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = when (result) { 
-                is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.primaryContainer 
-                is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.errorContainer 
-            }
+            containerColor = when (result) {
+                is VoiceAssistantResult.Success -> SpotrSuccessGreen
+                is VoiceAssistantResult.Error -> ErrorRed
+            },
+            contentColor = Color.White
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         shape = RoundedCornerShape(16.dp)
@@ -337,25 +476,14 @@ fun VoiceResultCard(result: VoiceAssistantResult, onDismiss: () -> Unit, modifie
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = when (result) { 
-                    is VoiceAssistantResult.Success -> Icons.Default.RecordVoiceOver 
+                    is VoiceAssistantResult.Success -> Icons.Default.PersonSearch 
                     is VoiceAssistantResult.Error -> Icons.Default.Error 
                 }, 
                 contentDescription = null, 
-                tint = when (result) { 
-                    is VoiceAssistantResult.Success -> MaterialTheme.colorScheme.onPrimaryContainer 
-                    is VoiceAssistantResult.Error -> MaterialTheme.colorScheme.onErrorContainer 
-                }
+                tint = Color.White
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = when (result) { 
-                        is VoiceAssistantResult.Success -> "Voice ID Found" 
-                        is VoiceAssistantResult.Error -> "Try Again" 
-                    }, 
-                    style = MaterialTheme.typography.labelSmall, 
-                    fontWeight = FontWeight.Bold
-                )
                 Text(
                     text = when (result) { 
                         is VoiceAssistantResult.Success -> result.message 
@@ -364,7 +492,7 @@ fun VoiceResultCard(result: VoiceAssistantResult, onDismiss: () -> Unit, modifie
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
-            IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Dismiss") }
+            IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Dismiss", tint = Color.White) }
         }
     }
 }
@@ -375,6 +503,28 @@ private fun CameraPermissionScreen(onRequestPermission: () -> Unit) {
         Text("Camera Access Required", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = onRequestPermission) { Text("Grant Permissions") }
+    }
+}
+
+@Composable
+private fun ModeChip(
+    text: String,
+    selected: Boolean,
+    selectedColor: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = if (selected) selectedColor else MaterialTheme.colorScheme.surface,
+        tonalElevation = if (selected) 2.dp else 0.dp
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelLarge
+        )
     }
 }
 

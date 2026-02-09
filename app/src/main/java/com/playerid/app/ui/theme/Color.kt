@@ -2,67 +2,69 @@ package com.playerid.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// === SPORTS-INSPIRED COLOR PALETTE ===
+// === SPOTR YOUTH SPORTS PALETTE ===
+val SpotrPrimaryBlue = Color(0xFF2563EB)
+val SpotrSuccessGreen = Color(0xFF22C55E)
+val SpotrHighlightOrange = Color(0xFFF97316)
+val SpotrDarkSurface = Color(0xFF111827)
+val SpotrLightBackground = Color(0xFFF5F6FA)
+val SpotrText = Color(0xFF1F2937)
 
-// Primary Brand Colors - More vibrant and energetic
-val SpotrGreen = Color(0xFF00E676) // Electric green - energy & sports
-val SpotrBlue = Color(0xFF2962FF) // Vibrant blue - tech & innovation  
-val SpotrOrange = Color(0xFFFF6D00) // Bold orange - excitement & action
+// Supporting colors
+val SpotrSurfaceLight = Color(0xFFFFFFFF)
+val SpotrSurfaceDark = Color(0xFF0F172A)
+val SpotrOutline = Color(0xFFE5E7EB)
+val SpotrOutlineDark = Color(0xFF273047)
 
-// Supporting Colors
-val SpotrDeepBlue = Color(0xFF0D47A1) // Deep blue for contrast
-val SpotrTeal = Color(0xFF00BCD4) // Fresh teal for accents
-val SpotrPurple = Color(0xFF7C4DFF) // Modern purple for premium features
-
-// Academic Year Colors - More vibrant
-val FreshmanGreen = Color(0xFF4CAF50) // Bright green
-val SophomoreBlue = Color(0xFF2196F3) // Vivid blue  
-val JuniorOrange = Color(0xFFFF9800) // Warm orange
-val SeniorRed = Color(0xFFF44336) // Bold red
-
-// Gradient Colors for Dynamic Effects  
-val GradientStart = Color(0xFF667eea)
-val GradientEnd = Color(0xFFf093fb)
-val SportsGradientStart = Color(0xFF11998e) 
-val SportsGradientEnd = Color(0xFF38ef7d)
-
-// Surface Colors - Modern and clean
-val SurfaceLight = Color(0xFFF8F9FA)
-val SurfaceDark = Color(0xFF121212)
-val CardLight = Color(0xFFFFFFFF)
-val CardDark = Color(0xFF1E1E1E)
-
-// Action Colors
-val SuccessGreen = Color(0xFF4CAF50)
-val WarningOrange = Color(0xFFFF9800) 
-val ErrorRed = Color(0xFFF44336)
-val InfoBlue = Color(0xFF2196F3)
+// Action colors
+val SuccessGreen = SpotrSuccessGreen
+val WarningOrange = SpotrHighlightOrange
+val ErrorRed = Color(0xFFEF4444)
+val InfoBlue = SpotrPrimaryBlue
 
 // AR & Camera Colors
-val AROverlay = Color(0xFF00E676).copy(alpha = 0.9f)
-val CameraButton = Color(0xFFFF6D00)
-val RecordingRed = Color(0xFFFF1744)
+val AROverlay = SpotrSuccessGreen.copy(alpha = 0.9f)
+val CameraButton = SpotrPrimaryBlue
+val RecordingRed = Color(0xFFEF4444)
 
 // Team Colors - Dynamic set
 val TeamColors = listOf(
-    Color(0xFFE53E3E), // Red
-    Color(0xFF3182CE), // Blue  
-    Color(0xFF38A169), // Green
-    Color(0xFFD69E2E), // Yellow
-    Color(0xFF805AD5), // Purple
-    Color(0xFFDD6B20), // Orange
-    Color(0xFF319795), // Teal
-    Color(0xFFE53E3E), // Pink
+    Color(0xFFEF4444), // Red
+    Color(0xFF3B82F6), // Blue
+    Color(0xFF22C55E), // Green
+    Color(0xFFF59E0B), // Yellow
+    Color(0xFF8B5CF6), // Purple
+    Color(0xFFF97316), // Orange
+    Color(0xFF14B8A6), // Teal
+    Color(0xFFEC4899)  // Pink
 )
 
-// Legacy colors for compatibility
-val PlayerIDBlue = SpotrBlue
-val PlayerIDDarkBlue = SpotrDeepBlue  
-val PlayerIDGreen = SpotrGreen
-val PlayerIDOrange = SpotrOrange
-val PlayerIDRed = SeniorRed
+// Academic year colors (kept for UI compatibility)
+val FreshmanGreen = Color(0xFF22C55E)
+val SophomoreBlue = Color(0xFF3B82F6)
+val JuniorOrange = Color(0xFFF59E0B)
+val SeniorRed = Color(0xFFEF4444)
 
-// Standard Material colors
+// Legacy colors for compatibility
+val SpotrGreen = SpotrSuccessGreen
+val SpotrBlue = SpotrPrimaryBlue
+val SpotrOrange = SpotrHighlightOrange
+val SpotrDeepBlue = Color(0xFF1E40AF)
+val SpotrTeal = Color(0xFF14B8A6)
+val SpotrPurple = Color(0xFF8B5CF6)
+
+val SurfaceLight = SpotrLightBackground
+val SurfaceDark = SpotrDarkSurface
+val CardLight = SpotrSurfaceLight
+val CardDark = SpotrSurfaceDark
+
+val PlayerIDBlue = SpotrPrimaryBlue
+val PlayerIDDarkBlue = SpotrDeepBlue
+val PlayerIDGreen = SpotrSuccessGreen
+val PlayerIDOrange = SpotrHighlightOrange
+val PlayerIDRed = ErrorRed
+
+// Standard Material colors (unused but kept for compatibility)
 val Purple80 = Color(0xFFD0BCFF)
 val PurpleGrey80 = Color(0xFFCCC2DC)
 val Pink80 = Color(0xFFEFB8C8)

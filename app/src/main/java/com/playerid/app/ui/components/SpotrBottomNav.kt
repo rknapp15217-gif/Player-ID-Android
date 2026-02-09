@@ -47,10 +47,10 @@ fun SpotrBottomNavigationBar(
             val iconColor by animateColorAsState(
                 targetValue = if (isSelected) {
                     when (index) {
-                        0 -> CameraButton // Camera - Orange
-                        1 -> SpotrGreen // Team - Green
-                        2 -> SpotrPurple // Referral - Purple
-                        3 -> SpotrTeal // Settings - Teal
+                        0 -> SpotrPrimaryBlue
+                        1 -> SpotrSuccessGreen
+                        2 -> SpotrHighlightOrange
+                        3 -> SpotrPrimaryBlue
                         else -> MaterialTheme.colorScheme.primary
                     }
                 } else {
