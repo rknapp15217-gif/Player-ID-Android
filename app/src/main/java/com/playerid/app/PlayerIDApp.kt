@@ -73,6 +73,24 @@ fun PlayerIDApp() {
         TeamSnapRepository(context, database.playerDao())
     }
     
+    // Listen for navigation callbacks from external sources
+    val navRoute by AppNavigationCallback.route.collectAsState()
+    LaunchedEffect(navRoute) {
+        navRoute?.let { route ->
+            navController.navigate(route)
+            AppNavigationCallback.clear()
+        }
+    }
+    
+    // Listen for TeamSnap OAuth redirect
+    val oauthRedirect by com.playerid.app.data.teamsnap.TeamSnapAuthCallback.redirectUri.collectAsState()
+    LaunchedEffect(oauthRedirect) {
+        oauthRedirect?.let { uri ->
+            teamSnapRepository.handleAuthRedirect(uri)
+            com.playerid.app.data.teamsnap.TeamSnapAuthCallback.clear()
+        }
+    }
+    
     val isPaywallVisible by subscriptionViewModel.isPaywallVisible.collectAsState()
     val voiceResult by playerViewModel.voiceResult.collectAsState()
     val isListening by playerViewModel.isListening.collectAsState()
@@ -343,7 +361,7 @@ fun PlayerIDApp() {
                                 videoUri = Uri.parse(Uri.decode(videoUriString)),
                                 roster = playerViewModel.allPlayers.collectAsState(initial = emptyList()).value,
                                 onNavigateBack = { navController.popBackStack("camera", false) },
-                                onSaveVideo = { navController.popBackStack("camera", false) }
+                                onSaveVideo = { navController.navigate("camera") }
                             )
                         }
                     }
@@ -354,8 +372,56 @@ fun PlayerIDApp() {
                             teamSnapRepository = teamSnapRepository,
                             onNavigateToCrowdSourced = {
                                 navController.navigate("crowd_sourced_teams")
+                            },
+                            onNavigateToWebImport = { teamName ->
+                                val encodedTeamName = Uri.encode(teamName)
+                                navController.navigate("web_roster_import/$encodedTeamName")
+                            },
+                            onNavigateToAppImport = { teamName, _ ->
+                                val encodedTeamName = Uri.encode(teamName)
+                                navController.navigate("app_roster_import/$encodedTeamName")
                             }
                         )
+                    }
+                    composable(
+                        route = "app_roster_import/{teamName}",
+                        arguments = listOf(navArgument("teamName") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val teamName = backStackEntry.arguments?.getString("teamName")?.let { Uri.decode(it) }
+                        if (teamName != null) {
+                            AppRosterImportScreen(
+                                teamName = teamName,
+                                onBack = { navController.popBackStack() },
+                                onImport = { candidates ->
+                                    playerViewModel.importRosterCandidates(
+                                        teamName = teamName,
+                                        candidates = candidates,
+                                        addedBy = "app_capture"
+                                    )
+                                    navController.popBackStack()
+                                }
+                            )
+                        }
+                    }
+                    composable(
+                        route = "web_roster_import/{teamName}",
+                        arguments = listOf(navArgument("teamName") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val teamName = backStackEntry.arguments?.getString("teamName")?.let { Uri.decode(it) }
+                        if (teamName != null) {
+                            WebRosterImportScreen(
+                                teamName = teamName,
+                                onBack = { navController.popBackStack() },
+                                onImport = { candidates ->
+                                    playerViewModel.importRosterCandidates(
+                                        teamName = teamName,
+                                        candidates = candidates,
+                                        addedBy = "web_import"
+                                    )
+                                    navController.popBackStack()
+                                }
+                            )
+                        }
                     }
                     composable("settings") {
                         SettingsScreen(
@@ -373,7 +439,8 @@ fun PlayerIDApp() {
                         animationSpec = infiniteRepeatable(
                             animation = tween(700, easing = LinearEasing),
                             repeatMode = RepeatMode.Reverse
-                        )
+                        ),
+                        label = "pulseAlpha"
                     )
                     Box(
                         modifier = Modifier

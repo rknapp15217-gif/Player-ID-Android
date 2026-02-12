@@ -114,7 +114,15 @@ data class TeamSnapImportResult(
     val members: List<TeamSnapMember>,
     val importedCount: Int,
     val skippedCount: Int,
-    val errors: List<String> = emptyList()
+    val errors: List<String> = emptyList(),
+    val localTeamName: String
+)
+
+data class TeamSnapOAuthResult(
+    val accessToken: String,
+    val refreshToken: String? = null,
+    val expiresIn: Long,
+    val userEmail: String = "TeamSnap User"
 )
 
 enum class TeamSnapSyncStatus {

@@ -12,20 +12,36 @@ interface TeamSnapApiService {
     companion object {
         const val BASE_URL = "https://api.teamsnap.com/v3/"
         const val AUTH_URL = "https://auth.teamsnap.com/"
+        const val AUTH_TOKEN_URL = "https://auth.teamsnap.com/oauth/token"
     }
     
     /**
      * Authentication Endpoints
      */
-    @POST("oauth/access_token")
+    @FormUrlEncoded
+    @POST(AUTH_TOKEN_URL)
     suspend fun authenticate(
-        @Body authRequest: TeamSnapAuthRequest
+        @Field("grant_type") grantType: String,
+        @Field("username") email: String,
+        @Field("password") password: String
     ): Response<TeamSnapAuthResponse>
     
-    @POST("oauth/refresh_token")
+    @FormUrlEncoded
+    @POST(AUTH_TOKEN_URL)
     suspend fun refreshToken(
         @Field("refresh_token") refreshToken: String,
         @Field("grant_type") grantType: String = "refresh_token"
+    ): Response<TeamSnapAuthResponse>
+
+    @FormUrlEncoded
+    @POST(AUTH_TOKEN_URL)
+    suspend fun exchangeAuthorizationCode(
+        @Field("grant_type") grantType: String,
+        @Field("code") code: String,
+        @Field("redirect_uri") redirectUri: String,
+        @Field("client_id") clientId: String,
+        @Field("code_verifier") codeVerifier: String,
+        @Field("client_secret") clientSecret: String? = null
     ): Response<TeamSnapAuthResponse>
     
     /**

@@ -1,6 +1,7 @@
 package com.playerid.app.viewmodels
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     private val teamDao = database.teamDao()
     private val playerDao = database.playerDao()
     private val subscriptionDao = database.userTeamSubscriptionDao()
+    private val prefs = application.getSharedPreferences("team_selection", Context.MODE_PRIVATE)
 
     private val _selectedTeam = MutableStateFlow<String?>(null)
     val selectedTeam: StateFlow<String?> = _selectedTeam.asStateFlow()
@@ -54,6 +56,8 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
             // Initialize default teams first and wait for completion
             initializeDefaultTeamsIfNeeded()
 
+            restoreLastSelectedTeamIfAvailable()
+
             // Then load data
             loadTeamStatistics()
             loadAllTeamNames()
@@ -90,6 +94,15 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadAllTeamNames() {
         viewModelScope.launch {
             _allTeamNames.value = teamDao.getAllActiveTeamNames()
+        }
+    }
+
+    private suspend fun restoreLastSelectedTeamIfAvailable() {
+        if (_selectedTeam.value != null) return
+        val lastTeam = prefs.getString(KEY_LAST_SELECTED_TEAM, null) ?: return
+        val team = teamDao.getTeamByName(lastTeam)
+        if (team != null) {
+            selectTeam(lastTeam)
         }
     }
 
@@ -264,12 +277,14 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     fun selectTeam(teamName: String) {
         _selectedTeam.value = teamName
         _isTeamSelected.value = true
+        prefs.edit().putString(KEY_LAST_SELECTED_TEAM, teamName).apply()
     }
 
     fun clearTeamSelection() {
         _selectedTeam.value = null
         _isTeamSelected.value = false
         _learnedTeamColor.value = null
+        prefs.edit().remove(KEY_LAST_SELECTED_TEAM).apply()
     }
 
     fun learnTeamColor(color: String, teamName: String) {
@@ -316,6 +331,7 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
             // Update selection if renamed team was selected
             if (_selectedTeam.value == oldName) {
                 _selectedTeam.value = newName
+                prefs.edit().putString(KEY_LAST_SELECTED_TEAM, newName).apply()
             }
 
             loadTeamStatistics() // Refresh stats
@@ -409,5 +425,9 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     // Get team names for backwards compatibility
     fun getAvailableTeamNames(): List<String> {
         return _availableTeams.value.map { it.name }
+    }
+
+    companion object {
+        private const val KEY_LAST_SELECTED_TEAM = "last_selected_team"
     }
 }

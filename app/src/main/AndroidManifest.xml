@@ -9,6 +9,13 @@
     <!-- Foreground Service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+    <!-- Haptic reminders during capture -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Overlay permission for capture button -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- ARCore requires camera -->
     <uses-feature
@@ -27,6 +34,26 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
         tools:ignore="ScopedStorage" />
+
+    <queries>
+        <package android:name="com.teamsnap.teamsnap" />
+        <package android:name="com.teamsnap.mobile" />
+        <package android:name="com.teamsnap.android" />
+        <package android:name="com.teamsnap" />
+        <package android:name="com.sportsengine.mobile" />
+        <package android:name="com.maxpreps.android" />
+        <package android:name="com.gc.android.team" />
+        <package android:name="com.teamlinkt.app" />
+        <package android:name="com.jerseywatch" />
+        <package android:name="com.bluelabelapps.sportsyou" />
+        <package android:name="com.leagueapps.mobile" />
+        <package android:name="com.stack.team" />
+        <package android:name="com.hudl.android" />
+        <package android:name="com.teamreach.app" />
+        <package android:name="com.rosterbot.app" />
+        <package android:name="com.crossover.app" />
+        <package android:name="com.leaguelineup.mobile" />
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -48,6 +75,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="playerid-teamsnap"
+                    android:host="oauth" />
+            </intent-filter>
         </activity>
 
         <!-- Background Assistant Service -->
@@ -56,6 +91,12 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <service
+            android:name=".capture.ScreenCaptureService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <!-- ARCore metadata -->
         <meta-data

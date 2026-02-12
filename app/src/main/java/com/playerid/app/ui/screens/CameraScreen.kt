@@ -484,13 +484,33 @@ fun VoiceResultCard(result: VoiceAssistantResult, onDismiss: () -> Unit, modifie
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
+                val message = when (result) {
+                    is VoiceAssistantResult.Success -> result.message
+                    is VoiceAssistantResult.Error -> result.message
+                }
                 Text(
-                    text = when (result) { 
-                        is VoiceAssistantResult.Success -> result.message 
-                        is VoiceAssistantResult.Error -> result.message 
-                    }, 
+                    text = message,
                     style = MaterialTheme.typography.bodyLarge
                 )
+                if (result is VoiceAssistantResult.Success && result.player != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Name: ${result.player.name}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Number: ${result.player.number}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Position: ${result.player.position.ifBlank { "Unknown" }}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Year: ${result.player.academicYear.ifBlank { "Unknown" }}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             }
             IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Dismiss", tint = Color.White) }
         }

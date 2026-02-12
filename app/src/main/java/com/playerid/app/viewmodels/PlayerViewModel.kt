@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.playerid.app.data.*
+import com.playerid.app.roster.RosterCandidate
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.*
@@ -212,7 +213,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                 if (player != null) {
                     val msg = "#${numericOnly} ${player.name}"
                     _voiceResult.value = VoiceAssistantResult.Success(msg, player)
-                    speak(msg)
+                    speak(player.name)
+                    _isVoiceSessionActive.value = false
                     return@launch
                 }
             }
@@ -225,9 +227,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             when {
                 matches.size == 1 -> {
                     val p = matches.first()
-                    val msg = "#${p.number} ${p.name}"
+                    val msg = "Number #${p.number} ${p.name}"
                     _voiceResult.value = VoiceAssistantResult.Success(msg, p)
-                    speak(msg)
+                    speak("Number ${p.number}")
                 }
                 matches.size > 1 -> {
                     val names = matches.joinToString(" and ") { "${it.name} #${it.number}" }
@@ -261,6 +263,44 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         _voiceResult.value = VoiceAssistantResult.Error(message)
         speak(message)
         _isVoiceSessionActive.value = false
+    }
+
+    fun importRosterCandidates(
+        teamName: String,
+        candidates: List<RosterCandidate>,
+        addedBy: String = "ocr_import"
+    ) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            for (candidate in candidates) {
+                val existing = playerDao.getPlayerByNumber(candidate.number, teamName)
+                val candidateYear = candidate.academicYear?.takeIf { it.isNotBlank() }
+                val candidatePosition = candidate.position?.takeIf { it.isNotBlank() }
+                if (existing != null) {
+                    val updated = existing.copy(
+                        name = candidate.name,
+                        position = candidatePosition ?: existing.position,
+                        academicYear = candidateYear ?: existing.academicYear,
+                        updatedAt = now,
+                        addedBy = addedBy
+                    )
+                    playerDao.updatePlayer(updated)
+                } else {
+                    val player = Player(
+                        id = UUID.randomUUID().toString(),
+                        number = candidate.number,
+                        name = candidate.name,
+                        position = candidatePosition ?: "",
+                        team = teamName,
+                        academicYear = candidateYear ?: "Unknown",
+                        addedBy = addedBy,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                    playerDao.insertPlayer(player)
+                }
+            }
+        }
     }
 
     override fun onCleared() {

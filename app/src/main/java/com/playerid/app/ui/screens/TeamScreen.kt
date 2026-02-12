@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -29,6 +31,8 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PeopleAlt
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PeopleAlt
 import androidx.compose.material.icons.filled.SearchOff
@@ -39,12 +43,18 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +76,7 @@ import com.playerid.app.ui.theme.*
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
 import com.playerid.app.data.teamsnap.TeamSnapRepository
+import com.playerid.app.roster.RosterCandidate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,7 +84,9 @@ fun TeamScreen(
     teamViewModel: TeamViewModel,
     playerViewModel: PlayerViewModel,
     teamSnapRepository: TeamSnapRepository? = null,
-    onNavigateToCrowdSourced: () -> Unit = {}
+    onNavigateToCrowdSourced: () -> Unit = {},
+    onNavigateToWebImport: (String) -> Unit = {},
+    onNavigateToAppImport: (String, Boolean) -> Unit = { _, _ -> }
 ) {
     val selectedTeam by teamViewModel.selectedTeam.collectAsState()
     val isTeamSelected by teamViewModel.isTeamSelected.collectAsState()
@@ -84,7 +97,12 @@ fun TeamScreen(
             teamName = selectedTeam!!,
             playerViewModel = playerViewModel,
             teamViewModel = teamViewModel,
-            onClearTeam = { teamViewModel.clearTeamSelection() }
+            onClearTeam = {
+                teamViewModel.clearTeamSelection()
+                playerViewModel.setSelectedTeam(null)
+            },
+            onNavigateToWebImport = onNavigateToWebImport,
+            onNavigateToAppImport = onNavigateToAppImport
         )
     } else {
         TeamSelectionView(
@@ -432,23 +450,86 @@ fun TeamSelectionView(
             onImportComplete = { result ->
                 showTeamSnapImportDialog = false
                 // Auto-select the imported team
-                onTeamSelected(result.team.name)
+                onTeamSelected(result.localTeamName)
                 // TODO: Show success message with import stats
             }
         )
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TeamManagementView(
     teamName: String,
     playerViewModel: PlayerViewModel,
     teamViewModel: TeamViewModel,
-    onClearTeam: () -> Unit
+    onClearTeam: () -> Unit,
+    onNavigateToWebImport: (String) -> Unit,
+    onNavigateToAppImport: (String, Boolean) -> Unit
 ) {
     val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
     val teamPlayers = remember(allPlayers, teamName) {
         allPlayers.filter { it.team == teamName }
+    }
+    var sortMode by remember { mutableStateOf(PlayerSortMode.NUMBER) }
+    var positionFilter by remember { mutableStateOf<String?>(null) }
+    var yearFilter by remember { mutableStateOf<String?>(null) }
+    var positionExpanded by remember { mutableStateOf(false) }
+    var yearExpanded by remember { mutableStateOf(false) }
+    val positionOptions = remember(teamPlayers) {
+        teamPlayers.map { it.position.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }
+    val yearOptionsAll = remember(teamPlayers) {
+        teamPlayers.map { it.academicYear.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sortedWith(compareBy(::yearSortKey).thenBy { it })
+    }
+    val yearOptionsForPosition = remember(teamPlayers, positionFilter) {
+        if (positionFilter == null) {
+            yearOptionsAll
+        } else {
+            teamPlayers
+                .filter { it.position.equals(positionFilter, ignoreCase = true) }
+                .map { it.academicYear.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sortedWith(compareBy(::yearSortKey).thenBy { it })
+        }
+    }
+    val positionOptionsForYear = remember(teamPlayers, yearFilter) {
+        if (yearFilter == null) {
+            positionOptions
+        } else {
+            teamPlayers
+                .filter { it.academicYear.equals(yearFilter, ignoreCase = true) }
+                .map { it.position.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
+        }
+    }
+    val filteredPlayers = remember(teamPlayers, positionFilter, yearFilter) {
+        teamPlayers.filter { player ->
+            val positionMatch = positionFilter?.let { it.equals(player.position, ignoreCase = true) } ?: true
+            val yearMatch = yearFilter?.let { it.equals(player.academicYear, ignoreCase = true) } ?: true
+            positionMatch && yearMatch
+        }
+    }
+    val displayPlayers = remember(filteredPlayers, sortMode) {
+        when (sortMode) {
+            PlayerSortMode.NUMBER -> filteredPlayers.sortedWith(
+                compareBy<Player> { it.number.toIntOrNull() ?: Int.MAX_VALUE }
+                    .thenBy { it.number }
+            )
+            PlayerSortMode.LAST_NAME -> filteredPlayers.sortedWith(
+                compareBy<Player> { playerLastName(it.name).lowercase() }
+                    .thenBy { it.name.lowercase() }
+            )
+        }
     }
     
     // Dialog states
@@ -456,6 +537,85 @@ fun TeamManagementView(
     var editingPlayer by remember { mutableStateOf<Player?>(null) }
     var showDeletePlayerDialog by remember { mutableStateOf(false) }
     var playerToDelete by remember { mutableStateOf<Player?>(null) }
+    var showOcrImportDialog by remember { mutableStateOf(false) }
+    var showImportRosterOptions by remember { mutableStateOf(false) }
+    var ocrImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val rosterImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            ocrImageUri = uri
+            showOcrImportDialog = true
+        }
+    }
+
+    if (showImportRosterOptions) {
+        AlertDialog(
+            onDismissRequest = { showImportRosterOptions = false },
+            title = { Text("Import roster") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            showImportRosterOptions = false
+                            rosterImagePicker.launch("image/*")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = "Import screenshot")
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("From screenshot")
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            showImportRosterOptions = false
+                            onNavigateToAppImport(teamName, true)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.PhoneAndroid, contentDescription = "Import app")
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("From app capture")
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            showImportRosterOptions = false
+                            onNavigateToWebImport(teamName)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Language, contentDescription = "Import website")
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("From website")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showImportRosterOptions = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
     
     Column(
         modifier = Modifier
@@ -473,15 +633,22 @@ fun TeamManagementView(
                     text = teamName,
                     style = MaterialTheme.typography.headlineMedium
                 )
-                Text(
-                    text = "${teamPlayers.size} players",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
             
             IconButton(onClick = onClearTeam) {
                 Icon(Icons.Default.ArrowBack, contentDescription = "Leave team")
+            }
+        }
+
+        LaunchedEffect(positionFilter, yearOptionsForPosition) {
+            if (yearFilter != null && !yearOptionsForPosition.contains(yearFilter!!)) {
+                yearFilter = null
+            }
+        }
+
+        LaunchedEffect(yearFilter, positionOptionsForYear) {
+            if (positionFilter != null && !positionOptionsForYear.contains(positionFilter!!)) {
+                positionFilter = null
             }
         }
         
@@ -495,6 +662,163 @@ fun TeamManagementView(
             Icon(Icons.Default.Add, contentDescription = "Add")
             Spacer(modifier = Modifier.width(8.dp))
             Text("Add Team Player")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Button(
+            onClick = { showImportRosterOptions = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.CloudDownload, contentDescription = "Import")
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Import Roster")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Sort by",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(
+                onClick = { sortMode = PlayerSortMode.NUMBER },
+                colors = if (sortMode == PlayerSortMode.NUMBER) {
+                    ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                } else {
+                    ButtonDefaults.outlinedButtonColors()
+                }
+            ) {
+                Text("Number")
+            }
+            OutlinedButton(
+                onClick = { sortMode = PlayerSortMode.LAST_NAME },
+                colors = if (sortMode == PlayerSortMode.LAST_NAME) {
+                    ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                } else {
+                    ButtonDefaults.outlinedButtonColors()
+                }
+            ) {
+                Text("Last name")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ExposedDropdownMenuBox(
+                expanded = positionExpanded,
+                onExpandedChange = { positionExpanded = !positionExpanded },
+                modifier = Modifier.weight(1f)
+            ) {
+                OutlinedTextField(
+                    value = positionFilter ?: "All positions",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Position") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = positionExpanded) },
+                    modifier = Modifier.menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = positionExpanded,
+                    onDismissRequest = { positionExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("All") },
+                        onClick = {
+                            positionFilter = null
+                            positionExpanded = false
+                        }
+                    )
+                    positionOptions.forEach { option ->
+                        val isEnabled = positionOptionsForYear.contains(option)
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    option,
+                                    color = if (isEnabled) {
+                                        MaterialTheme.colorScheme.onSurface
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    }
+                                )
+                            },
+                            onClick = {
+                                if (isEnabled) {
+                                    positionFilter = option
+                                    positionExpanded = false
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+
+            if (yearOptionsAll.size > 1) {
+                ExposedDropdownMenuBox(
+                    expanded = yearExpanded,
+                    onExpandedChange = { yearExpanded = !yearExpanded },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        value = yearFilter ?: "All years",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Year") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = yearExpanded) },
+                        modifier = Modifier.menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = yearExpanded,
+                        onDismissRequest = { yearExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("All") },
+                            onClick = {
+                                yearFilter = null
+                                yearExpanded = false
+                            }
+                        )
+                        yearOptionsAll.forEach { option ->
+                            val isEnabled = yearOptionsForPosition.contains(option)
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        option,
+                                        color = if (isEnabled) {
+                                            MaterialTheme.colorScheme.onSurface
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        }
+                                    )
+                                },
+                                onClick = {
+                                    if (isEnabled) {
+                                        yearFilter = option
+                                        yearExpanded = false
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         }
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -527,11 +851,33 @@ fun TeamManagementView(
                     )
                 }
             }
+        } else if (displayPlayers.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SearchOff,
+                        contentDescription = "No matches",
+                        modifier = Modifier.size(56.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "No players match those filters",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(teamPlayers) { player ->
+                items(displayPlayers) { player ->
                     TeamPlayerCard(
                         player = player,
                         onEdit = { editingPlayer = player },
@@ -588,6 +934,52 @@ fun TeamManagementView(
                 playerToDelete = null
             }
         )
+    }
+
+    if (showOcrImportDialog && ocrImageUri != null) {
+        RosterOcrImportDialog(
+            teamName = teamName,
+            imageUri = ocrImageUri!!,
+            onDismiss = {
+                showOcrImportDialog = false
+                ocrImageUri = null
+            },
+            onImport = { candidates: List<RosterCandidate> ->
+                playerViewModel.importRosterCandidates(
+                    teamName = teamName,
+                    candidates = candidates,
+                    addedBy = teamViewModel.getCurrentUser()
+                )
+                showOcrImportDialog = false
+                ocrImageUri = null
+            }
+        )
+    }
+
+}
+
+private enum class PlayerSortMode {
+    NUMBER,
+    LAST_NAME
+}
+
+private fun playerLastName(name: String): String {
+    val cleaned = name.trim()
+    if (cleaned.isEmpty()) return ""
+    return if (cleaned.contains(",")) {
+        cleaned.substringBefore(",").trim()
+    } else {
+        cleaned.substringAfterLast(" ", cleaned).trim()
+    }
+}
+
+private fun yearSortKey(year: String): Int {
+    return when (year.trim().lowercase()) {
+        "freshman" -> 1
+        "sophomore" -> 2
+        "junior" -> 3
+        "senior" -> 4
+        else -> 99
     }
 }
 
