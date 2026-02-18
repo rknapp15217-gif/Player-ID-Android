@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PeopleAlt
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Language
@@ -86,7 +87,8 @@ fun TeamScreen(
     teamSnapRepository: TeamSnapRepository? = null,
     onNavigateToCrowdSourced: () -> Unit = {},
     onNavigateToWebImport: (String) -> Unit = {},
-    onNavigateToAppImport: (String, Boolean) -> Unit = { _, _ -> }
+    onNavigateToAppImport: (String, Boolean) -> Unit = { _, _ -> },
+    onNavigateToVideoLibrary: (String) -> Unit = { }
 ) {
     val selectedTeam by teamViewModel.selectedTeam.collectAsState()
     val isTeamSelected by teamViewModel.isTeamSelected.collectAsState()
@@ -102,7 +104,8 @@ fun TeamScreen(
                 playerViewModel.setSelectedTeam(null)
             },
             onNavigateToWebImport = onNavigateToWebImport,
-            onNavigateToAppImport = onNavigateToAppImport
+            onNavigateToAppImport = onNavigateToAppImport,
+            onNavigateToVideoLibrary = onNavigateToVideoLibrary
         )
     } else {
         TeamSelectionView(
@@ -465,7 +468,8 @@ fun TeamManagementView(
     teamViewModel: TeamViewModel,
     onClearTeam: () -> Unit,
     onNavigateToWebImport: (String) -> Unit,
-    onNavigateToAppImport: (String, Boolean) -> Unit
+    onNavigateToAppImport: (String, Boolean) -> Unit,
+    onNavigateToVideoLibrary: (String) -> Unit = { }
 ) {
     val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
     val teamPlayers = remember(allPlayers, teamName) {
@@ -676,6 +680,15 @@ fun TeamManagementView(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
+
+        Button(
+            onClick = { onNavigateToVideoLibrary(teamName) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = "Videos")
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Video Library")
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),

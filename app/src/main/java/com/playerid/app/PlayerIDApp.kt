@@ -2,11 +2,14 @@ package com.playerid.app
 
 import android.Manifest
 import android.app.Application
+import android.content.ContentUris
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.speech.RecognitionListener
+import android.provider.MediaStore
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
@@ -51,7 +54,14 @@ import com.playerid.app.subscription.SubscriptionViewModel
 import com.playerid.app.subscription.SubscriptionViewModelFactory
 import com.playerid.app.data.teamsnap.TeamSnapRepository
 import com.playerid.app.data.PlayerDatabase
+import com.playerid.app.data.Player
+import com.playerid.app.data.VideoClip
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -204,9 +214,9 @@ fun PlayerIDApp() {
                         selected = isSelected,
                         onClick = {
                             navController.navigate(item.route) {
-                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                popUpTo(navController.graph.startDestinationId) { saveState = false }
                                 launchSingleTop = true
-                                restoreState = true
+                                restoreState = false
                             }
                             scope.launch { drawerState.close() }
                         },
@@ -342,8 +352,15 @@ fun PlayerIDApp() {
                             },
                             onVideoSaved = { videoUri ->
                                 val encodedUri = Uri.encode(videoUri.toString())
-                                navController.navigate("video_editor?videoUri=$encodedUri") {
+                                navController.navigate("post_recording?videoUri=$encodedUri") {
                                     launchSingleTop = true
+                                }
+                            },
+                            onNavigateToVideoLibrary = {
+                                val selectedTeam = playerViewModel.selectedTeam.value
+                                if (selectedTeam != null) {
+                                    val encodedTeamName = Uri.encode(selectedTeam)
+                                    navController.navigate("video_library/$encodedTeamName")
                                 }
                             }
                         )
@@ -365,6 +382,33 @@ fun PlayerIDApp() {
                             )
                         }
                     }
+                    composable(
+                        route = "post_recording?videoUri={videoUri}",
+                        arguments = listOf(navArgument("videoUri") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val videoUriString = backStackEntry.arguments?.getString("videoUri")
+                        if (videoUriString != null) {
+                            PostRecordingScreen(
+                                videoUri = Uri.parse(Uri.decode(videoUriString)),
+                                onEdit = { 
+                                    navController.navigate("video_editor?videoUri=${backStackEntry.arguments?.getString("videoUri")}") {
+                                        popUpTo("post_recording") { inclusive = true }
+                                    }
+                                },
+                                onSaveToLibrary = { 
+                                    // TODO: Save video to library database
+                                    navController.navigate("camera") {
+                                        popUpTo("post_recording") { inclusive = true }
+                                    }
+                                },
+                                onDiscard = { 
+                                    navController.navigate("camera") {
+                                        popUpTo("post_recording") { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
+                    }
                     composable("team") {
                         TeamScreen(
                             teamViewModel = teamViewModel,
@@ -380,6 +424,10 @@ fun PlayerIDApp() {
                             onNavigateToAppImport = { teamName, _ ->
                                 val encodedTeamName = Uri.encode(teamName)
                                 navController.navigate("app_roster_import/$encodedTeamName")
+                            },
+                            onNavigateToVideoLibrary = { teamName ->
+                                val encodedTeamName = Uri.encode(teamName)
+                                navController.navigate("video_library/$encodedTeamName")
                             }
                         )
                     }
@@ -420,6 +468,88 @@ fun PlayerIDApp() {
                                     )
                                     navController.popBackStack()
                                 }
+                            )
+                        }
+                    }
+                    composable("video_library/{teamName}",
+                        arguments = listOf(navArgument("teamName") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val teamName = backStackEntry.arguments?.getString("teamName")?.let { Uri.decode(it) }
+                        if (teamName != null) {
+                            val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
+                            val rosterPlayers = remember(allPlayers, teamName) {
+                                allPlayers.filter { it.team == teamName }
+                            }
+                            val scope = rememberCoroutineScope()
+                            var isLoading by remember(teamName) { mutableStateOf(true) }
+                            var videos by remember(teamName) { mutableStateOf(emptyList<VideoClip>()) }
+                            var refreshKey by remember(teamName) { mutableStateOf(0) }
+                            var lastRefreshedLabel by remember(teamName) { mutableStateOf("") }
+                            var lastRefreshedAtMillis by remember(teamName) { mutableStateOf(0L) }
+                            LaunchedEffect(teamName, refreshKey) {
+                                isLoading = true
+                                videos = loadRecordedVideos(context)
+                                isLoading = false
+                                val now = java.util.Date()
+                                val nowMillis = now.time
+                                lastRefreshedAtMillis = nowMillis
+                                lastRefreshedLabel = formatLastRefreshedLabel(lastRefreshedAtMillis)
+                            }
+                            LaunchedEffect(teamName, lastRefreshedAtMillis) {
+                                if (lastRefreshedAtMillis == 0L) return@LaunchedEffect
+                                while (true) {
+                                    val updatedLabel = formatLastRefreshedLabel(lastRefreshedAtMillis)
+                                    if (updatedLabel != lastRefreshedLabel) {
+                                        lastRefreshedLabel = updatedLabel
+                                    }
+                                    delay(60_000L)
+                                }
+                            }
+                            
+                            VideoLibraryScreen(
+                                teamName = teamName,
+                                videos = videos,
+                                rosterPlayers = rosterPlayers,
+                                isLoading = isLoading,
+                                lastRefreshedLabel = lastRefreshedLabel,
+                                onNavigateBack = { navController.popBackStack() },
+                                onRefresh = { refreshKey += 1 },
+                                onVideoSelected = { videoUri, players ->
+                                    val encodedUri = Uri.encode(videoUri.toString())
+                                    navController.navigate("video_playback/$encodedUri") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onVideoEdit = { videoUri ->
+                                    val encodedUri = Uri.encode(videoUri.toString())
+                                    navController.navigate("video_editor?videoUri=$encodedUri") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onVideoDelete = { video ->
+                                    val videoUri = Uri.parse(video.filePath)
+                                    videos = videos.filterNot { it.id == video.id }
+                                    scope.launch {
+                                        deleteRecordedVideo(context, videoUri)
+                                        refreshKey += 1
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    composable("video_playback/{videoUri}",
+                        arguments = listOf(navArgument("videoUri") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val videoUriString = backStackEntry.arguments?.getString("videoUri")?.let { Uri.decode(it) }
+                        if (videoUriString != null) {
+                            val videoUri = Uri.parse(videoUriString)
+                            // TODO: Get detected players from video metadata
+                            val detectedPlayers = emptyList<Player>()
+                            
+                            VideoPlaybackScreen(
+                                videoUri = videoUri,
+                                detectedPlayers = detectedPlayers,
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
                     }
@@ -512,4 +642,75 @@ fun PlayerIDApp() {
             onDismiss = { subscriptionViewModel.hidePaywall() }
         )
     }
+}
+
+private suspend fun loadRecordedVideos(context: Context): List<VideoClip> = withContext(Dispatchers.IO) {
+    val videos = mutableListOf<VideoClip>()
+    val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+    val projection = arrayOf(
+        MediaStore.Video.Media._ID,
+        MediaStore.Video.Media.DISPLAY_NAME,
+        MediaStore.Video.Media.DATE_ADDED,
+        MediaStore.Video.Media.DURATION,
+        MediaStore.Video.Media.RELATIVE_PATH
+    )
+    val selection = "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?"
+    val selectionArgs = arrayOf("Movies/PlayerID%")
+    val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
+
+    context.contentResolver.query(collection, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
+        val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+        val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
+        val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
+        val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+
+        while (cursor.moveToNext()) {
+            val id = cursor.getLong(idColumn)
+            val displayName = cursor.getString(nameColumn) ?: "Game Video"
+            val dateAddedSeconds = cursor.getLong(dateColumn)
+            val duration = cursor.getLong(durationColumn)
+            val contentUri = ContentUris.withAppendedId(collection, id)
+
+            val gameDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                .format(Date(dateAddedSeconds * 1000))
+
+            videos.add(
+                VideoClip(
+                    id = id.toString(),
+                    filePath = contentUri.toString(),
+                    duration = duration,
+                    createdAt = dateAddedSeconds * 1000,
+                    gameDate = gameDate,
+                    gameTitle = displayName.substringBeforeLast(".")
+                )
+            )
+        }
+    }
+
+    videos
+}
+
+private suspend fun deleteRecordedVideo(context: Context, videoUri: Uri): Boolean = withContext(Dispatchers.IO) {
+    try {
+        val deleted = context.contentResolver.delete(videoUri, null, null)
+        deleted > 0
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun formatLastRefreshedLabel(lastRefreshedAtMillis: Long): String {
+    if (lastRefreshedAtMillis == 0L) {
+        return ""
+    }
+
+    val nowMillis = System.currentTimeMillis()
+    val dayMillis = 24L * 60L * 60L * 1000L
+    val format = if (nowMillis - lastRefreshedAtMillis >= dayMillis) {
+        "MMM d, h:mm a"
+    } else {
+        "h:mm a"
+    }
+    val formatter = SimpleDateFormat(format, Locale.getDefault())
+    return "Last refreshed: " + formatter.format(Date(lastRefreshedAtMillis))
 }

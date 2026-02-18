@@ -75,7 +75,8 @@ fun CameraScreen(
     showVoiceId: Boolean,
     isVoiceListening: Boolean,
     onVoiceIdToggle: () -> Unit,
-    onVideoSaved: (Uri) -> Unit
+    onVideoSaved: (Uri) -> Unit,
+    onNavigateToVideoLibrary: () -> Unit = { }
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -99,11 +100,19 @@ fun CameraScreen(
     var isStandby by remember { mutableStateOf(false) }
     val capturePastMode by viewModel.capturePastMode.collectAsState()
     var wasCapturePast by remember { mutableStateOf(capturePastMode) }
+    var preventAutoRecording by remember { mutableStateOf(true) }
+
+    // Reset the prevent flag after 2 seconds to allow auto-recording
+    LaunchedEffect(Unit) {
+        delay(2000)  // Wait 2 seconds before allowing auto-recording
+        preventAutoRecording = false
+    }
 
     // Auto-start background recording
     LaunchedEffect(recordingState, cameraPermissionsState.allPermissionsGranted, isVoiceSessionActive, capturePastMode, isStandby) {
         if (capturePastMode &&
             !isStandby &&
+            !preventAutoRecording &&
             cameraPermissionsState.allPermissionsGranted &&
             recordingState == RecordingState.IDLE &&
             !isVoiceSessionActive) {
@@ -176,11 +185,15 @@ fun CameraScreen(
     }
 
     val activity = context as? Activity
-    DisposableEffect(isStandby) {
-        if (isStandby) {
+    DisposableEffect(isStandby, recordingState) {
+        if (isStandby || recordingState == RecordingState.RECORDING) {
             activity?.window?.apply {
                 addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                attributes = attributes?.apply { screenBrightness = 0.01f }
+                if (isStandby) {
+                    attributes = attributes?.apply { screenBrightness = 0.01f }
+                } else {
+                    attributes = attributes?.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+                }
             }
         } else {
             activity?.window?.apply {
@@ -335,16 +348,29 @@ fun CameraScreen(
                     }
                 }
 
-                if (capturePastMode && !isStandby) {
-                    FloatingActionButton(
-                        onClick = { isStandby = true },
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        shape = CircleShape,
+                if (!capturePastMode && !isStandby) {
+                    Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .padding(16.dp)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Bedtime, "Sleep")
+                        FloatingActionButton(
+                            onClick = onNavigateToVideoLibrary,
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            shape = CircleShape,
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            Icon(Icons.Default.VideoLibrary, "Video Library")
+                        }
+                        FloatingActionButton(
+                            onClick = { isStandby = true },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = CircleShape,
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            Icon(Icons.Default.Bedtime, "Sleep")
+                        }
                     }
                 }
 
