@@ -39,15 +39,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
@@ -66,7 +70,13 @@ import kotlinx.coroutines.delay
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
+import kotlinx.coroutines.launch
 
 @Composable
 fun CameraScreen(
@@ -75,7 +85,7 @@ fun CameraScreen(
     showVoiceId: Boolean,
     isVoiceListening: Boolean,
     onVoiceIdToggle: () -> Unit,
-    onVideoSaved: (Uri) -> Unit,
+    onVideoSaved: (Uri, Long) -> Unit,
     onNavigateToVideoLibrary: () -> Unit = { }
 ) {
     val context = LocalContext.current
@@ -93,34 +103,107 @@ fun CameraScreen(
     
     val recordingManager = remember { RecordingManager(context) }
     val recordingState by recordingManager.recordingState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     var liveStartMs by remember { mutableStateOf<Long?>(null) }
     var liveElapsedMs by remember { mutableStateOf(0L) }
 
+    var isCameraReady by remember { mutableStateOf(false) }
+    LaunchedEffect(isCameraReady) {
+        Log.d("CameraScreen", "isCameraReady changed: $isCameraReady")
+    }
     var isStandby by remember { mutableStateOf(false) }
+    // Only set isCameraReady to false on first composition
+    LaunchedEffect(Unit) {
+        isCameraReady = false
+    }
+    // Only show the overlay while the camera is not ready
+    val showCameraOverlay = !isCameraReady && !isStandby
     val capturePastMode by viewModel.capturePastMode.collectAsState()
     var wasCapturePast by remember { mutableStateOf(capturePastMode) }
-    var preventAutoRecording by remember { mutableStateOf(true) }
+    var lastManualStop by remember { mutableStateOf(System.currentTimeMillis()) }
+    var isAppInBackground by remember { mutableStateOf(false) }
 
-    // Reset the prevent flag after 2 seconds to allow auto-recording
-    LaunchedEffect(Unit) {
-        delay(2000)  // Wait 2 seconds before allowing auto-recording
-        preventAutoRecording = false
-    }
-
-    // Auto-start background recording
-    LaunchedEffect(recordingState, cameraPermissionsState.allPermissionsGranted, isVoiceSessionActive, capturePastMode, isStandby) {
-        if (capturePastMode &&
-            !isStandby &&
-            !preventAutoRecording &&
-            cameraPermissionsState.allPermissionsGranted &&
-            recordingState == RecordingState.IDLE &&
-            !isVoiceSessionActive) {
-            delay(1000)
-            recordingManager.startRecording { uri ->
-                uri?.let { onVideoSaved(it) }
+    // Mode-aware handlers for recording completion
+    val recordingCompleteHandler: (Uri, Long) -> Unit = { uri, timestamp ->
+        // Save metadata for both modes
+        val selectedTeam = viewModel.selectedTeam.value
+        val videoPath = uri.path ?: ""
+        val videoUriString = uri.toString()
+        if (selectedTeam != null) {
+            val prefs = context.getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE)
+            if (videoPath.isNotEmpty()) {
+                prefs.edit().putString(videoPath, selectedTeam).apply()
+            }
+            if (videoUriString.isNotEmpty()) {
+                prefs.edit().putString(videoUriString, selectedTeam).apply()
             }
         }
+        if (timestamp > 0L) {
+            val prefs = context.getSharedPreferences("video_start_times", android.content.Context.MODE_PRIVATE)
+            if (videoPath.isNotEmpty()) {
+                prefs.edit().putLong(videoPath, timestamp).apply()
+            }
+            if (videoUriString.isNotEmpty()) {
+                prefs.edit().putLong(videoUriString, timestamp).apply()
+            }
+        }
+        
+        // Both modes show post-recording screen
+        onVideoSaved(uri, timestamp)
+    }
+
+    LaunchedEffect(recordingState, cameraPermissionsState.allPermissionsGranted, isVoiceSessionActive, capturePastMode, isStandby, isAppInBackground, isCameraReady) {
+        if (capturePastMode &&
+            !isStandby &&
+            cameraPermissionsState.allPermissionsGranted &&
+            recordingState == RecordingState.IDLE &&
+            !isVoiceSessionActive &&
+            !isAppInBackground &&
+            isCameraReady) {
+            // Prevent auto-start within 3 seconds of a manual stop, then resume automatically.
+            val timeSinceStop = System.currentTimeMillis() - lastManualStop
+            val remainingCooldown = 0L - timeSinceStop
+            if (remainingCooldown > 0L) {
+                delay(remainingCooldown)
+            }
+            if (capturePastMode &&
+                !isStandby &&
+                cameraPermissionsState.allPermissionsGranted &&
+                recordingState == RecordingState.IDLE &&
+                !isVoiceSessionActive &&
+                !isAppInBackground &&
+                isCameraReady) {
+                delay(0)
+                recordingManager.startRecording { uri ->
+                    uri?.let { recordingCompleteHandler(it, recordingManager.getLastRecordingStartTimeMs()) }
+                }
+            }
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, capturePastMode, recordingState) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    isAppInBackground = true
+                    if (capturePastMode && recordingState == RecordingState.RECORDING) {
+                        lastManualStop = System.currentTimeMillis()
+                        recordingManager.stopAndDiscardRecording()
+                    }
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME,
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    isAppInBackground = false
+                    lastManualStop = System.currentTimeMillis()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(capturePastMode) {
@@ -130,10 +213,15 @@ fun CameraScreen(
                 recordingManager.stopAndDiscardRecording()
             }
         }
+        if (!wasCapturePast && capturePastMode) {
+            // Give Capture Past a short cool-down when toggling back from Live.
+            lastManualStop = System.currentTimeMillis()
+        }
         wasCapturePast = capturePastMode
     }
 
     val isLiveRecording = !capturePastMode && recordingState == RecordingState.RECORDING
+    val isRecording = recordingState == RecordingState.RECORDING
 
     LaunchedEffect(isLiveRecording) {
         liveStartMs = if (isLiveRecording) SystemClock.elapsedRealtime() else null
@@ -212,6 +300,8 @@ fun CameraScreen(
 
     if (cameraPermissionsState.allPermissionsGranted) {
         Scaffold(
+            containerColor = Color.Black,
+            contentColor = Color.White,
             floatingActionButton = {
                 if (!isStandby) {
                     Box(
@@ -219,11 +309,17 @@ fun CameraScreen(
                     ) {
                         FloatingActionButton(
                             onClick = {
+                                if (!isCameraReady) return@FloatingActionButton
                                 if (recordingState == RecordingState.RECORDING) {
+                                    if (capturePastMode) {
+                                        // In Capture Past: mark the stop time to prevent immediate auto-restart
+                                        lastManualStop = System.currentTimeMillis()
+                                    }
                                     recordingManager.stopRecording()
                                 } else if (recordingState == RecordingState.IDLE) {
+                                    // Both Live and Capture Past can manually start
                                     recordingManager.startRecording { uri ->
-                                        uri?.let { onVideoSaved(it) }
+                                        uri?.let { recordingCompleteHandler(it, recordingManager.getLastRecordingStartTimeMs()) }
                                     }
                                 }
                             },
@@ -231,14 +327,15 @@ fun CameraScreen(
                             containerColor = Color.Transparent,
                             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp)
                         ) {
+                            val recordAlpha = if (isCameraReady) 1f else 0.45f
                             val innerSize by animateDpAsState(
-                                targetValue = if (isLiveRecording) 24.dp else 38.dp,
+                                targetValue = if (isRecording) 24.dp else 38.dp,
                                 animationSpec = tween(durationMillis = 200),
                                 label = "recordInnerSize"
                             )
 
                             Box(
-                                modifier = Modifier.size(48.dp),
+                                modifier = Modifier.size(48.dp).alpha(recordAlpha),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Box(
@@ -257,16 +354,19 @@ fun CameraScreen(
                     }
                 }
             },
-            floatingActionButtonPosition = FabPosition.Center
+            floatingActionButtonPosition = FabPosition.Center,
+            snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { padding ->
             var camera: Camera? by remember { mutableStateOf(null) }
             var scaleFactor by remember { mutableStateOf(1f) }
             var minZoom by remember { mutableStateOf(1f) }
             var maxZoom by remember { mutableStateOf(8f) }
-            var isCameraReady by remember { mutableStateOf(false) }
-
             Box(
-                modifier = Modifier.fillMaxSize().padding(padding).pointerInput(Unit) {
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(Color.Black)
+                    .pointerInput(Unit) {
                     detectTransformGestures { _, _, zoomChange, _ ->
                         if (!isStandby) {
                             camera?.let { cam ->
@@ -277,13 +377,24 @@ fun CameraScreen(
                     }
                 }
             ) {
+                // Black fill layer to prevent white flash during camera initialization
+                if (!isCameraReady) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                    )
+                }
+
                 AndroidView(
                     factory = { ctx ->
                         PreviewView(ctx).also { view ->
+                            view.setBackgroundColor(android.graphics.Color.BLACK)
                             startCamera(ctx, lifecycleOwner, view, detectionManager, recordingManager) { cam ->
                                 camera = cam
                                 minZoom = cam.cameraInfo.zoomState.value?.minZoomRatio ?: 1f
                                 maxZoom = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 8f
+                                Log.d("CameraScreen", "Camera ready callback - setting isCameraReady true")
                                 isCameraReady = true
                             }
                         }
@@ -291,7 +402,9 @@ fun CameraScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                if (!isCameraReady && !isStandby) {
+                // Overlay must be last so it cannot persist after isCameraReady is true
+                if (showCameraOverlay) {
+                    Log.d("CameraScreen", "Showing camera overlay: isCameraReady=$isCameraReady isStandby=$isStandby")
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -303,15 +416,29 @@ fun CameraScreen(
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                             tonalElevation = 6.dp
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 18.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
+                                val infiniteTransition = rememberInfiniteTransition(label = "camera-rotate")
+                                val rotation by infiniteTransition.animateFloat(
+                                    initialValue = 0f,
+                                    targetValue = 360f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(durationMillis = 1200, easing = LinearEasing),
+                                        repeatMode = RepeatMode.Restart
+                                    ),
+                                    label = "rotation"
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Icon(
+                                    imageVector = Icons.Default.PhotoCamera,
+                                    contentDescription = "Camera Loading",
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .graphicsLayer { rotationZ = rotation },
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
                                 Text("Warming camera...", style = MaterialTheme.typography.bodyMedium)
                             }
                         }
@@ -348,74 +475,59 @@ fun CameraScreen(
                     }
                 }
 
-                if (!capturePastMode && !isStandby) {
-                    Column(
+                // Bottom-left: Mode toggle
+                if (!isStandby) {
+                    FloatingActionButton(
+                        onClick = { viewModel.setCapturePastMode(!capturePastMode) },
+                        containerColor = if (capturePastMode) {
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
+                        } else {
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                        },
+                        shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(16.dp)
+                            .size(64.dp)
                     ) {
-                        FloatingActionButton(
-                            onClick = onNavigateToVideoLibrary,
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                            shape = CircleShape,
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            Icon(Icons.Default.VideoLibrary, "Video Library")
-                        }
-                        FloatingActionButton(
-                            onClick = { isStandby = true },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = CircleShape,
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            Icon(Icons.Default.Bedtime, "Sleep")
-                        }
+                        Icon(
+                            if (capturePastMode) Icons.Default.History else Icons.Default.Videocam,
+                            contentDescription = if (capturePastMode) "Capture Past" else "Capture Moment",
+                            modifier = Modifier.size(32.dp),
+                            tint = if (capturePastMode) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
                     }
                 }
-
-                if (showVoiceId && !isStandby) {
+                
+                // Bottom-right: Voice ID button
+                if (!isStandby) {
                     FloatingActionButton(
                         onClick = onVoiceIdToggle,
-                        containerColor = if (isVoiceListening) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = if (isVoiceListening) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-                        shape = CircleShape,
+                        containerColor = if (isVoiceListening) {
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f)
+                        } else {
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                        },
+                        shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(16.dp)
+                            .size(56.dp)
                     ) {
-                        Icon(Icons.Default.PersonSearch, "Voice Player ID")
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(16.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                        tonalElevation = 6.dp
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ModeChip(
-                                text = "Capture Past",
-                                selected = capturePastMode,
-                                selectedColor = MaterialTheme.colorScheme.primary,
-                                onClick = { viewModel.setCapturePastMode(true) }
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            ModeChip(
-                                text = "Live Camera",
-                                selected = !capturePastMode,
-                                selectedColor = MaterialTheme.colorScheme.secondary,
-                                onClick = { viewModel.setCapturePastMode(false) }
-                            )
-                        }
+                        Icon(
+                            if (isVoiceListening) Icons.Default.Mic else Icons.Default.MicNone,
+                            contentDescription = "Voice Player ID",
+                            modifier = Modifier.size(24.dp),
+                            tint = if (isVoiceListening) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
                     }
                 }
 
@@ -425,38 +537,6 @@ fun CameraScreen(
                         processing = processing,
                         modifier = Modifier.fillMaxSize()
                     )
-
-                    Column(
-                        modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
-                    ) {
-                        val visiblePlayers = trackedPlayersWithInfo.filter { it.first.disappearedFrames == 0 }
-                        if (visiblePlayers.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                                shape = RoundedCornerShape(16.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Text("Spotr AR Active", style = MaterialTheme.typography.titleMedium)
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Tracking: ${visiblePlayers.size} players", style = MaterialTheme.typography.bodySmall)
-                                        val firstPlayer = visiblePlayers.first().first
-                                        val frozenW = firstPlayer.initialBox.width().toInt()
-                                        val frozenH = firstPlayer.initialBox.height().toInt()
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("| Size: ${frozenW}x${frozenH}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                    visiblePlayers.firstOrNull()?.let { (tracked, player) ->
-                                        val displayText = player?.let { "${it.name} #${it.number}" } ?: "Unknown #${tracked.jerseyNumber}"
-                                        val textColor = if (player != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                                        Text(displayText, style = MaterialTheme.typography.bodyMedium, color = textColor)
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
 
                 if (isStandby) {

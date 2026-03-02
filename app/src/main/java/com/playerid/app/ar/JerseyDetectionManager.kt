@@ -25,7 +25,12 @@ class JerseyDetectionManager(
     private val onDetectionProcessing: (() -> Unit)? = null
 ) : ImageAnalysis.Analyzer {
 
-    private val numberLocator = NumberLocator(context)
+    private val numberLocator: NumberLocator? = try {
+        NumberLocator(context)
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to initialize ML model (expected on emulator): ${e.message}")
+        null
+    }
     private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val yuvToRgbConverter = YuvToRgbConverter(context)
     private val playerTracker = PlayerTracker()
@@ -53,7 +58,7 @@ class JerseyDetectionManager(
     }
 
     override fun analyze(imageProxy: ImageProxy) {
-        if (isPaused.get() || isProcessing.get()) {
+        if (isPaused.get() || isProcessing.get() || numberLocator == null) {
             imageProxy.close()
             return
         }

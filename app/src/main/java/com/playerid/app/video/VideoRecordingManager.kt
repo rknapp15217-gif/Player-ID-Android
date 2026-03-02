@@ -41,9 +41,14 @@ class VideoRecordingManager(private val context: Context) {
         // Create output file
         val dateFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault())
         val timestamp = dateFormat.format(Date())
+        val moviesDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
         val videoFile = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_MOVIES),
+            moviesDir,
             "spotr_video_$timestamp.mp4"
+        )
+        android.util.Log.d(
+            "VideoRecording",
+            "Saving video to ${videoFile.absolutePath}; moviesDir=${moviesDir?.absolutePath}"
         )
         
         val fileOutputOptions = FileOutputOptions.Builder(videoFile).build()
@@ -64,6 +69,10 @@ class VideoRecordingManager(private val context: Context) {
                             if (recordEvent.hasError()) {
                                 onError("Recording failed: ${recordEvent.cause?.message}")
                             } else {
+                                android.util.Log.d(
+                                    "VideoRecording",
+                                    "Recording finalized. file exists=${videoFile.exists()} size=${videoFile.length()}"
+                                )
                                 onVideoSaved(Uri.fromFile(videoFile))
                             }
                             activeRecording = null

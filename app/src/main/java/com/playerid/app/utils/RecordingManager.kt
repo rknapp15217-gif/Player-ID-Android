@@ -22,6 +22,7 @@ class RecordingManager(private val context: Context) {
     private var activeRecording: Recording? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var ignoreNextResult = false
+    private var lastRecordingStartTimeMs: Long = 0L
 
     private val _recordingState = MutableStateFlow(RecordingState.IDLE)
     val recordingState: StateFlow<RecordingState> = _recordingState
@@ -30,12 +31,17 @@ class RecordingManager(private val context: Context) {
         this.videoCapture = videoCapture
     }
 
+    fun getLastRecordingStartTimeMs(): Long {
+        return lastRecordingStartTimeMs
+    }
+
     @SuppressLint("MissingPermission")
     fun startRecording(onFinished: (Uri?) -> Unit) {
         if (_recordingState.value != RecordingState.IDLE) return
 
         val capture = videoCapture ?: return
         ignoreNextResult = false
+        lastRecordingStartTimeMs = System.currentTimeMillis()
 
         _recordingState.value = RecordingState.RECORDING
         val mediaStoreOutputOptions = createMediaStoreOutputOptions()
@@ -84,6 +90,12 @@ class RecordingManager(private val context: Context) {
             } else {
                 recordEvent.outputResults.outputUri
             }
+
+            if (recordEvent.hasError()) {
+                Log.e("RecordingManager", "Recording failed: ${recordEvent.error}", recordEvent.cause)
+            } else {
+                logOutputDetails(uri)
+            }
             
             _recordingState.value = RecordingState.IDLE
             activeRecording = null
@@ -92,9 +104,66 @@ class RecordingManager(private val context: Context) {
             if (!ignoreNextResult) {
                 onFinished(uri)
             } else {
-                Log.d("RecordingManager", "Recording discarded silently to free mic.")
+                deleteOutputUri(uri)
+                Log.d("RecordingManager", "Recording discarded and deleted to free mic.")
                 ignoreNextResult = false
             }
+        }
+    }
+
+    private fun deleteOutputUri(uri: Uri?) {
+        if (uri == null) return
+        try {
+            when (uri.scheme) {
+                "content" -> context.contentResolver.delete(uri, null, null)
+                "file" -> runCatching { java.io.File(uri.path ?: "").delete() }
+            }
+        } catch (e: Exception) {
+            Log.w("RecordingManager", "Failed to delete discarded recording", e)
+        }
+    }
+
+    private fun logOutputDetails(uri: Uri?) {
+        if (uri == null) {
+            Log.w("RecordingManager", "Recording finalized with null output URI")
+            return
+        }
+
+        Log.d("RecordingManager", "Recording finalized. outputUri=$uri")
+        if (uri.scheme != "content") {
+            return
+        }
+
+        val projection = arrayOf(
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.Video.Media.DURATION,
+            MediaStore.MediaColumns.DATE_TAKEN,
+            MediaStore.MediaColumns.DATE_ADDED
+        )
+
+        try {
+            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) {
+                    Log.d("RecordingManager", "Output URI query returned no rows")
+                    return
+                }
+
+                val name = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME))
+                val relativePath = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH))
+                val size = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE))
+                val duration = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION))
+                val dateTaken = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_TAKEN))
+                val dateAdded = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED))
+
+                Log.d(
+                    "RecordingManager",
+                    "Output details name=$name relativePath=$relativePath size=$size durationMs=$duration dateTaken=$dateTaken dateAdded=$dateAdded"
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("RecordingManager", "Failed to query output URI details", e)
         }
     }
 

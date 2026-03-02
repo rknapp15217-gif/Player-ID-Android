@@ -7,7 +7,7 @@ import android.content.Context
 
 @Database(
     entities = [Player::class, Team::class, UserTeamSubscription::class], 
-    version = 6, // Incremented to fix schema mismatch crash
+    version = 7, // Incremented to force schema migration after VideoClip changes
     exportSchema = false
 )
 abstract class PlayerDatabase : RoomDatabase() {

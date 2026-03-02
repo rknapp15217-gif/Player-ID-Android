@@ -48,6 +48,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
@@ -60,11 +61,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.playerid.app.data.Player
 import com.playerid.app.ui.dialogs.AddPlayerDialog
 import com.playerid.app.ui.dialogs.AddTeamDialog
@@ -78,6 +81,9 @@ import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
 import com.playerid.app.data.teamsnap.TeamSnapRepository
 import com.playerid.app.roster.RosterCandidate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,7 +94,9 @@ fun TeamScreen(
     onNavigateToCrowdSourced: () -> Unit = {},
     onNavigateToWebImport: (String) -> Unit = {},
     onNavigateToAppImport: (String, Boolean) -> Unit = { _, _ -> },
-    onNavigateToVideoLibrary: (String) -> Unit = { }
+    onNavigateToVideoLibrary: (String) -> Unit = { },
+    onVideoSelected: (android.net.Uri, List<Player>) -> Unit = { _, _ -> },
+    onVideoEdit: (android.net.Uri) -> Unit = { }
 ) {
     val selectedTeam by teamViewModel.selectedTeam.collectAsState()
     val isTeamSelected by teamViewModel.isTeamSelected.collectAsState()
@@ -105,7 +113,9 @@ fun TeamScreen(
             },
             onNavigateToWebImport = onNavigateToWebImport,
             onNavigateToAppImport = onNavigateToAppImport,
-            onNavigateToVideoLibrary = onNavigateToVideoLibrary
+            onNavigateToVideoLibrary = onNavigateToVideoLibrary,
+            onVideoSelected = onVideoSelected,
+            onVideoEdit = onVideoEdit
         )
     } else {
         TeamSelectionView(
@@ -368,8 +378,8 @@ fun TeamSelectionView(
     if (showAddTeamDialog) {
         AddTeamDialog(
             onDismiss = { showAddTeamDialog = false },
-            onAdd = { teamName ->
-                teamViewModel.addTeam(teamName)
+            onAdd = { teamName, sport ->
+                teamViewModel.addTeam(teamName, sport)
                 showAddTeamDialog = false
             }
         )
@@ -469,8 +479,34 @@ fun TeamManagementView(
     onClearTeam: () -> Unit,
     onNavigateToWebImport: (String) -> Unit,
     onNavigateToAppImport: (String, Boolean) -> Unit,
-    onNavigateToVideoLibrary: (String) -> Unit = { }
+    onNavigateToVideoLibrary: (String) -> Unit = { },
+    onVideoSelected: (android.net.Uri, List<Player>) -> Unit = { _, _ -> },
+    onVideoEdit: (android.net.Uri) -> Unit = { }
 ) {
+    var activeTab by remember { mutableStateOf("highlights") } // "roster" or "highlights"
+    var videoLibraryVideos by remember { mutableStateOf<List<com.playerid.app.data.VideoClip>>(emptyList()) }
+    var videoLibraryLoading by remember { mutableStateOf(false) }
+    var showCleanupDialog by remember { mutableStateOf(false) }
+    var cleanupInProgress by remember { mutableStateOf(false) }
+    var videoToDelete by remember { mutableStateOf<com.playerid.app.data.VideoClip?>(null) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    // Load videos when tab changes to highlights
+    LaunchedEffect(activeTab, teamName) {
+        if (activeTab == "highlights") {
+            videoLibraryLoading = true
+            try {
+                // Load videos from the file system
+                videoLibraryVideos = loadRecordedVideosForTeam(context, teamName)
+            } finally {
+                videoLibraryLoading = false
+            }
+        } else {
+            videoLibraryVideos = emptyList()
+        }
+    }
     val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
     val teamPlayers = remember(allPlayers, teamName) {
         allPlayers.filter { it.team == teamName }
@@ -478,6 +514,7 @@ fun TeamManagementView(
     var sortMode by remember { mutableStateOf(PlayerSortMode.NUMBER) }
     var positionFilter by remember { mutableStateOf<String?>(null) }
     var yearFilter by remember { mutableStateOf<String?>(null) }
+    var showFilters by remember { mutableStateOf(false) }  // Collapse filters by default
     var positionExpanded by remember { mutableStateOf(false) }
     var yearExpanded by remember { mutableStateOf(false) }
     val positionOptions = remember(teamPlayers) {
@@ -644,6 +681,50 @@ fun TeamManagementView(
             }
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Tab selector buttons
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = { activeTab = "highlights" },
+                modifier = Modifier.weight(1f),
+                colors = if (activeTab == "highlights") {
+                    ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                } else {
+                    ButtonDefaults.outlinedButtonColors()
+                }
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Highlights")
+            }
+            
+            OutlinedButton(
+                onClick = { activeTab = "roster" },
+                modifier = Modifier.weight(1f),
+                colors = if (activeTab == "roster") {
+                    ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                } else {
+                    ButtonDefaults.outlinedButtonColors()
+                }
+            ) {
+                Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Roster")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         LaunchedEffect(positionFilter, yearOptionsForPosition) {
             if (yearFilter != null && !yearOptionsForPosition.contains(yearFilter!!)) {
                 yearFilter = null
@@ -655,135 +736,121 @@ fun TeamManagementView(
                 positionFilter = null
             }
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Add player button
+
+        // Conditionally display roster or highlights content
+        if (activeTab == "roster") {
         Button(
             onClick = { showAddPlayerDialog = true },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary
+            )
         ) {
             Icon(Icons.Default.Add, contentDescription = "Add")
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Add Team Player")
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("Add Team Player", fontSize = 18.sp, fontWeight = FontWeight.Medium)
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Button(
-            onClick = { showImportRosterOptions = true },
+        // Filters toggle button
+        TextButton(
+            onClick = { showFilters = !showFilters },
             modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Default.CloudDownload, contentDescription = "Import")
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Import Roster")
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Button(
-            onClick = { onNavigateToVideoLibrary(teamName) },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = "Videos")
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Video Library")
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Sort by",
+                if (showFilters) "Hide filters" else "Show filters",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            OutlinedButton(
-                onClick = { sortMode = PlayerSortMode.NUMBER },
-                colors = if (sortMode == PlayerSortMode.NUMBER) {
-                    ButtonDefaults.outlinedButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                } else {
-                    ButtonDefaults.outlinedButtonColors()
-                }
-            ) {
-                Text("Number")
-            }
-            OutlinedButton(
-                onClick = { sortMode = PlayerSortMode.LAST_NAME },
-                colors = if (sortMode == PlayerSortMode.LAST_NAME) {
-                    ButtonDefaults.outlinedButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                } else {
-                    ButtonDefaults.outlinedButtonColors()
-                }
-            ) {
-                Text("Last name")
-            }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        // Collapsed filters section
+        if (showFilters) {
+            Spacer(modifier = Modifier.height(8.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            ExposedDropdownMenuBox(
-                expanded = positionExpanded,
-                onExpandedChange = { positionExpanded = !positionExpanded },
-                modifier = Modifier.weight(1f)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
-                    value = positionFilter ?: "All positions",
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Position") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = positionExpanded) },
-                    modifier = Modifier.menuAnchor()
+                Text(
+                    text = "Sort by",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                ExposedDropdownMenu(
-                    expanded = positionExpanded,
-                    onDismissRequest = { positionExpanded = false }
+                OutlinedButton(
+                    onClick = { sortMode = PlayerSortMode.NUMBER },
+                    colors = if (sortMode == PlayerSortMode.NUMBER) {
+                        ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    } else {
+                        ButtonDefaults.outlinedButtonColors()
+                    }
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("All") },
-                        onClick = {
-                            positionFilter = null
-                            positionExpanded = false
-                        }
+                    Text("Number")
+                }
+                OutlinedButton(
+                    onClick = { sortMode = PlayerSortMode.LAST_NAME },
+                    colors = if (sortMode == PlayerSortMode.LAST_NAME) {
+                        ButtonDefaults.outlinedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    } else {
+                        ButtonDefaults.outlinedButtonColors()
+                    }
+                ) {
+                    Text("Last name")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ExposedDropdownMenuBox(
+                    expanded = positionExpanded,
+                    onExpandedChange = { positionExpanded = !positionExpanded },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    OutlinedTextField(
+                        value = positionFilter ?: "All positions",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Position") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = positionExpanded) },
+                        modifier = Modifier.menuAnchor()
                     )
-                    positionOptions.forEach { option ->
-                        val isEnabled = positionOptionsForYear.contains(option)
+                    ExposedDropdownMenu(
+                        expanded = positionExpanded,
+                        onDismissRequest = { positionExpanded = false }
+                    ) {
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    option,
-                                    color = if (isEnabled) {
-                                        MaterialTheme.colorScheme.onSurface
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                    }
-                                )
-                            },
+                            text = { Text("All positions") },
                             onClick = {
-                                if (isEnabled) {
+                                positionFilter = null
+                                positionExpanded = false
+                            }
+                        )
+                        positionOptionsForYear.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option) },
+                                onClick = {
                                     positionFilter = option
                                     positionExpanded = false
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
-            }
-
-            if (yearOptionsAll.size > 1) {
                 ExposedDropdownMenuBox(
                     expanded = yearExpanded,
                     onExpandedChange = { yearExpanded = !yearExpanded },
@@ -802,36 +869,26 @@ fun TeamManagementView(
                         onDismissRequest = { yearExpanded = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("All") },
+                            text = { Text("All years") },
                             onClick = {
                                 yearFilter = null
                                 yearExpanded = false
                             }
                         )
-                        yearOptionsAll.forEach { option ->
-                            val isEnabled = yearOptionsForPosition.contains(option)
+                        yearOptionsForPosition.forEach { option ->
                             DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        option,
-                                        color = if (isEnabled) {
-                                            MaterialTheme.colorScheme.onSurface
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                        }
-                                    )
-                                },
+                                text = { Text(option) },
                                 onClick = {
-                                    if (isEnabled) {
-                                        yearFilter = option
-                                        yearExpanded = false
-                                    }
+                                    yearFilter = option
+                                    yearExpanded = false
                                 }
                             )
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
         }
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -902,6 +959,69 @@ fun TeamManagementView(
                 }
             }
         }
+        } else {
+            // Highlights tab - show embedded video library directly
+            val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
+            val rosterPlayers = remember(allPlayers, teamName) {
+                allPlayers.filter { it.team == teamName }
+            }
+
+            if (cleanupInProgress) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            OutlinedButton(
+                onClick = { showCleanupDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Delete all clips")
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            VideoLibraryScreen(
+                teamName = teamName,
+                videos = videoLibraryVideos,
+                rosterPlayers = rosterPlayers,
+                isLoading = false,
+                lastRefreshedLabel = "",
+                onNavigateBack = {},
+                onRefresh = {},
+                onVideoSelected = { videoUri, players ->
+                    onVideoSelected(videoUri, players)
+                },
+                onVideoEdit = { videoUri ->
+                    onVideoEdit(videoUri)
+                },
+                onVideoDelete = { video ->
+                    videoToDelete = video
+                    showDeleteConfirmDialog = true
+                },
+                onVideoNameChanged = { video, newName ->
+                    val prefs = context.getSharedPreferences("video_custom_names", android.content.Context.MODE_PRIVATE)
+                    prefs.edit().putString(video.id, newName).apply()
+                    videoLibraryVideos = videoLibraryVideos.map {
+                        if (it.id == video.id) it.copy(gameTitle = newName) else it
+                    }
+                },
+                onToggleHighlight = { video ->
+                    val newStatus = !video.isHighlight
+                    val prefs = context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE)
+                    prefs.edit().putBoolean(video.id, newStatus).apply()
+                    videoLibraryVideos = videoLibraryVideos.map {
+                        if (it.id == video.id) it.copy(isHighlight = newStatus) else it
+                    }
+                },
+                onCreateHighlightReel = { },
+                showTopBar = false
+            )
+        }
     }
     
     // Dialogs
@@ -969,6 +1089,260 @@ fun TeamManagementView(
         )
     }
 
+    if (showCleanupDialog) {
+        AlertDialog(
+            onDismissRequest = { showCleanupDialog = false },
+            title = { Text("Delete team clips?") },
+            text = {
+                Text("This removes only clips associated with $teamName from your phone and clears their saved mappings. This cannot be undone.")
+            },
+            dismissButton = {
+                TextButton(onClick = { showCleanupDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCleanupDialog = false
+                        cleanupInProgress = true
+                        scope.launch {
+                            cleanupTeamClips(context, teamName)
+                            videoLibraryVideos = loadRecordedVideosForTeam(context, teamName)
+                            cleanupInProgress = false
+                        }
+                    }
+                ) {
+                    Text("Delete")
+                }
+            }
+        )
+    }
+
+    if (showDeleteConfirmDialog && videoToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Delete clip?") },
+            text = {
+                Text("This will permanently delete '${videoToDelete!!.gameTitle}' from your phone.")
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        scope.launch {
+                            deleteClip(context, videoToDelete!!)
+                            videoLibraryVideos = loadRecordedVideosForTeam(context, teamName)
+                            videoToDelete = null
+                        }
+                    }
+                ) {
+                    Text("Delete")
+                }
+            }
+        )
+    }
+
+}
+
+private suspend fun deleteClip(context: android.content.Context, video: com.playerid.app.data.VideoClip) {
+    return withContext(Dispatchers.IO) {
+        val videoUri = android.net.Uri.parse(video.filePath)
+        val videoId = video.id
+        
+        try {
+            // Try MediaStore deletion for content:// URIs
+            if (videoUri.scheme == "content") {
+                context.contentResolver.delete(videoUri, null, null)
+            }
+            
+            // Also try file deletion for file:// URIs
+            if (videoUri.scheme == "file") {
+                val file = java.io.File(videoUri.path ?: "")
+                file.delete()
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("deleteClip", "Error deleting file", e)
+        }
+        
+        // Clean up stored metadata for this video
+        val prefs = listOf(
+            context.getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE),
+            context.getSharedPreferences("video_start_times", android.content.Context.MODE_PRIVATE),
+            context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE),
+            context.getSharedPreferences("video_custom_names", android.content.Context.MODE_PRIVATE)
+        )
+        prefs.forEach { pref ->
+            pref.edit()
+                .remove(videoId)
+                .remove(video.filePath)
+                .apply()
+        }
+    }
+}
+
+private suspend fun loadRecordedVideosForTeam(context: android.content.Context, teamName: String): List<com.playerid.app.data.VideoClip> {
+    return withContext(Dispatchers.IO) {
+        val videos = mutableListOf<com.playerid.app.data.VideoClip>()
+        val teamPrefs = context.getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE)
+        val startPrefs = context.getSharedPreferences("video_start_times", android.content.Context.MODE_PRIVATE)
+        val moviesDirs = context.getExternalFilesDirs(android.os.Environment.DIRECTORY_MOVIES)
+            .filterNotNull()
+        val logTag = "TeamHighlights"
+        val seenIds = mutableSetOf<String>()
+
+        if (moviesDirs.isEmpty()) {
+            android.util.Log.d(logTag, "Movies dirs empty; cannot load team videos")
+            return@withContext videos
+        }
+
+        try {
+            var matchedCount = 0
+            for (moviesDir in moviesDirs) {
+                val videoFiles = moviesDir.listFiles { file ->
+                    file.isFile && file.extension.equals("mp4", ignoreCase = true)
+                } ?: emptyArray()
+                android.util.Log.d(logTag, "Movies dir: ${moviesDir.absolutePath}; files: ${videoFiles.size}")
+
+                for (file in videoFiles.sortedByDescending { it.lastModified() }) {
+                    val videoPath = file.absolutePath
+                    val fileUriString = android.net.Uri.fromFile(file).toString()
+                    if (seenIds.contains(videoPath) || seenIds.contains(fileUriString)) {
+                        continue
+                    }
+                    val storedTeamName = teamPrefs.getString(videoPath, null)
+                        ?: teamPrefs.getString(fileUriString, null)
+                    if (storedTeamName != teamName) {
+                        continue
+                    }
+
+                    val storedStartTime = startPrefs.getLong(videoPath, 0L)
+                        .takeIf { it > 0L }
+                        ?: startPrefs.getLong(fileUriString, 0L).takeIf { it > 0L }
+                    val createdAt = storedStartTime ?: file.lastModified()
+                    val gameDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                        .format(java.util.Date(createdAt))
+
+                    val duration = try {
+                        val retriever = android.media.MediaMetadataRetriever()
+                        retriever.setDataSource(videoPath)
+                        val durationMs = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                            ?.toLongOrNull() ?: 0L
+                        retriever.release()
+                        durationMs
+                    } catch (_: Exception) {
+                        0L
+                    }
+
+                    videos.add(
+                        com.playerid.app.data.VideoClip(
+                            id = videoPath,
+                            filePath = android.net.Uri.fromFile(file).toString(),
+                            duration = duration,
+                            createdAt = createdAt,
+                            gameDate = gameDate,
+                            gameTitle = file.nameWithoutExtension,
+                            isHighlight = false
+                        )
+                    )
+                    seenIds.add(videoPath)
+                    seenIds.add(fileUriString)
+                    matchedCount += 1
+                }
+            }
+
+            val resolver = context.contentResolver
+            val collection = android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            val projection = arrayOf(
+                android.provider.MediaStore.Video.Media._ID,
+                android.provider.MediaStore.MediaColumns.DISPLAY_NAME,
+                android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                android.provider.MediaStore.MediaColumns.DATE_TAKEN,
+                android.provider.MediaStore.MediaColumns.DATE_ADDED,
+                android.provider.MediaStore.Video.Media.DURATION
+            )
+            val selection = "${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=?"
+            val selectionArgs = arrayOf("Movies/PlayerID/")
+            val sortOrder = "${android.provider.MediaStore.MediaColumns.DATE_ADDED} DESC"
+
+            resolver.query(collection, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Video.Media._ID)
+                val nameIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DISPLAY_NAME)
+                val dateTakenIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DATE_TAKEN)
+                val dateAddedIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DATE_ADDED)
+                val durationIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Video.Media.DURATION)
+
+                android.util.Log.d(logTag, "MediaStore Movies/PlayerID rows: ${cursor.count}")
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idIndex)
+                    val contentUri = android.content.ContentUris.withAppendedId(collection, id)
+                    val uriString = contentUri.toString()
+                    if (seenIds.contains(uriString)) {
+                        continue
+                    }
+
+                    val storedTeamName = teamPrefs.getString(uriString, null)
+                    if (storedTeamName != teamName) {
+                        continue
+                    }
+
+                    val displayName = cursor.getString(nameIndex) ?: "clip_$id"
+                    val dateTaken = cursor.getLong(dateTakenIndex)
+                    val dateAdded = cursor.getLong(dateAddedIndex)
+                    val storedStartTime = startPrefs.getLong(uriString, 0L)
+                        .takeIf { it > 0L }
+                    val createdAt = storedStartTime ?: if (dateTaken > 0) dateTaken else dateAdded * 1000
+                    val gameDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                        .format(java.util.Date(createdAt))
+                    val duration = cursor.getLong(durationIndex)
+
+                    videos.add(
+                        com.playerid.app.data.VideoClip(
+                            id = uriString,
+                            filePath = uriString,
+                            duration = duration,
+                            createdAt = createdAt,
+                            gameDate = gameDate,
+                            gameTitle = displayName.substringBeforeLast(".", displayName),
+                            isHighlight = false
+                        )
+                    )
+                    seenIds.add(uriString)
+                    matchedCount += 1
+                }
+            }
+            android.util.Log.d(logTag, "Matched team videos for '$teamName': $matchedCount")
+        } catch (e: Exception) {
+            android.util.Log.e("loadRecordedVideosForTeam", "Error loading videos for team $teamName", e)
+        }
+
+        videos
+    }
+}
+
+private suspend fun cleanupTeamClips(context: android.content.Context, teamName: String): Int {
+    return withContext(Dispatchers.IO) {
+        val logTag = "TeamHighlights"
+        val teamVideos = loadRecordedVideosForTeam(context, teamName)
+        var deletedCount = 0
+
+        for (video in teamVideos) {
+            try {
+                deleteClip(context, video)
+                deletedCount += 1
+            } catch (e: Exception) {
+                android.util.Log.w(logTag, "Failed to delete clip ${video.filePath}", e)
+            }
+        }
+
+        android.util.Log.d(logTag, "Deleted clips for team '$teamName': $deletedCount")
+        deletedCount
+    }
 }
 
 private enum class PlayerSortMode {

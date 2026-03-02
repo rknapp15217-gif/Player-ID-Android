@@ -304,13 +304,14 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addTeam(teamName: String, description: String = "") {
+    fun addTeam(teamName: String, sport: String = "Soccer", description: String = "") {
         viewModelScope.launch {
             val existingTeam = teamDao.getTeamByName(teamName)
             if (existingTeam == null) {
                 val newTeam = Team(
                     id = UUID.randomUUID().toString(),
                     name = teamName,
+                    sport = sport,
                     description = description,
                     createdBy = currentUser
                 )

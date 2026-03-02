@@ -42,12 +42,17 @@ import kotlin.math.min
 fun VideoPlaybackScreen(
     videoUri: Uri,
     detectedPlayers: List<Player>,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    playlistUris: List<Uri> = emptyList() // For highlight reel mode
 ) {
     val context = LocalContext.current
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var videoDuration by remember { mutableLongStateOf(0L) }
+    var currentVideoIndex by remember { mutableIntStateOf(0) }
+    
+    val isPlaylistMode = playlistUris.isNotEmpty()
+    val totalVideos = if (isPlaylistMode) playlistUris.size else 1
     
     // Track which players are selected for overlay
     var selectedPlayerIds by remember { 
@@ -56,9 +61,16 @@ fun VideoPlaybackScreen(
 
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
-            val mediaItem = MediaItem.fromUri(videoUri)
-            setMediaItem(mediaItem)
-            repeatMode = Media3Player.REPEAT_MODE_ONE
+            if (isPlaylistMode) {
+                // Add all videos to playlist
+                playlistUris.forEach { uri ->
+                    addMediaItem(MediaItem.fromUri(uri))
+                }
+                repeatMode = Media3Player.REPEAT_MODE_OFF // Don't repeat in playlist mode
+            } else {
+                setMediaItem(MediaItem.fromUri(videoUri))
+                repeatMode = Media3Player.REPEAT_MODE_ONE
+            }
             prepare()
         }
     }
@@ -76,6 +88,9 @@ fun VideoPlaybackScreen(
     LaunchedEffect(Unit) {
         while (true) {
             currentPosition = exoPlayer.currentPosition
+            if (isPlaylistMode) {
+                currentVideoIndex = exoPlayer.currentMediaItemIndex
+            }
             delay(100)
         }
     }
@@ -91,6 +106,11 @@ fun VideoPlaybackScreen(
             override fun onIsPlayingChanged(isPlayingChanged: Boolean) {
                 isPlaying = isPlayingChanged
             }
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                if (isPlaylistMode) {
+                    currentVideoIndex = exoPlayer.currentMediaItemIndex
+                }
+            }
         }
         exoPlayer.addListener(listener)
         
@@ -103,7 +123,22 @@ fun VideoPlaybackScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Video Playback", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+                title = { 
+                    Column {
+                        Text(
+                            if (isPlaylistMode) "✨ Highlight Reel" else "Video Playback",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (isPlaylistMode) {
+                            Text(
+                                "Clip ${currentVideoIndex + 1} of $totalVideos",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, "Back")
@@ -200,18 +235,19 @@ fun VideoPlaybackScreen(
                 )
             }
 
-            // Player selection for overlay
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    "Select players to show during playback",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+            // Player selection for overlay (hidden in playlist mode)
+            if (!isPlaylistMode) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        "Select players to show during playback",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
 
                 if (detectedPlayers.isEmpty()) {
                     Card(
@@ -278,6 +314,7 @@ fun VideoPlaybackScreen(
                         }
                     }
                 }
+            }
             }
         }
     }

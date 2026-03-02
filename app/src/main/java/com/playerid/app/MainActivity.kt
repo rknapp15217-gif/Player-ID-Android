@@ -10,6 +10,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.playerid.app.data.teamsnap.TeamSnapAuthCallback
 import com.playerid.app.ui.theme.PlayerIDTheme
+import com.playerid.app.PlayerIDApp
 
 class MainActivity : ComponentActivity() {
     
@@ -45,6 +46,7 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     android.util.Log.i("MainActivity", "🎯 Calling PlayerIDApp() composable")
+
                     PlayerIDApp()
                 }
             }

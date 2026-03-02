@@ -339,13 +339,18 @@ fun EditPlayerDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddTeamDialog(
     onDismiss: () -> Unit,
-    onAdd: (String) -> Unit,
+    onAdd: (String, String) -> Unit,
     existingTeams: List<String> = emptyList()
 ) {
     var teamName by remember { mutableStateOf("") }
+    var selectedSport by remember { mutableStateOf("Soccer") }
+    var sportDropdownExpanded by remember { mutableStateOf(false) }
+    val sports = listOf("Soccer", "Basketball", "Hockey", "Baseball", "Football", "Lacrosse", "Volleyball", "Other")
+    
     val similarTeams = remember(teamName, existingTeams) {
         if (teamName.isNotBlank() && existingTeams.isNotEmpty()) {
             com.playerid.app.utils.TeamSimilarityUtil.findSimilarTeams(teamName, existingTeams)
@@ -371,6 +376,38 @@ fun AddTeamDialog(
                     },
                     isError = similarTeams.isNotEmpty()
                 )
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                ExposedDropdownMenuBox(
+                    expanded = sportDropdownExpanded,
+                    onExpandedChange = { sportDropdownExpanded = !sportDropdownExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedSport,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Sport") },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = sportDropdownExpanded)
+                        },
+                        modifier = Modifier.menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = sportDropdownExpanded,
+                        onDismissRequest = { sportDropdownExpanded = false }
+                    ) {
+                        sports.forEach { sport ->
+                            DropdownMenuItem(
+                                text = { Text(sport) },
+                                onClick = {
+                                    selectedSport = sport
+                                    sportDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
                 
                 // Show similar teams warning
                 if (similarTeams.isNotEmpty()) {
@@ -411,7 +448,7 @@ fun AddTeamDialog(
             Button(
                 onClick = {
                     if (teamName.isNotBlank()) {
-                        onAdd(teamName)
+                        onAdd(teamName, selectedSport)
                     }
                 },
                 enabled = teamName.isNotBlank()
