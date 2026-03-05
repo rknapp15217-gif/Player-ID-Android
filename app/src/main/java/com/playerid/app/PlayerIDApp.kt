@@ -3,6 +3,7 @@ import com.playerid.app.ui.screens.CameraScreen
 import com.playerid.app.ui.screens.JerseyValidationScreen
 import com.playerid.app.ui.screens.VideoEditorScreen
 import com.playerid.app.ui.screens.TeamScreen
+import com.playerid.app.ui.screens.MyTeamScreen
 import com.playerid.app.ui.screens.CrowdSourcedTeamsScreen
 import com.playerid.app.ui.screens.ReferralScreen
 import com.playerid.app.ui.screens.SettingsScreen
@@ -151,13 +152,14 @@ fun PlayerIDApp() {
                     }
                 }
                 composable("team") {
-                    TeamScreen(
-                        teamViewModel = teamViewModel,
+                    val teamName = teamViewModel.selectedTeam.collectAsState().value ?: ""
+                    MyTeamScreen(
+                        teamName = teamName,
+                        rosterId = "", // Not available, pass empty string
+                        videoClips = emptyList(), // Not available, pass empty list
                         playerViewModel = playerViewModel,
-                        teamSnapRepository = teamSnapRepository,
-                        onNavigateToCrowdSourced = {
-                            navController.navigate("crowd_sourced_teams")
-                        }
+                        onBack = { navController.popBackStack() },
+                        onInviteSent = { /* TODO: handle invite sent */ }
                     )
                 }
                 composable("crowd_sourced_teams") {
