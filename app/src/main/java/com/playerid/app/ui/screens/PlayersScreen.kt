@@ -21,7 +21,7 @@ import com.playerid.app.viewmodels.PlayerViewModel
 fun PlayersScreen(
     viewModel: PlayerViewModel
 ) {
-    // Providing explicit initial values to fix type inference errors
+    // FIX: Explicit imports and initial values for property delegates
     val players by viewModel.filteredPlayers.collectAsState(initial = emptyList())
     val searchQuery by viewModel.searchQuery.collectAsState(initial = "")
     
@@ -136,10 +136,10 @@ fun PlayerCard(
                 
                 // Academic year with color coding
                 val yearColor = when (player.academicYear) {
-                    AcademicYear.FRESHMAN.displayName -> Color(0xFF4CAF50) // Green
-                    AcademicYear.SOPHOMORE.displayName -> Color(0xFF2196F3) // Blue
-                    AcademicYear.JUNIOR.displayName -> Color(0xFFFF9800) // Orange
-                    AcademicYear.SENIOR.displayName -> Color(0xFFf44336) // Red
+                    "Freshman" -> Color(0xFF4CAF50) // Green
+                    "Sophomore" -> Color(0xFF2196F3) // Blue
+                    "Junior" -> Color(0xFFFF9800) // Orange
+                    "Senior" -> Color(0xFFf44336) // Red
                     else -> MaterialTheme.colorScheme.primary
                 }
                 

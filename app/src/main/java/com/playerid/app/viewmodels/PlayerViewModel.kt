@@ -1,5 +1,8 @@
 package com.playerid.app.viewmodels
 
+import com.playerid.app.data.Frame
+import com.playerid.app.data.Box
+
 import android.app.Application
 import android.graphics.PointF
 import android.speech.tts.TextToSpeech
@@ -7,12 +10,24 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.playerid.app.data.*
-import com.playerid.app.roster.RosterCandidate
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.*
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application), TextToSpeech.OnInitListener {
+                private val _jerseyColor = MutableStateFlow<String>("")
+                val jerseyColor: StateFlow<String> = _jerseyColor.asStateFlow()
+
+                private val _opponent = MutableStateFlow<String>("")
+                val opponent: StateFlow<String> = _opponent.asStateFlow()
+            // Placeholder types, replace with your actual types
+            private val _disappearedFrames = MutableStateFlow<List<Frame>>(emptyList())
+            val disappearedFrames: StateFlow<List<Frame>> = _disappearedFrames.asStateFlow()
+
+            private val _initialBox = MutableStateFlow<Box?>(null)
+            val initialBox: StateFlow<Box?> = _initialBox.asStateFlow()
+        private val _isVoiceSessionActive = MutableStateFlow(false)
+        val isVoiceSessionActive: StateFlow<Boolean> = _isVoiceSessionActive.asStateFlow()
     
     private val database = PlayerDatabase.getDatabase(application)
     private val playerDao = database.playerDao()
@@ -41,19 +56,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     private val _trackedPlayers = MutableStateFlow<List<TrackedPlayer>>(emptyList())
     val trackedPlayers: StateFlow<List<TrackedPlayer>> = _trackedPlayers.asStateFlow()
 
-    private val _capturePastMode = MutableStateFlow(true)
-    val capturePastMode: StateFlow<Boolean> = _capturePastMode.asStateFlow()
-
     // Global Voice Assistant State
     private val _voiceResult = MutableStateFlow<VoiceAssistantResult?>(null)
     val voiceResult: StateFlow<VoiceAssistantResult?> = _voiceResult.asStateFlow()
 
     private val _isListening = MutableStateFlow(false)
     val isListening: StateFlow<Boolean> = _isListening.asStateFlow()
-
-    // Flag to prevent recorder from auto-starting during a voice session
-    private val _isVoiceSessionActive = MutableStateFlow(false)
-    val isVoiceSessionActive: StateFlow<Boolean> = _isVoiceSessionActive.asStateFlow()
 
     // Action flow to trigger UI/Camera events from voice
     private val _voiceActions = MutableSharedFlow<VoiceAction>()
@@ -101,6 +109,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     )
     
     init {
+        // Restore selected team from prefs
+        _selectedTeam.value = prefs.getString("selected_team", null)
         initializeSampleData()
         tts = TextToSpeech(application, this)
     }
@@ -120,9 +130,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
 
     fun setListening(listening: Boolean) {
         _isListening.value = listening
-        if (listening) {
-            _isVoiceSessionActive.value = true
-        }
     }
     
     fun updateSearchQuery(query: String) {
@@ -131,14 +138,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     
     fun setSelectedTeam(team: String?) {
         _selectedTeam.value = team
+        prefs.edit().putString("selected_team", team).apply()
+    }
+
+    fun setJerseyColor(color: String) {
+        _jerseyColor.value = color
+    }
+
+    fun setOpponent(opponent: String) {
+        _opponent.value = opponent
     }
     
     fun updateTrackedPlayers(tracked: List<TrackedPlayer>) {
         _trackedPlayers.value = tracked
-    }
-
-    fun setCapturePastMode(enabled: Boolean) {
-        _capturePastMode.value = enabled
     }
     
     private suspend fun findPlayerByNumber(number: String): Player? {
@@ -162,8 +174,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                 val msg = "Moment captured!"
                 _voiceResult.value = VoiceAssistantResult.Success(msg)
                 speak(msg)
-                // Session ends after capture
-                _isVoiceSessionActive.value = false
                 return@launch
             }
 
@@ -179,7 +189,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                     val msg = "Switched to ${targetTeam.name}"
                     _voiceResult.value = VoiceAssistantResult.Success(msg)
                     speak(msg)
-                    _isVoiceSessionActive.value = false
                     return@launch
                 }
             }
@@ -189,7 +198,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                 val msg = "Please select a team first"
                 _voiceResult.value = VoiceAssistantResult.Error(msg)
                 speak(msg)
-                _isVoiceSessionActive.value = false
                 return@launch
             }
 
@@ -211,10 +219,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             if (numericOnly.isNotEmpty()) {
                 val player = roster.find { it.number == numericOnly }
                 if (player != null) {
-                    val msg = "#${numericOnly} ${player.name}"
+                    val msg = "Number $numericOnly is ${player.name}"
                     _voiceResult.value = VoiceAssistantResult.Success(msg, player)
-                    speak(player.name)
-                    _isVoiceSessionActive.value = false
+                    speak(msg)
                     return@launch
                 }
             }
@@ -227,9 +234,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             when {
                 matches.size == 1 -> {
                     val p = matches.first()
-                    val msg = "Number #${p.number} ${p.name}"
+                    val msg = "${p.name} is number ${p.number}"
                     _voiceResult.value = VoiceAssistantResult.Success(msg, p)
-                    speak("Number ${p.number}")
+                    speak(msg)
                 }
                 matches.size > 1 -> {
                     val names = matches.joinToString(" and ") { "${it.name} #${it.number}" }
@@ -243,63 +250,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                     speak("Player not found")
                 }
             }
-            _isVoiceSessionActive.value = false
         }
     }
 
     fun clearVoiceResult() {
         _voiceResult.value = null
-        _isVoiceSessionActive.value = false
     }
 
     fun stopRecordingForVoice() {
-        _isVoiceSessionActive.value = true
         viewModelScope.launch {
-            _voiceActions.emit(VoiceAction.StopRecordingSilent)
-        }
-    }
-
-    fun reportVoiceError(message: String) {
-        _voiceResult.value = VoiceAssistantResult.Error(message)
-        speak(message)
-        _isVoiceSessionActive.value = false
-    }
-
-    fun importRosterCandidates(
-        teamName: String,
-        candidates: List<RosterCandidate>,
-        addedBy: String = "ocr_import"
-    ) {
-        viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            for (candidate in candidates) {
-                val existing = playerDao.getPlayerByNumber(candidate.number, teamName)
-                val candidateYear = candidate.academicYear?.takeIf { it.isNotBlank() }
-                val candidatePosition = candidate.position?.takeIf { it.isNotBlank() }
-                if (existing != null) {
-                    val updated = existing.copy(
-                        name = candidate.name,
-                        position = candidatePosition ?: existing.position,
-                        academicYear = candidateYear ?: existing.academicYear,
-                        updatedAt = now,
-                        addedBy = addedBy
-                    )
-                    playerDao.updatePlayer(updated)
-                } else {
-                    val player = Player(
-                        id = UUID.randomUUID().toString(),
-                        number = candidate.number,
-                        name = candidate.name,
-                        position = candidatePosition ?: "",
-                        team = teamName,
-                        academicYear = candidateYear ?: "Unknown",
-                        addedBy = addedBy,
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                    playerDao.insertPlayer(player)
-                }
-            }
+            _voiceActions.emit(VoiceAction.StopRecording)
         }
     }
 

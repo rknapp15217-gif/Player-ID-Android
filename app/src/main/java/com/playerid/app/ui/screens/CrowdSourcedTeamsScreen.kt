@@ -294,8 +294,8 @@ fun CrowdSourcedTeamsScreen(
     if (showAddTeamDialog) {
         AddTeamDialog(
             onDismiss = { showAddTeamDialog = false },
-            onAdd = { teamName, sport ->
-                teamViewModel.addTeam(teamName, sport, "Community contributed team")
+            onAdd = { teamName ->
+                teamViewModel.addTeam(teamName, "Community contributed team")
                 showAddTeamDialog = false
             },
             existingTeams = allTeamNames

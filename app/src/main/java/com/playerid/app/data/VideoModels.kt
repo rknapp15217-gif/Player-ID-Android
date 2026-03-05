@@ -18,9 +18,7 @@ data class VideoClip(
     val thumbnailPath: String? = null,
     val bubbleMetadata: String = "", // JSON string of time-coded bubble data
     val isExported: Boolean = false,
-    val exportedPath: String? = null,
-    val isHighlight: Boolean = false, // Only tagged moments become highlights
-    val momentTag: String? = null // Goal, Assist, Save, Big Play
+    val exportedPath: String? = null
 ) : Parcelable
 
 @Parcelize

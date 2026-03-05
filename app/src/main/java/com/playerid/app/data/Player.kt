@@ -46,7 +46,6 @@ data class Team(
     val id: String = "",
     val name: String,
     val description: String = "",
-    val sport: String = "Soccer", // Sport type: Soccer, Basketball, Hockey, etc.
     val color: String = "",
     val createdBy: String = "Unknown", // Track who created the team
     val isActive: Boolean = true,

@@ -23,7 +23,7 @@ fun SpotrScreenHeader(
     title: String,
     subtitle: String? = null,
     icon: ImageVector? = null,
-    gradient: List<Color> = listOf(SpotrPrimaryBlue, SpotrHighlightOrange),
+    gradient: List<Color> = listOf(SpotrBlue, SpotrTeal),
     actions: @Composable RowScope.() -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -117,7 +117,7 @@ fun SpotrFloatingActionButton(
     onClick: () -> Unit,
     icon: ImageVector,
     contentDescription: String? = null,
-    gradient: List<Color> = listOf(SpotrPrimaryBlue, SpotrHighlightOrange),
+    gradient: List<Color> = listOf(SpotrOrange, CameraButton),
     modifier: Modifier = Modifier
 ) {
     FloatingActionButton(

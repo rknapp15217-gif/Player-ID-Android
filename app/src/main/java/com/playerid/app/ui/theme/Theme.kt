@@ -17,48 +17,48 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = SpotrPrimaryBlue,
-    onPrimary = Color.White,
-    secondary = SpotrHighlightOrange,
-    onSecondary = Color.White,
-    tertiary = SpotrSuccessGreen,
+    primary = SpotrGreen,
+    onPrimary = Color.Black,
+    secondary = SpotrTeal,
+    onSecondary = Color.Black,
+    tertiary = SpotrPurple,
     onTertiary = Color.White,
-    background = SpotrDarkSurface,
+    background = SurfaceDark,
     onBackground = Color.White,
-    surface = SpotrSurfaceDark,
+    surface = CardDark,
     onSurface = Color.White,
-    surfaceVariant = Color(0xFF1F2937),
-    onSurfaceVariant = Color(0xFFE5E7EB),
+    surfaceVariant = Color(0xFF2A2A2A),
+    onSurfaceVariant = Color(0xFFE0E0E0),
     error = ErrorRed,
     onError = Color.White,
-    outline = SpotrOutlineDark,
-    outlineVariant = Color(0xFF1F2937)
+    outline = Color(0xFF404040),
+    outlineVariant = Color(0xFF2A2A2A)
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = SpotrPrimaryBlue,
+    primary = SpotrBlue,
     onPrimary = Color.White,
-    secondary = SpotrHighlightOrange,
+    secondary = SpotrTeal,
     onSecondary = Color.White,
-    tertiary = SpotrSuccessGreen,
+    tertiary = SpotrOrange,
     onTertiary = Color.White,
-    background = SpotrLightBackground,
-    onBackground = SpotrText,
-    surface = SpotrSurfaceLight,
-    onSurface = SpotrText,
-    surfaceVariant = Color(0xFFEFF1F5),
-    onSurfaceVariant = Color(0xFF4B5563),
+    background = SurfaceLight,
+    onBackground = Color(0xFF1A1A1A),
+    surface = CardLight,
+    onSurface = Color(0xFF1A1A1A),
+    surfaceVariant = Color(0xFFF5F5F5),
+    onSurfaceVariant = Color(0xFF464646),
     error = ErrorRed,
     onError = Color.White,
-    outline = SpotrOutline,
-    outlineVariant = Color(0xFFEAECEF)
+    outline = Color(0xFFE0E0E0),
+    outlineVariant = Color(0xFFF0F0F0)
 )
 
 @Composable
 fun PlayerIDTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = false,
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -74,8 +74,8 @@ fun PlayerIDTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            window.statusBarColor = colorScheme.primary.toArgb()
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
         }
     }
 

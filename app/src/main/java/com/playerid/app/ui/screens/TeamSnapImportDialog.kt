@@ -10,10 +10,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import android.content.Intent
-import androidx.compose.ui.platform.LocalContext
 import com.playerid.app.data.teamsnap.*
 import kotlinx.coroutines.launch
 
@@ -25,10 +24,11 @@ fun TeamSnapImportDialog(
     onImportComplete: (TeamSnapImportResult) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val authState by teamSnapRepository.authState.collectAsState(initial = TeamSnapAuthState.NotAuthenticated)
     val availableTeams by teamSnapRepository.availableTeams.collectAsState(initial = emptyList())
     
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var selectedTeam by remember { mutableStateOf<TeamSnapTeam?>(null) }
     var localTeamName by remember { mutableStateOf("") }
     var isImporting by remember { mutableStateOf(false) }
@@ -61,12 +61,24 @@ fun TeamSnapImportDialog(
                             "Sign in to your TeamSnap account to import team rosters",
                             style = MaterialTheme.typography.bodyMedium
                         )
-                        Text(
-                            "You'll be redirected to TeamSnap in your browser.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it },
+                            label = { Text("Email") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
                         )
-
+                        
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            label = { Text("Password") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        
                         if (errorMessage != null) {
                             Card(
                                 colors = CardDefaults.cardColors(
@@ -91,23 +103,6 @@ fun TeamSnapImportDialog(
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(16.dp))
                             Text("Connecting to TeamSnap...")
-                        }
-                    }
-
-                    is TeamSnapAuthState.AwaitingUser -> {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            CircularProgressIndicator()
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text("Finish signing in with TeamSnap in your browser")
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "Return to the app after approving access.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
                         }
                     }
                     
@@ -213,22 +208,6 @@ fun TeamSnapImportDialog(
                                 Text("Importing roster...")
                             }
                         }
-
-                        if (errorMessage != null) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer
-                                )
-                            ) {
-                                Text(
-                                    text = errorMessage!!,
-                                    modifier = Modifier.padding(12.dp),
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -238,18 +217,17 @@ fun TeamSnapImportDialog(
                 is TeamSnapAuthState.NotAuthenticated -> {
                     Button(
                         onClick = {
-                            errorMessage = null
-                            val result = teamSnapRepository.beginOAuthSignIn()
-                            if (result.isSuccess) {
-                                val authUri = result.getOrThrow()
-                                context.startActivity(Intent(Intent.ACTION_VIEW, authUri))
-                            } else {
-                                errorMessage = result.exceptionOrNull()?.message ?: "Authentication failed"
+                            scope.launch {
+                                errorMessage = null
+                                val result = teamSnapRepository.authenticate(email, password)
+                                if (result.isFailure) {
+                                    errorMessage = result.exceptionOrNull()?.message ?: "Authentication failed"
+                                }
                             }
                         },
-                        enabled = true
+                        enabled = email.isNotBlank() && password.isNotBlank()
                     ) {
-                        Text("Continue to TeamSnap")
+                        Text("Sign In")
                     }
                 }
                 
@@ -276,39 +254,15 @@ fun TeamSnapImportDialog(
                         Text("Import Roster")
                     }
                 }
-
-                is TeamSnapAuthState.AwaitingUser -> {
-                    Button(
-                        onClick = {
-                            errorMessage = null
-                            val result = teamSnapRepository.beginOAuthSignIn()
-                            if (result.isSuccess) {
-                                val authUri = result.getOrThrow()
-                                context.startActivity(Intent(Intent.ACTION_VIEW, authUri))
-                            } else {
-                                errorMessage = result.exceptionOrNull()?.message ?: "Authentication failed"
-                            }
-                        }
-                    ) {
-                        Text("Open TeamSnap Login")
-                    }
+                
+                else -> {
+                    // Authenticating state - no action button
                 }
-
-                else -> {}
             }
         },
         dismissButton = {
-            when (authState) {
-                is TeamSnapAuthState.AwaitingUser -> {
-                    TextButton(onClick = { teamSnapRepository.cancelOAuthSignIn() }) {
-                        Text("Cancel")
-                    }
-                }
-                else -> {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel")
-                    }
-                }
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
     )
