@@ -75,7 +75,7 @@ fun CameraScreen(
     var voiceResult by remember { mutableStateOf<String?>(null) }
     val trackedPlayersWithInfo = remember { mutableListOf<Pair<Any, Any>>() }
     var processing by remember { mutableStateOf(false) }
-    var selectedTeam by remember { mutableStateOf<String?>(null) }
+    val selectedTeam by viewModel.selectedTeam.collectAsState()
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
     // ...existing code...
     DisposableEffect(isStandby) {
@@ -95,8 +95,8 @@ fun CameraScreen(
     }
 
     var showGameInfoSheet by remember { mutableStateOf(false) }
-    var opponent by remember { mutableStateOf("") }
-    var jerseyColor by remember { mutableStateOf("") }
+    val opponent by viewModel.opponent.collectAsState()
+    val jerseyColor by viewModel.jerseyColor.collectAsState()
 
     if (cameraPermissionsState.allPermissionsGranted) {
         Scaffold(
@@ -266,9 +266,6 @@ fun CameraScreen(
                                     initialColor = jerseyColor,
                                     initialOpponent = opponent,
                                     onSave = { team, color, opp ->
-                                        selectedTeam = team.name
-                                        jerseyColor = color
-                                        opponent = opp
                                         viewModel.setSelectedTeam(team.name)
                                         viewModel.setJerseyColor(color)
                                         viewModel.setOpponent(opp)

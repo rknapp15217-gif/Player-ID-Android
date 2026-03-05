@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import java.util.*
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application), TextToSpeech.OnInitListener {
+                    private val prefs = application.getSharedPreferences("playerid_prefs", android.content.Context.MODE_PRIVATE)
                 private val _jerseyColor = MutableStateFlow<String>("")
                 val jerseyColor: StateFlow<String> = _jerseyColor.asStateFlow()
 
@@ -110,7 +111,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     
     init {
         // Restore selected team from prefs
-        _selectedTeam.value = prefs.getString("selected_team", null)
+        val restoredTeam = prefs.getString("selected_team", null)
+        _selectedTeam.value = restoredTeam
+        android.util.Log.e("PlayerViewModel", "Restored selected team: $restoredTeam")
+        android.widget.Toast.makeText(getApplication(), "Restored team: $restoredTeam", android.widget.Toast.LENGTH_LONG).show()
         initializeSampleData()
         tts = TextToSpeech(application, this)
     }
