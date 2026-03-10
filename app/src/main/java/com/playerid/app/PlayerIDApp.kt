@@ -1,5 +1,6 @@
-
 package com.playerid.app
+
+import androidx.compose.runtime.collectAsState
 
 import android.content.Context
 import androidx.compose.runtime.CompositionLocalProvider
@@ -58,12 +59,13 @@ fun PlayerIDApp() {
                 androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.weight(1f)) {
                     NavHost(navController = navController, startDestination = "camera") {
                         composable("camera") {
+                            val isVoiceListening by playerViewModel.isListening.collectAsState()
                             CameraScreen(
                                 viewModel = playerViewModel,
                                 teamViewModel = teamViewModel,
                                 showVoiceId = true,
-                                isVoiceListening = false,
-                                onVoiceIdToggle = {},
+                                isVoiceListening = isVoiceListening,
+                                onVoiceIdToggle = { playerViewModel.setListening(isVoiceListening.not()) },
                                 onVideoSaved = { _, _ -> },
                                 onNavigateToVideoLibrary = {}
                             )

@@ -1,0 +1,135 @@
+[33mcommit ce61767acf3307348af0a47d72ca687439c5cb40[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature/persistent-team-pill[m[33m, [m[1;31morigin/feature/persistent-team-pill[m[33m)[m
+Author: rknapp15217-gif <rknap@example.com>
+Date:   Thu Mar 5 10:19:08 2026 -0500
+
+    Fix My Team screen: show roster, modal invite, clean up debug, resolve all syntax errors
+
+[1mdiff --git a/app/src/main/java/com/playerid/app/PlayerIDApp.kt b/app/src/main/java/com/playerid/app/PlayerIDApp.kt[m
+[1mindex 12d8cc5..b023fb2 100644[m
+[1m--- a/app/src/main/java/com/playerid/app/PlayerIDApp.kt[m
+[1m+++ b/app/src/main/java/com/playerid/app/PlayerIDApp.kt[m
+[36m@@ -3,6 +3,7 @@[m [mimport com.playerid.app.ui.screens.CameraScreen[m
+ import com.playerid.app.ui.screens.JerseyValidationScreen[m
+ import com.playerid.app.ui.screens.VideoEditorScreen[m
+ import com.playerid.app.ui.screens.TeamScreen[m
+[32m+[m[32mimport com.playerid.app.ui.screens.MyTeamScreen[m
+ import com.playerid.app.ui.screens.CrowdSourcedTeamsScreen[m
+ import com.playerid.app.ui.screens.ReferralScreen[m
+ import com.playerid.app.ui.screens.SettingsScreen[m
+[36m@@ -151,13 +152,14 @@[m [mfun PlayerIDApp() {[m
+                     }[m
+                 }[m
+                 composable("team") {[m
+[31m-                    TeamScreen([m
+[31m-                        teamViewModel = teamViewModel,[m
+[32m+[m[32m                    val teamName = teamViewModel.selectedTeam.collectAsState().value ?: ""[m
+[32m+[m[32m                    MyTeamScreen([m
+[32m+[m[32m                        teamName = teamName,[m
+[32m+[m[32m                        rosterId = "", // Not available, pass empty string[m
+[32m+[m[32m                        videoClips = emptyList(), // Not available, pass empty list[m
+                         playerViewModel = playerViewModel,[m
+[31m-                        teamSnapRepository = teamSnapRepository,[m
+[31m-                        onNavigateToCrowdSourced = {[m
+[31m-                            navController.navigate("crowd_sourced_teams")[m
+[31m-                        }[m
+[32m+[m[32m                        onBack = { navController.popBackStack() },[m
+[32m+[m[32m                        onInviteSent = { /* TODO: handle invite sent */ }[m
+                     )[m
+                 }[m
+                 composable("crowd_sourced_teams") {[m
+[1mdiff --git a/app/src/main/java/com/playerid/app/ui/screens/MyTeamScreen.kt b/app/src/main/java/com/playerid/app/ui/screens/MyTeamScreen.kt[m
+[1mnew file mode 100644[m
+[1mindex 0000000..e7c900d[m
+[1m--- /dev/null[m
+[1m+++ b/app/src/main/java/com/playerid/app/ui/screens/MyTeamScreen.kt[m
+[36m@@ -0,0 +1,166 @@[m
+[32m+[m[32mpackage com.playerid.app.ui.screens[m
+[32m+[m
+[32m+[m[32mimport androidx.compose.foundation.layout.*[m
+[32m+[m[32mimport androidx.compose.material3.*[m
+[32m+[m[32mimport androidx.compose.runtime.*[m
+[32m+[m[32mimport androidx.compose.ui.Modifier[m
+[32m+[m[32mimport androidx.compose.ui.unit.dp[m
+[32m+[m[32mimport androidx.compose.material.icons.Icons[m
+[32m+[m[32mimport androidx.compose.material.icons.filled.ArrowBack[m
+[32m+[m[32mimport androidx.compose.material.icons.filled.GroupAdd[m
+[32m+[m[32mimport androidx.compose.foundation.lazy.LazyColumn[m
+[32m+[m[32mimport androidx.compose.foundation.lazy.items[m
+[32m+[m[32mimport androidx.compose.ui.Alignment[m
+[32m+[m[32mimport androidx.compose.ui.text.font.FontWeight[m
+[32m+[m[32mimport androidx.compose.foundation.shape.RoundedCornerShape[m
+[32m+[m[32mimport com.playerid.app.data.Player[m
+[32m+[m[32mimport com.playerid.app.roster.RosterSharingScreen[m
+[32m+[m[32mimport com.playerid.app.data.VideoClip[m
+[32m+[m[32mimport com.playerid.app.viewmodels.VideoViewModel[m
+[32m+[m[32mimport com.playerid.app.viewmodels.PlayerViewModel[m
+[32m+[m[32mimport androidx.lifecycle.viewmodel.compose.viewModel[m
+[32m+[m
+[32m+[m[32m@OptIn(ExperimentalMaterial3Api::class)[m
+[32m+[m[32m@Composable[m
+[32m+[m[32mfun MyTeamScreen([m
+[32m+[m[32m    teamName: String,[m
+[32m+[m[32m    rosterId: String,[m
+[32m+[m[32m    videoClips: List<VideoClip>,[m
+[32m+[m[32m    playerViewModel: PlayerViewModel,[m
+[32m+[m[32m    onBack: () -> Unit,[m
+[32m+[m[32m    onInviteSent: () -> Unit[m
+[32m+[m[32m) {[m
+[32m+[m[32m    val roster by playerViewModel.filteredPlayers.collectAsState(initial = emptyList())[m
+[32m+[m[32m    val selectedTeam by playerViewModel.selectedTeam.collectAsState()[m
+[32m+[m[32m    var selectedTab by remember { mutableStateOf(0) }[m
+[32m+[m[32m    val tabTitles = listOf("Roster", "Clips")[m
+[32m+[m[32m    val videoViewModel: VideoViewModel = viewModel()[m
+[32m+[m[32m    var showInviteDialog by remember { mutableStateOf(false) }[m
+[32m+[m[32m    Scaffold([m
+[32m+[m[32m        topBar = {[m
+[32m+[m[32m            TopAppBar([m
+[32m+[m[32m                title = { Text("My Team") },[m
+[32m+[m[32m                navigationIcon = {[m
+[32m+[m[32m                    IconButton(onClick = onBack) {[m
+[32m+[m[32m                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                }[m
+[32m+[m[32m            )[m
+[32m+[m[32m        }[m
+[32m+[m[32m    ) { paddingValues ->[m
+[32m+[m[32m        Column(modifier = Modifier.padding(paddingValues)) {[m
+[32m+[m[32m            // ...existing code...[m
+[32m+[m[32m            TabRow(selectedTabIndex = selectedTab) {[m
+[32m+[m[32m                tabTitles.forEachIndexed { index, title ->[m
+[32m+[m[32m                    Tab([m
+[32m+[m[32m                        selected = selectedTab == index,[m
+[32m+[m[32m                        onClick = { selectedTab = index },[m
+[32m+[m[32m                        text = { Text(title) }[m
+[32m+[m[32m                    )[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m            Spacer(modifier = Modifier.height(16.dp))[m
+[32m+[m[32m            when (selectedTab) {[m
+[32m+[m[32m                0 -> Column(modifier = Modifier.fillMaxHeight()) {[m
+[32m+[m[32m                    Row([m
+[32m+[m[32m                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),[m
+[32m+[m[32m                        horizontalArrangement = Arrangement.End[m
+[32m+[m[32m                    ) {[m
+[32m+[m[32m                        Button(onClick = { showInviteDialog = true }) {[m
+[32m+[m[32m                            Icon(Icons.Default.GroupAdd, contentDescription = "Invite")[m
+[32m+[m[32m                            Spacer(modifier = Modifier.width(8.dp))[m
+[32m+[m[32m                            Text("Invite to Team")[m
+[32m+[m[32m                        }[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                    Text([m
+[32m+[m[32m                        text = "Team Roster",[m
+[32m+[m[32m                        style = MaterialTheme.typography.titleMedium,[m
+[32m+[m[32m                        modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)[m
+[32m+[m[32m                    )[m
+[32m+[m[32m                    if (roster.isEmpty()) {[m
+[32m+[m[32m                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {[m
+[32m+[m[32m                            Text("No players on this team yet.", style = MaterialTheme.typography.bodyMedium)[m
+[32m+[m[32m                        }[m
+[32m+[m[32m                    } else {[m
+[32m+[m[32m                        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {[m
+[32m+[m[32m                            items(roster) { player ->[m
+[32m+[m[32m                                Card([m
+[32m+[m[32m                                    modifier = Modifier[m
+[32m+[m[32m                                        .fillMaxWidth()[m
+[32m+[m[32m                                        .padding(horizontal = 16.dp, vertical = 4.dp

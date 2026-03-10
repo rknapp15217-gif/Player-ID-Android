@@ -80,12 +80,6 @@ data class RosterOcrResult(
     val rawLines: List<String>
 )
 
-data class RosterCandidate(
-    val number: String,
-    val name: String,
-    val academicYear: String? = null,
-    val position: String? = null
-)
 
 private fun parseRosterLine(line: String): RosterCandidate? {
     val cleaned = line.replace("\\s+".toRegex(), " ").trim()
@@ -135,12 +129,13 @@ private fun parseRosterLine(line: String): RosterCandidate? {
     val parsedNumber = number.toIntOrNull() ?: return null
     if (parsedNumber < 0 || parsedNumber > 99) return null
 
-    return RosterCandidate(
-        number = parsedNumber.toString(),
-        name = finalName,
-        academicYear = academicYear,
-        position = inlinePosition?.let { normalizePosition(it) }
-    )
+        return RosterCandidate(
+            name = finalName,
+            number = parsedNumber.toString(),
+            position = inlinePosition?.let { normalizePosition(it) } ?: "",
+            graduationYear = null,
+            academicYear = academicYear
+        )
 }
 
 private fun parseAdjacentLinePairs(lines: List<String>): List<RosterCandidate> {
@@ -161,9 +156,11 @@ private fun parseAdjacentLinePairs(lines: List<String>): List<RosterCandidate> {
         if (looksLikeNameLine(first) && looksLikeDetailLineWithoutNumber(second)) {
             results.add(
                 RosterCandidate(
-                    number = "na",
                     name = cleanName(first),
-                    position = extractPosition(second)
+                    number = "na",
+                    position = extractPosition(second) ?: "",
+                    graduationYear = null,
+                    academicYear = null
                 )
             )
             index += 2
@@ -221,9 +218,11 @@ private fun tryPairLines(first: String, second: String): List<RosterCandidate> {
         val number = extractNumber(second) ?: return results
         results.add(
             RosterCandidate(
-                number = number,
                 name = cleanName(first),
-                position = extractPosition(second)
+                number = number,
+                position = extractPosition(second) ?: "",
+                graduationYear = null,
+                academicYear = null
             )
         )
         return results
@@ -232,18 +231,22 @@ private fun tryPairLines(first: String, second: String): List<RosterCandidate> {
         val number = extractNumber(first) ?: return results
         results.add(
             RosterCandidate(
-                number = number,
                 name = cleanName(second),
-                position = extractPosition(first)
+                number = number,
+                position = extractPosition(first) ?: "",
+                graduationYear = null,
+                academicYear = null
             )
         )
     }
     if (results.isEmpty() && looksLikeNameLine(first) && looksLikeDetailLineWithoutNumber(second)) {
         results.add(
             RosterCandidate(
-                number = "na",
                 name = cleanName(first),
-                position = extractPosition(second)
+                number = "na",
+                position = extractPosition(second) ?: "",
+                graduationYear = null,
+                academicYear = null
             )
         )
     }
@@ -321,8 +324,11 @@ private fun parseNameOnlyLines(lines: List<String>): List<RosterCandidate> {
         if (next != null && looksLikeDetailLine(next) && extractNumber(next) != null) continue
         results.add(
             RosterCandidate(
+                name = cleanName(current),
                 number = "na",
-                name = cleanName(current)
+                position = "",
+                graduationYear = null,
+                academicYear = null
             )
         )
     }

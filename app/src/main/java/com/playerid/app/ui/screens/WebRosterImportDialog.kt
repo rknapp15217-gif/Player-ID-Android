@@ -537,10 +537,11 @@ private suspend fun extractRosterTablesFromDom(webView: WebView): List<TableRost
                         if (number.matches(Regex("\\d{1,2}")) && name.length >= 2 && name.none { it.isDigit() }) {
                             candidates.add(
                                 RosterCandidate(
-                                    number = normalizeRosterNumber(number),
                                     name = name,
-                                    academicYear = academicYear,
-                                    position = normalizePosition(rawPosition)
+                                    number = normalizeRosterNumber(number),
+                                    position = normalizePosition(rawPosition) ?: "",
+                                    graduationYear = null,
+                                    academicYear = academicYear
                                 )
                             )
                         }

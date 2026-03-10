@@ -1,11 +1,12 @@
-
-
 @file:OptIn(
     com.google.accompanist.permissions.ExperimentalPermissionsApi::class,
     androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.camera.core.ExperimentalGetImage::class
 )
 package com.playerid.app.ui.screens
+
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 
 // Only keep unambiguous, non-conflicting imports. Use fully qualified names for ambiguous types in code.
 import android.Manifest
@@ -26,6 +27,7 @@ import androidx.camera.video.VideoCapture
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,11 +50,21 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
+import androidx.compose.animation.animateColorAsState
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.content.Intent
+import android.os.Bundle
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.playerid.app.ar.JerseyDetectionManager
 import com.playerid.app.ui.composables.PlayerBubblesOverlay
@@ -249,6 +261,66 @@ fun CameraScreen(
         }
         onDispose {}
     }
+
+    // --- Speech Recognition Integration ---
+    var speechRecognizer: SpeechRecognizer? by remember { mutableStateOf<SpeechRecognizer?>(null) }
+    var isSpeechActive by rememberSaveable { mutableStateOf(false) }
+    val lastVoiceListening = remember { mutableStateOf(false) }
+
+    DisposableEffect(isVoiceListening) {
+        if (isVoiceListening && !lastVoiceListening.value) {
+            // Start speech recognition
+            if (SpeechRecognizer.isRecognitionAvailable(context)) {
+                val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                val intent = Intent().apply {
+                    action = RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                }
+                recognizer.setRecognitionListener(object : RecognitionListener {
+                    override fun onReadyForSpeech(params: Bundle) {}
+                    override fun onBeginningOfSpeech() { isSpeechActive = true }
+                    override fun onRmsChanged(rmsdB: Float) {}
+                    override fun onBufferReceived(buffer: ByteArray) {}
+                    override fun onEndOfSpeech() { isSpeechActive = false }
+                    override fun onError(error: Int) {
+                        isSpeechActive = false
+                        viewModel.clearVoiceResult()
+                        onVoiceIdToggle() // turn off listening UI
+                    }
+                    override fun onResults(results: Bundle) {
+                        isSpeechActive = false
+                        val matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        val spoken = matches?.firstOrNull()
+                        if (!spoken.isNullOrBlank()) {
+                            viewModel.processVoiceCommand(spoken)
+                        }
+                        onVoiceIdToggle() // turn off listening UI
+                    }
+                    override fun onPartialResults(partialResults: Bundle) {}
+                    override fun onEvent(eventType: Int, params: Bundle) {}
+                })
+                recognizer.startListening(intent)
+                speechRecognizer = recognizer
+            }
+        } else if (!isVoiceListening && lastVoiceListening.value) {
+            // Stop speech recognition
+            speechRecognizer?.stopListening()
+            speechRecognizer?.cancel()
+            speechRecognizer?.destroy()
+            speechRecognizer = null
+            isSpeechActive = false
+        }
+        lastVoiceListening.value = isVoiceListening
+        onDispose {
+            speechRecognizer?.stopListening()
+            speechRecognizer?.cancel()
+            speechRecognizer?.destroy()
+            speechRecognizer = null
+            isSpeechActive = false
+        }
+    }
     var arMode by remember { mutableStateOf(true) }
     DisposableEffect(Unit) { onDispose { recordingManager.stopAndDiscardRecording() } }
     if (cameraPermissionsState.allPermissionsGranted) {
@@ -326,6 +398,50 @@ fun CameraScreen(
                         }
                     }
             ) {
+                // Listening window with pulsing mic
+                if (isVoiceListening) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 120.dp),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(24.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+                            tonalElevation = 8.dp,
+                            modifier = Modifier
+                                .width(120.dp)
+                                .height(80.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                val pulse = remember { Animatable(1f) }
+                                LaunchedEffect(isVoiceListening) {
+                                    while (isVoiceListening) {
+                                        pulse.animateTo(1.2f, animationSpec = tween(500))
+                                        pulse.animateTo(1f, animationSpec = tween(500))
+                                    }
+                                }
+                                Icon(
+                                    Icons.Default.Mic,
+                                    contentDescription = if (isSpeechActive) "Listening" else "Mic",
+                                    modifier = Modifier.size((40 * pulse.value).dp),
+                                    tint = if (isSpeechActive) MaterialTheme.colorScheme.primary else Color.Gray
+                                )
+                                Text(
+                                    if (isSpeechActive) "Listening..." else "Processing...",
+                                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                    }
+                }
                 if (!isCameraReady) {
                     Box(
                         modifier = Modifier
@@ -403,18 +519,33 @@ fun CameraScreen(
                     }
                 }
                 if (!isStandby && recordingState != RecordingState.RECORDING && selectedTeam != null) {
+                    var pulseUp by remember { mutableStateOf(true) }
+                    val pulse: Dp by animateDpAsState(
+                        targetValue = if (isVoiceListening && pulseUp) 66.dp else 56.dp,
+                        animationSpec = tween(durationMillis = 500), label = "micPulse"
+                    )
+                    val pulseColor = animateColorAsState(
+                        targetValue = if (isVoiceListening && pulseUp) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer,
+                        animationSpec = tween(durationMillis = 500), label = "micPulseColor"
+                    )
+                    LaunchedEffect(isVoiceListening) {
+                        if (isVoiceListening) {
+                            while (isVoiceListening) {
+                                pulseUp = !pulseUp
+                                delay(500)
+                            }
+                        } else {
+                            pulseUp = true
+                        }
+                    }
                     FloatingActionButton(
                         onClick = onVoiceIdToggle,
-                        containerColor = if (isVoiceListening) {
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f)
-                        } else {
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-                        },
+                        containerColor = if (isVoiceListening) pulseColor.value else MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(16.dp)
-                            .size(56.dp)
+                            .size(pulse)
                     ) {
                         Icon(
                             if (isVoiceListening) Icons.Default.Mic else Icons.Default.MicNone,
