@@ -547,15 +547,12 @@ fun CameraScreen(
                             .padding(16.dp)
                             .size(pulse)
                     ) {
+                        val micTint = if (isVoiceListening && pulseUp) Color(0xFF2ECC40) else MaterialTheme.colorScheme.onPrimaryContainer
                         Icon(
                             if (isVoiceListening) Icons.Default.Mic else Icons.Default.MicNone,
                             contentDescription = "Voice Player ID",
                             modifier = Modifier.size(24.dp),
-                            tint = if (isVoiceListening) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            }
+                            tint = if (isVoiceListening) micTint else MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
@@ -565,6 +562,84 @@ fun CameraScreen(
                         processing = processing,
                         modifier = Modifier.fillMaxSize()
                     )
+                }
+
+                // Voice result window (dismissable, above record button)
+                val voiceResult by viewModel.voiceResult.collectAsState()
+                val showVoiceResult = voiceResult is com.playerid.app.viewmodels.VoiceAssistantResult.Success && (voiceResult as com.playerid.app.viewmodels.VoiceAssistantResult.Success).player != null
+                if (showVoiceResult) {
+                    val player = (voiceResult as com.playerid.app.viewmodels.VoiceAssistantResult.Success).player!!
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable { viewModel.clearVoiceResult() },
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 8.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp)
+                                .padding(bottom = 120.dp) // Position above record button
+                                .heightIn(min = 90.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                // Number large on left
+                                Text(
+                                    "#${player.number}",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 36.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.align(Alignment.CenterVertically)
+                                )
+                                Spacer(modifier = Modifier.width(24.dp))
+                                // Name and details on right
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalAlignment = Alignment.Start
+                                ) {
+                                    Text(
+                                        player.name,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 28.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row {
+                                        Text(
+                                            player.position,
+                                            fontSize = 16.sp,
+                                            color = Color.DarkGray
+                                        )
+                                        val gradYear = try {
+                                            val grad = player.javaClass.getMethod("getGraduationYear").invoke(player) as? String
+                                            if (!grad.isNullOrBlank()) grad else null
+                                        } catch (_: Exception) {
+                                            null
+                                        } ?: try {
+                                            val acad = player.javaClass.getMethod("getAcademicYear").invoke(player) as? String
+                                            if (!acad.isNullOrBlank()) acad else null
+                                        } catch (_: Exception) {
+                                            null
+                                        }
+                                        if (gradYear != null) {
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                "Grad: $gradYear",
+                                                fontSize = 16.sp,
+                                                color = Color.DarkGray
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 if (isStandby) {
                     Box(

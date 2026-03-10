@@ -108,6 +108,17 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
+            // Stadium announcer effect: lower pitch, slower rate
+            tts?.setPitch(0.8f)
+            tts?.setSpeechRate(0.85f)
+            // Try to select a male US voice if available
+            val voices = tts?.voices
+            val announcerVoice = voices?.firstOrNull {
+                it.locale == Locale.US && it.name.contains("male", ignoreCase = true)
+            }
+            if (announcerVoice != null) {
+                tts?.voice = announcerVoice
+            }
             isTtsReady = true
         }
     }
