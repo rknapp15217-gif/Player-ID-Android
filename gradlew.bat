@@ -35,7 +35,11 @@ for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
 
-@rem Set JAVA_HOME to Android Studio's bundled JDK if not already set
+@rem Prefer project-local JDK to avoid machine-specific JAVA_HOME issues.
+set PROJECT_JAVA_HOME=%APP_HOME%\.local-jdks\jdk-17.0.18+8
+if exist "%PROJECT_JAVA_HOME%\bin\java.exe" set JAVA_HOME=%PROJECT_JAVA_HOME%
+
+@rem Fallback only when no local JDK and JAVA_HOME is undefined.
 if not defined JAVA_HOME set JAVA_HOME=C:\Program Files\Android\Android Studio\jbr
 
 @rem Find java.exe

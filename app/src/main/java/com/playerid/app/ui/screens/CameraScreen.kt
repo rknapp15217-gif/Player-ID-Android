@@ -75,6 +75,7 @@ import com.playerid.app.utils.RecordingState
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.VoiceAction
 import com.playerid.app.viewmodels.VoiceAssistantResult
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
@@ -129,7 +130,6 @@ fun startCamera(
             }
         }
     }, cameraExecutor)
-// ...existing code...
 }
 
 @Composable
@@ -156,13 +156,27 @@ fun ModeChip(
 @Composable
 fun CameraScreen(
     viewModel: PlayerViewModel,
-    teamViewModel: com.playerid.app.viewmodels.TeamViewModel,
-    showVoiceId: Boolean,
-    isVoiceListening: Boolean,
-    onVoiceIdToggle: () -> Unit,
-    onVideoSaved: (Uri, Long) -> Unit,
-    onNavigateToVideoLibrary: () -> Unit = { }
+    teamViewModel: com.playerid.app.viewmodels.TeamViewModel
 ) {
+    // Overlay state and result
+    val voiceResult by viewModel.voiceResult.collectAsState()
+    var showVoiceResult by remember { mutableStateOf(false) }
+    var autoDismissJob: Job? by remember { mutableStateOf(null) }
+    val overlayScope = rememberCoroutineScope()
+    LaunchedEffect(voiceResult) {
+        if (voiceResult != null) {
+            Log.d("CameraScreen", "Voice result window triggered: $voiceResult")
+            showVoiceResult = true
+            autoDismissJob?.cancel()
+            autoDismissJob = overlayScope.launch {
+                delay(3500)
+                Log.d("CameraScreen", "Voice result window auto-dismissed")
+                showVoiceResult = false
+                viewModel.clearVoiceResult()
+            }
+        }
+    }
+
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     val cameraPermissionsState = rememberMultiplePermissionsState(
@@ -193,10 +207,7 @@ fun CameraScreen(
     var wasCapturePast by remember { mutableStateOf(capturePastMode) }
     var lastManualStop by remember { mutableStateOf(System.currentTimeMillis()) }
     var isAppInBackground by remember { mutableStateOf(false) }
-    val recordingCompleteHandler: (Uri, Long) -> Unit = { uri, timestamp ->
-        lastManualStop = System.currentTimeMillis()
-        onVideoSaved(uri, timestamp)
-    }
+    // Removed obsolete recordingCompleteHandler and onVideoSaved usage
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, _ -> }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -266,72 +277,88 @@ fun CameraScreen(
     var speechRecognizer: SpeechRecognizer? by remember { mutableStateOf<SpeechRecognizer?>(null) }
     var isSpeechActive by rememberSaveable { mutableStateOf(false) }
     val lastVoiceListening = remember { mutableStateOf(false) }
-
-    DisposableEffect(isVoiceListening) {
-        if (isVoiceListening && !lastVoiceListening.value) {
-            // Start speech recognition
-            if (SpeechRecognizer.isRecognitionAvailable(context)) {
-                val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
-                val intent = Intent().apply {
-                    action = RecognizerIntent.ACTION_RECOGNIZE_SPEECH
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                }
-                recognizer.setRecognitionListener(object : RecognitionListener {
-                    override fun onReadyForSpeech(params: Bundle) {}
-                    override fun onBeginningOfSpeech() { isSpeechActive = true }
-                    override fun onRmsChanged(rmsdB: Float) {}
-                    override fun onBufferReceived(buffer: ByteArray) {}
-                    override fun onEndOfSpeech() { isSpeechActive = false }
-                    override fun onError(error: Int) {
-                        isSpeechActive = false
-                        viewModel.clearVoiceResult()
-                        onVoiceIdToggle() // turn off listening UI
-                    }
-                    override fun onResults(results: Bundle) {
-                        isSpeechActive = false
-                        val matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        val spoken = matches?.firstOrNull()
-                        if (!spoken.isNullOrBlank()) {
-                            viewModel.processVoiceCommand(spoken)
-                        }
-                        onVoiceIdToggle() // turn off listening UI
-                    }
-                    override fun onPartialResults(partialResults: Bundle) {}
-                    override fun onEvent(eventType: Int, params: Bundle) {}
-                })
-                recognizer.startListening(intent)
-                speechRecognizer = recognizer
-            }
-        } else if (!isVoiceListening && lastVoiceListening.value) {
-            // Stop speech recognition
-            speechRecognizer?.stopListening()
-            speechRecognizer?.cancel()
-            speechRecognizer?.destroy()
-            speechRecognizer = null
-            isSpeechActive = false
-        }
-        lastVoiceListening.value = isVoiceListening
-        onDispose {
-            speechRecognizer?.stopListening()
-            speechRecognizer?.cancel()
-            speechRecognizer?.destroy()
-            speechRecognizer = null
-            isSpeechActive = false
-        }
-    }
+    var lastSpokenText by remember { mutableStateOf("") }
+    var recognitionError by remember { mutableStateOf<String?>(null) }
     var arMode by remember { mutableStateOf(true) }
     DisposableEffect(Unit) { onDispose { recordingManager.stopAndDiscardRecording() } }
+
+    // Setup SpeechRecognizer and RecognitionListener
+    LaunchedEffect(Unit) {
+        if (speechRecognizer == null && SpeechRecognizer.isRecognitionAvailable(context)) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+        }
+    }
+    DisposableEffect(speechRecognizer) {
+        val recognizer = speechRecognizer
+        if (recognizer != null) {
+            val listener = object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    Log.d("CameraScreen", "SpeechRecognizer: Ready for speech")
+                    isSpeechActive = true
+                }
+                override fun onBeginningOfSpeech() {
+                    Log.d("CameraScreen", "SpeechRecognizer: Beginning of speech")
+                }
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {
+                    Log.d("CameraScreen", "SpeechRecognizer: End of speech")
+                    isSpeechActive = false
+                }
+                override fun onError(error: Int) {
+                    val msg = "SpeechRecognizer error: $error"
+                    Log.e("CameraScreen", msg)
+                    recognitionError = msg
+                    isSpeechActive = false
+                }
+                override fun onResults(results: Bundle?) {
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val spoken = matches?.firstOrNull()?.trim() ?: ""
+                    Log.d("CameraScreen", "SpeechRecognizer: onResults: $spoken")
+                    lastSpokenText = spoken
+                    if (spoken.isNotBlank()) {
+                        viewModel.processVoiceCommand(spoken)
+                    }
+                    isSpeechActive = false
+                }
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            }
+            recognizer.setRecognitionListener(listener)
+        }
+        onDispose {
+            recognizer?.setRecognitionListener(null)
+            recognizer?.destroy()
+        }
+    }
+
+    fun startListening() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        try {
+            speechRecognizer?.startListening(intent)
+            Log.d("CameraScreen", "SpeechRecognizer: startListening() called")
+            recognitionError = null
+        } catch (e: Exception) {
+            recognitionError = "Failed to start listening: ${e.message}"
+            Log.e("CameraScreen", "SpeechRecognizer: Exception: ${e.message}")
+        }
+    }
     if (cameraPermissionsState.allPermissionsGranted) {
         Scaffold(
             containerColor = Color.Black,
             contentColor = Color.White,
             floatingActionButton = {
                 if (!isStandby && !showSelectionSheet) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
+                        // Record button (existing)
                         FloatingActionButton(
                             onClick = {
                                 if (!isCameraReady) return@FloatingActionButton
@@ -342,11 +369,11 @@ fun CameraScreen(
                                     recordingManager.stopRecording()
                                 } else if (recordingState == RecordingState.IDLE) {
                                     recordingManager.startRecording { uri ->
-                                        uri?.let { recordingCompleteHandler(it, recordingManager.getLastRecordingStartTimeMs()) }
+                                        // Handle video saved event here if needed
                                     }
                                 }
                             },
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier,
                             containerColor = Color.Transparent,
                             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp)
                         ) {
@@ -373,6 +400,24 @@ fun CameraScreen(
                                 )
                             }
                         }
+                        // Mic button for speech recognition
+                        FloatingActionButton(
+                            onClick = {
+                                if (!isSpeechActive && cameraPermissionsState.allPermissionsGranted) {
+                                    startListening()
+                                }
+                            },
+                            modifier = Modifier,
+                            containerColor = if (isSpeechActive) SpotrSuccessGreen else MaterialTheme.colorScheme.primary,
+                            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = if (isSpeechActive) "Listening..." else "Start Voice Command",
+                                tint = if (isSpeechActive) Color.White else MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
                     }
                 }
             },
@@ -398,50 +443,7 @@ fun CameraScreen(
                         }
                     }
             ) {
-                // Listening window with pulsing mic
-                if (isVoiceListening) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(bottom = 120.dp),
-                        contentAlignment = Alignment.BottomCenter
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(24.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-                            tonalElevation = 8.dp,
-                            modifier = Modifier
-                                .width(120.dp)
-                                .height(80.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                val pulse = remember { Animatable(1f) }
-                                LaunchedEffect(isVoiceListening) {
-                                    while (isVoiceListening) {
-                                        pulse.animateTo(1.2f, animationSpec = tween(500))
-                                        pulse.animateTo(1f, animationSpec = tween(500))
-                                    }
-                                }
-                                Icon(
-                                    Icons.Default.Mic,
-                                    contentDescription = if (isSpeechActive) "Listening" else "Mic",
-                                    modifier = Modifier.size((40 * pulse.value).dp),
-                                    tint = if (isSpeechActive) MaterialTheme.colorScheme.primary else Color.Gray
-                                )
-                                Text(
-                                    if (isSpeechActive) "Listening..." else "Processing...",
-                                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        }
-                    }
-                }
+                // Removed obsolete listening window with pulsing mic
                 if (!isCameraReady) {
                     Box(
                         modifier = Modifier
@@ -467,8 +469,7 @@ fun CameraScreen(
                                 isCameraReady = true
                             }
                         }
-                    },
-                    modifier = Modifier.fillMaxSize()
+                    }, Modifier.fillMaxSize()
                 )
                 if (showCameraOverlay) {
                     Box(
@@ -518,44 +519,7 @@ fun CameraScreen(
                         )
                     }
                 }
-                if (!isStandby && recordingState != RecordingState.RECORDING && selectedTeam != null) {
-                    var pulseUp by remember { mutableStateOf(true) }
-                    val pulse: Dp by animateDpAsState(
-                        targetValue = if (isVoiceListening && pulseUp) 66.dp else 56.dp,
-                        animationSpec = tween(durationMillis = 500), label = "micPulse"
-                    )
-                    val pulseColor = animateColorAsState(
-                        targetValue = if (isVoiceListening && pulseUp) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer,
-                        animationSpec = tween(durationMillis = 500), label = "micPulseColor"
-                    )
-                    LaunchedEffect(isVoiceListening) {
-                        if (isVoiceListening) {
-                            while (isVoiceListening) {
-                                pulseUp = !pulseUp
-                                delay(500)
-                            }
-                        } else {
-                            pulseUp = true
-                        }
-                    }
-                    FloatingActionButton(
-                        onClick = onVoiceIdToggle,
-                        containerColor = if (isVoiceListening) pulseColor.value else MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(16.dp)
-                            .size(pulse)
-                    ) {
-                        val micTint = if (isVoiceListening && pulseUp) Color(0xFF2ECC40) else MaterialTheme.colorScheme.onPrimaryContainer
-                        Icon(
-                            if (isVoiceListening) Icons.Default.Mic else Icons.Default.MicNone,
-                            contentDescription = "Voice Player ID",
-                            modifier = Modifier.size(24.dp),
-                            tint = if (isVoiceListening) micTint else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
+                // Removed obsolete mic button and pulse logic
                 if (arMode && !isStandby) {
                     PlayerBubblesOverlay(
                         trackedPlayers = trackedPlayersWithInfo,
@@ -563,80 +527,49 @@ fun CameraScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 }
-
-                // Voice result window (dismissable, above record button)
-                val voiceResult by viewModel.voiceResult.collectAsState()
-                val showVoiceResult = voiceResult is com.playerid.app.viewmodels.VoiceAssistantResult.Success && (voiceResult as com.playerid.app.viewmodels.VoiceAssistantResult.Success).player != null
-                if (showVoiceResult) {
-                    val player = (voiceResult as com.playerid.app.viewmodels.VoiceAssistantResult.Success).player!!
+                // Voice result window overlay (single block, inside main Box)
+                if (showVoiceResult && voiceResult != null) {
+                    Log.d("CameraScreen", "Voice result window shown: $voiceResult")
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .clickable { viewModel.clearVoiceResult() },
+                            .padding(bottom = 100.dp)
+                            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+                        Log.d("CameraScreen", "Voice result window manually dismissed")
+                        showVoiceResult = false
+                        viewModel.clearVoiceResult()
+                    },
                         contentAlignment = Alignment.BottomCenter
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                            color = MaterialTheme.colorScheme.surface,
+                            shape = RoundedCornerShape(24.dp),
                             tonalElevation = 8.dp,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp)
-                                .padding(bottom = 120.dp) // Position above record button
-                                .heightIn(min = 90.dp)
+                                .padding(16.dp)
+                                .widthIn(min = 220.dp, max = 340.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.Top
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                // Number large on left
-                                Text(
-                                    "#${player.number}",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 36.sp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.align(Alignment.CenterVertically)
-                                )
-                                Spacer(modifier = Modifier.width(24.dp))
-                                // Name and details on right
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    horizontalAlignment = Alignment.Start
-                                ) {
-                                    Text(
-                                        player.name,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 28.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Row {
-                                        Text(
-                                            player.position,
-                                            fontSize = 16.sp,
-                                            color = Color.DarkGray
-                                        )
-                                        val gradYear = try {
-                                            val grad = player.javaClass.getMethod("getGraduationYear").invoke(player) as? String
-                                            if (!grad.isNullOrBlank()) grad else null
-                                        } catch (_: Exception) {
-                                            null
-                                        } ?: try {
-                                            val acad = player.javaClass.getMethod("getAcademicYear").invoke(player) as? String
-                                            if (!acad.isNullOrBlank()) acad else null
-                                        } catch (_: Exception) {
-                                            null
-                                        }
-                                        if (gradYear != null) {
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Text(
-                                                "Grad: $gradYear",
-                                                fontSize = 16.sp,
-                                                color = Color.DarkGray
-                                            )
-                                        }
+                                when (voiceResult) {
+                                    is VoiceAssistantResult.Success -> {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SpotrSuccessGreen, modifier = Modifier.size(36.dp))
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text((voiceResult as VoiceAssistantResult.Success).message, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    }
+                                    is VoiceAssistantResult.Error -> {
+                                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(36.dp))
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text((voiceResult as VoiceAssistantResult.Error).message, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    }
+                                    else -> {
+                                        // Optionally show nothing or a placeholder
                                     }
                                 }
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text("Tap anywhere to dismiss", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }

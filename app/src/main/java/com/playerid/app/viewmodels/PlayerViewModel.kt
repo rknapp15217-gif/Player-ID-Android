@@ -13,6 +13,11 @@ import kotlinx.coroutines.launch
 import java.util.*
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application), TextToSpeech.OnInitListener {
+            fun dismissVoiceResult() {
+                _voiceResult.value = null
+            }
+        private val prefs = application.getSharedPreferences("playerid_selected_team", android.content.Context.MODE_PRIVATE)
+        private val KEY_SELECTED_TEAM = "selected_team"
     
     private val database = PlayerDatabase.getDatabase(application)
     private val playerDao = database.playerDao()
@@ -82,16 +87,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         val teamPlayers = if (team != null) {
             players.filter { it.team == team }
         } else {
-            emptyList() 
+            emptyList()
         }
-
         if (query.isEmpty()) {
             teamPlayers
         } else {
             teamPlayers.filter { player ->
-                player.name.contains(query, ignoreCase = true) ||
-                player.number.contains(query) ||
-                player.position.contains(query, ignoreCase = true)
+                player.name.contains(query, ignoreCase = true)
             }
         }
     }.stateIn(
@@ -101,6 +103,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     )
     
     init {
+        // Restore selected team from SharedPreferences
+        val persistedTeam = prefs.getString(KEY_SELECTED_TEAM, null)
+        if (persistedTeam != null) {
+            _selectedTeam.value = persistedTeam
+        }
         initializeSampleData()
         tts = TextToSpeech(application, this)
     }
@@ -124,8 +131,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     }
 
     private fun speak(text: String) {
+        Log.d(TAG, "speak() called: isTtsReady=$isTtsReady, text='$text'")
         if (isTtsReady) {
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        } else {
+            Log.w(TAG, "TTS not ready, skipping speak: '$text'")
         }
     }
 
@@ -141,7 +151,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     }
     
     fun setSelectedTeam(team: String?) {
+        android.util.Log.d("PlayerViewModel", "setSelectedTeam called with: $team")
         _selectedTeam.value = team
+        // Persist to SharedPreferences
+        prefs.edit().putString(KEY_SELECTED_TEAM, team).apply()
+        android.util.Log.d("PlayerViewModel", "selectedTeam now: ${_selectedTeam.value}")
     }
     
     fun updateTrackedPlayers(tracked: List<TrackedPlayer>) {
@@ -162,6 +176,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     fun processVoiceCommand(spokenText: String) {
         viewModelScope.launch {
             _isListening.value = false
+            // Ensure repeated identical matches still emit a fresh result for UI display.
+            _voiceResult.value = null
             val originalText = spokenText.lowercase().trim()
             Log.d(TAG, "Voice assistant processing: $originalText")
             
@@ -171,6 +187,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                 
                 _voiceActions.emit(VoiceAction.StopRecording)
                 val msg = "Moment captured!"
+                Log.d(TAG, "Setting voiceResult: Success '$msg'")
                 _voiceResult.value = VoiceAssistantResult.Success(msg)
                 speak(msg)
                 // Session ends after capture
@@ -188,6 +205,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                 if (targetTeam != null) {
                     setSelectedTeam(targetTeam.name)
                     val msg = "Switched to ${targetTeam.name}"
+                    Log.d(TAG, "Setting voiceResult: Success '$msg'")
                     _voiceResult.value = VoiceAssistantResult.Success(msg)
                     speak(msg)
                     _isVoiceSessionActive.value = false
@@ -198,8 +216,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             val team = _selectedTeam.value
             if (team == null) {
                 val msg = "Please select a team first"
+                Log.d(TAG, "Setting voiceResult: Error '$msg'")
                 _voiceResult.value = VoiceAssistantResult.Error(msg)
                 speak(msg)
+                _isListening.value = false
                 _isVoiceSessionActive.value = false
                 return@launch
             }
@@ -223,8 +243,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                 val player = roster.find { it.number == numericOnly }
                 if (player != null) {
                     val msg = "#${numericOnly} ${player.name}"
+                    Log.d(TAG, "Setting voiceResult: Success '$msg' for player ${player.name}")
                     _voiceResult.value = VoiceAssistantResult.Success(msg, player)
-                    speak(player.name)
+                    speak(msg)
                     _isVoiceSessionActive.value = false
                     return@launch
                 }
@@ -239,26 +260,43 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                 matches.size == 1 -> {
                     val p = matches.first()
                     val msg = "Number #${p.number} ${p.name}"
+                    Log.d(TAG, "Setting voiceResult: Success '$msg' for player ${p.name}")
                     _voiceResult.value = VoiceAssistantResult.Success(msg, p)
                     speak("Number ${p.number}")
                 }
                 matches.size > 1 -> {
                     val names = matches.joinToString(" and ") { "${it.name} #${it.number}" }
                     val msg = "I found ${matches.size} players: $names"
+                    Log.d(TAG, "Setting voiceResult: Error 'Multiple players found. Be more specific.'")
                     _voiceResult.value = VoiceAssistantResult.Error("Multiple players found. Be more specific.")
                     speak("I found multiple players. Please specify.")
+                    _isListening.value = false
+                    _isVoiceSessionActive.value = false
                 }
                 else -> {
-                    val msg = "I couldn't find a player matching '$spokenText'"
+                    val msg = "Sorry no roster match"
+                    Log.d(TAG, "Setting voiceResult: Error '$msg'")
                     _voiceResult.value = VoiceAssistantResult.Error(msg)
-                    speak("Player not found")
+                    speak(msg)
+                    _isListening.value = false
+                    _isVoiceSessionActive.value = false
                 }
             }
             _isVoiceSessionActive.value = false
+                // Fallback: If nothing matched and _voiceResult is still null, set error
+                if (_voiceResult.value == null) {
+                    val msg = "Sorry, I didn't understand. Please try again."
+                    Log.d(TAG, "Setting voiceResult: Error '$msg' (fallback)")
+                    _voiceResult.value = VoiceAssistantResult.Error(msg)
+                    speak(msg)
+                    _isListening.value = false
+                    _isVoiceSessionActive.value = false
+                }
         }
     }
 
     fun clearVoiceResult() {
+        Log.d(TAG, "clearVoiceResult() called")
         _voiceResult.value = null
         _isVoiceSessionActive.value = false
     }
@@ -271,6 +309,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     }
 
     fun reportVoiceError(message: String) {
+        Log.d(TAG, "Setting voiceResult: Error '$message' (reportVoiceError)")
         _voiceResult.value = VoiceAssistantResult.Error(message)
         speak(message)
         _isVoiceSessionActive.value = false
@@ -356,7 +395,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     fun importDatabase() {
         initializeSampleData()
     }
-
     fun clearCache() {
         viewModelScope.launch {
             database.clearAllTables()
@@ -395,6 +433,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     }
 }
 
+// Sealed classes should be outside PlayerViewModel
 sealed class VoiceAssistantResult {
     data class Success(val message: String, val player: Player? = null) : VoiceAssistantResult()
     data class Error(val message: String) : VoiceAssistantResult()
@@ -404,3 +443,4 @@ sealed class VoiceAction {
     object StopRecording : VoiceAction()
     object StopRecordingSilent : VoiceAction()
 }
+

@@ -1,4 +1,7 @@
 package com.playerid.app
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.unit.sp
 
 import androidx.compose.runtime.collectAsState
 
@@ -13,10 +16,15 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.Modifier // Keep only one import
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -28,6 +36,7 @@ import com.playerid.app.ui.screens.CameraScreen
 import com.playerid.app.ui.screens.TeamScreen
 import com.playerid.app.ui.screens.ReferralScreen
 import com.playerid.app.ui.screens.SettingsScreen
+import com.playerid.app.ui.screens.PlayerIDVoiceScreen
 
 val LocalPlayerViewModel = compositionLocalOf<PlayerViewModel> { error("No PlayerViewModel provided") }
 val LocalTeamViewModel = compositionLocalOf<TeamViewModel> { error("No TeamViewModel provided") }
@@ -40,34 +49,37 @@ fun PlayerIDApp() {
     val teamViewModel: TeamViewModel = viewModel()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: "camera"
-
     val navItems = listOf(
-        BottomNavItem("Camera", Icons.Default.CameraAlt, "camera"),
-        BottomNavItem("Teams", Icons.Default.Group, "teams"),
-        BottomNavItem("Referral", Icons.Default.PersonAdd, "referral"),
-        BottomNavItem("Settings", Icons.Default.Settings, "settings")
+        BottomNavItem("Camera", Icons.Filled.CameraAlt, "camera"),
+        BottomNavItem("Player ID", Icons.Filled.Mic, "playeridvoice"),
+        BottomNavItem("Teams", Icons.Filled.Group, "teams"),
+        BottomNavItem("Referral", Icons.Filled.PersonAdd, "referral"),
+        BottomNavItem("Settings", Icons.Filled.Settings, "settings")
     )
     val selectedIndex = navItems.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
 
     CompositionLocalProvider(
         LocalPlayerViewModel provides playerViewModel,
-        LocalTeamViewModel provides teamViewModel,
         LocalAppContext provides playerViewModel.getApplication()
     ) {
         Surface(color = MaterialTheme.colorScheme.background) {
-            androidx.compose.foundation.layout.Column {
-                androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+            androidx.compose.foundation.layout.Column(
+                modifier = androidx.compose.ui.Modifier.fillMaxSize()
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.weight(1f)
+                ) {
                     NavHost(navController = navController, startDestination = "camera") {
                         composable("camera") {
-                            val isVoiceListening by playerViewModel.isListening.collectAsState()
                             CameraScreen(
                                 viewModel = playerViewModel,
-                                teamViewModel = teamViewModel,
-                                showVoiceId = true,
-                                isVoiceListening = isVoiceListening,
-                                onVoiceIdToggle = { playerViewModel.setListening(isVoiceListening.not()) },
-                                onVideoSaved = { _, _ -> },
-                                onNavigateToVideoLibrary = {}
+                                teamViewModel = teamViewModel
+                            )
+                        }
+                        composable("playeridvoice") {
+                            PlayerIDVoiceScreen(
+                                viewModel = playerViewModel,
+                                teamViewModel = teamViewModel
                             )
                         }
                         composable("teams") {

@@ -69,5 +69,8 @@ ENV/
 # VS Code
 .vscode/
 
+# Local toolchains
+.local-jdks/
+
 # Captures folder (for screenshots)
 captures/
