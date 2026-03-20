@@ -8,20 +8,27 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
@@ -187,6 +194,14 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
     val voiceResult = viewModel.voiceResult.collectAsState().value
     val debugMessage = remember { mutableStateOf("") }
     val pulse = remember { Animatable(1f) }
+    val configuration = LocalConfiguration.current
+    val isSmallScreen = configuration.screenHeightDp < 700
+    val horizontalPadding = if (isSmallScreen) 16.dp else 20.dp
+    val verticalPadding = if (isSmallScreen) 16.dp else 24.dp
+    val micButtonSize = if (isSmallScreen) 132.dp else 150.dp
+    val micIconSize = if (isSmallScreen) 76.dp else 88.dp
+    val cardVerticalPadding = if (isSmallScreen) 18.dp else 24.dp
+    val titleStyle = if (isSmallScreen) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall
 
     LaunchedEffect(isListening) {
         if (isListening) {
@@ -200,263 +215,522 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
     }
 
     val teams by teamViewModel.subscribedTeams.collectAsState()
+    val allPlayers by viewModel.allPlayers.collectAsState(initial = emptyList())
     val selectedTeamState = viewModel.selectedTeam.collectAsState()
     var expanded by remember { mutableStateOf(false) }
+    var showManualRoster by rememberSaveable { mutableStateOf(false) }
+    var rosterQuery by rememberSaveable { mutableStateOf("") }
+    var selectedPositionFilter by rememberSaveable { mutableStateOf("All Positions") }
+    var selectedAcademicYearFilter by rememberSaveable { mutableStateOf("All Years") }
+    var positionMenuExpanded by remember { mutableStateOf(false) }
+    var yearMenuExpanded by remember { mutableStateOf(false) }
     val selectedTeam = selectedTeamState.value ?: ""
+    val teamRoster = remember(allPlayers, selectedTeam) {
+        allPlayers.filter { it.team == selectedTeam }
+    }
+    val normalizedRosterQuery = rosterQuery.trim()
+    val availablePositions = remember(teamRoster, normalizedRosterQuery, selectedAcademicYearFilter) {
+        teamRoster
+            .asSequence()
+            .filter { player ->
+                val matchesQuery = normalizedRosterQuery.isEmpty() ||
+                    player.name.contains(normalizedRosterQuery, ignoreCase = true) ||
+                    player.number.contains(normalizedRosterQuery)
+                val matchesYear = selectedAcademicYearFilter == "All Years" ||
+                    player.academicYear.equals(selectedAcademicYearFilter, ignoreCase = true)
+                matchesQuery && matchesYear
+            }
+            .map { it.position }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+            .toList()
+    }
+    val availableAcademicYears = remember(teamRoster, normalizedRosterQuery, selectedPositionFilter) {
+        teamRoster
+            .asSequence()
+            .filter { player ->
+                val matchesQuery = normalizedRosterQuery.isEmpty() ||
+                    player.name.contains(normalizedRosterQuery, ignoreCase = true) ||
+                    player.number.contains(normalizedRosterQuery)
+                val matchesPosition = selectedPositionFilter == "All Positions" ||
+                    player.position.equals(selectedPositionFilter, ignoreCase = true)
+                matchesQuery && matchesPosition
+            }
+            .map { it.academicYear }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+            .toList()
+    }
+    val filteredRoster = remember(
+        teamRoster,
+        normalizedRosterQuery,
+        selectedPositionFilter,
+        selectedAcademicYearFilter
+    ) {
+        teamRoster.filter { player ->
+            val matchesQuery = normalizedRosterQuery.isEmpty() ||
+                player.name.contains(normalizedRosterQuery, ignoreCase = true) ||
+                player.number.contains(normalizedRosterQuery)
+            val matchesPosition = selectedPositionFilter == "All Positions" ||
+                player.position.equals(selectedPositionFilter, ignoreCase = true)
+            val matchesYear = selectedAcademicYearFilter == "All Years" ||
+                player.academicYear.equals(selectedAcademicYearFilter, ignoreCase = true)
+            matchesQuery && matchesPosition && matchesYear
+        }
+    }
+
+    LaunchedEffect(availablePositions, selectedPositionFilter) {
+        if (selectedPositionFilter != "All Positions" && selectedPositionFilter !in availablePositions) {
+            selectedPositionFilter = "All Positions"
+        }
+    }
+    LaunchedEffect(availableAcademicYears, selectedAcademicYearFilter) {
+        if (selectedAcademicYearFilter != "All Years" && selectedAcademicYearFilter !in availableAcademicYears) {
+            selectedAcademicYearFilter = "All Years"
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(Color(0xFFF3F6FA))
             .clickable {
                 if (voiceResult != null) {
                     showResult = false
                     viewModel.clearVoiceResult()
                 }
-            }
+            },
+        contentAlignment = Alignment.TopCenter
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(modifier = Modifier.height(24.dp))
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Player ID",
+                color = Color(0xFF1976D2),
+                style = titleStyle,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "Voice-first roster lookup",
+                color = Color(0xFF455A64),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                tonalElevation = 2.dp,
+                shadowElevation = 2.dp,
+                color = Color.White,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                TextField(
-                    value = selectedTeam,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Select Team") },
-                    trailingIcon = {
-                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                    },
-                    modifier = Modifier.menuAnchor().width(220.dp)
-                )
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    teams.forEach { team ->
-                        DropdownMenuItem(
-                            text = { Text(team.name) },
-                            onClick = {
-                                viewModel.setSelectedTeam(team.name)
-                                teamViewModel.selectTeam(team.name)
-                                expanded = false
-                            }
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Team",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color(0xFF607D8B)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = expanded,
+                        onExpandedChange = { expanded = !expanded }
+                    ) {
+                        TextField(
+                            value = selectedTeam,
+                            onValueChange = {},
+                            readOnly = true,
+                            placeholder = { Text("Select Team") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                            },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color(0xFFF8FAFD),
+                                unfocusedContainerColor = Color(0xFFF8FAFD),
+                                focusedIndicatorColor = Color(0xFF1976D2),
+                                unfocusedIndicatorColor = Color(0xFFCFD8DC)
+                            ),
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
                         )
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            teams.forEach { team ->
+                                DropdownMenuItem(
+                                    text = { Text(team.name) },
+                                    onClick = {
+                                        viewModel.setSelectedTeam(team.name)
+                                        teamViewModel.selectTeam(team.name)
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
+
+            Spacer(modifier = Modifier.height(14.dp))
+
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFF2196F3).copy(alpha = 0.85f),
-                        tonalElevation = 8.dp,
-                        modifier = Modifier.size(160.dp)
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White,
+                    tonalElevation = 4.dp,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isListening) Color(0xFF90CAF9) else Color(0xFF1976D2),
+                            tonalElevation = 10.dp,
+                            shadowElevation = 10.dp,
+                            modifier = Modifier.size(micButtonSize)
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Icon(
                                     Icons.Filled.Mic,
                                     contentDescription = "Voice Player ID",
                                     modifier = Modifier
-                                        .size(96.dp)
+                                        .size(micIconSize)
                                         .clickable(enabled = !isListening) {
                                             if (!isListening) {
                                                 if (!permissionState.value) {
                                                     launcher.launch(android.Manifest.permission.RECORD_AUDIO)
                                                 } else {
-                                                    android.util.Log.d(
-                                                        "PlayerIDVoiceScreen",
-                                                        "Mic tapped, starting listening"
-                                                    )
+                                                    if (BuildConfig.DEBUG) {
+                                                        android.util.Log.d(
+                                                            "PlayerIDVoiceScreen",
+                                                            "Mic tapped, starting listening"
+                                                        )
+                                                    }
                                                     startListening()
                                                 }
                                             }
                                         },
-                                    tint = if (!isListening) Color.White else Color.Gray
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Tap to speak",
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 14.sp,
-                                    style = MaterialTheme.typography.labelMedium
+                                    tint = Color.White
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = if (isListening) "Listening..." else "Tap to Speak",
+                            color = Color(0xFF37474F),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                     }
                 }
-                val resultMessage = when (val result = voiceResult) {
-                    is com.playerid.app.viewmodels.VoiceAssistantResult.Error -> result.message
-                    is com.playerid.app.viewmodels.VoiceAssistantResult.Success -> {
-                        val player = result.player
-                        if (player != null) {
-                            "#${player.number} ${player.name}\nPosition: ${player.position}\n${player.academicYear.orEmpty()}"
-                        } else {
-                            result.message
-                        }
-                    }
-                    else -> null
-                }
-                // Reset showResult when listening starts
-                LaunchedEffect(isListening) {
-                    if (isListening) showResult = false
-                }
-                LaunchedEffect(voiceResult) {
-                    if (voiceResult != null) {
-                        showResult = true
-                        resultWindowsShown += 1
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.i(
-                                "PlayerIDVoiceScreen",
-                                "result window shown #$resultWindowsShown with ${voiceResult::class.simpleName}"
-                            )
-                        }
-                    }
-                }
-                if (showResult && voiceResult != null && !isListening) {
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color(0xFF2196F3),
-                                        Color(0xFF1976D2)
-                                    )
-                                ),
-                                shape = RoundedCornerShape(32.dp)
-                            )
-                            .shadow(12.dp, RoundedCornerShape(32.dp))
-                                    .clickable {
-                                        showResult = false
-                                        viewModel.clearVoiceResult()
-                                    }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White,
+                tonalElevation = 2.dp,
+                shadowElevation = 3.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(32.dp),
-                            border = BorderStroke(2.dp, Color.White.copy(alpha = 0.15f)),
-                            color = Color.Transparent,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            when {
-                                resultMessage != null -> {
-                                    Column(modifier = Modifier.padding(32.dp)) {
+                        Text(
+                            text = "Can't find by voice?",
+                            color = Color(0xFF37474F),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        TextButton(onClick = { showManualRoster = !showManualRoster }) {
+                            Text(if (showManualRoster) "Hide" else "Browse the Lineup")
+                            Icon(
+                                imageVector = if (showManualRoster) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = null
+                            )
+                        }
+                    }
+
+                    if (showManualRoster) {
+                        if (selectedTeam.isBlank()) {
+                            Text(
+                                text = "Select a team first to browse roster.",
+                                color = Color(0xFF607D8B),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        } else {
+                            OutlinedTextField(
+                                value = rosterQuery,
+                                onValueChange = { rosterQuery = it },
+                                label = { Text("Search number or name") },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    OutlinedButton(
+                                        onClick = { positionMenuExpanded = true },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
                                         Text(
-                                            text = resultMessage,
-                                            color = Color.White,
-                                            style = MaterialTheme.typography.titleLarge
+                                            text = selectedPositionFilter,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
-                                        Spacer(modifier = Modifier.height(16.dp))
-                                        Button(onClick = {
-                                            showResult = false
-                                            viewModel.clearVoiceResult()
-                                        }) {
-                                            Text("Dismiss")
+                                    }
+                                    DropdownMenu(
+                                        expanded = positionMenuExpanded,
+                                        onDismissRequest = { positionMenuExpanded = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("All Positions") },
+                                            onClick = {
+                                                selectedPositionFilter = "All Positions"
+                                                positionMenuExpanded = false
+                                            }
+                                        )
+                                        availablePositions.forEach { position ->
+                                            DropdownMenuItem(
+                                                text = { Text(position) },
+                                                onClick = {
+                                                    selectedPositionFilter = position
+                                                    positionMenuExpanded = false
+                                                }
+                                            )
                                         }
                                     }
                                 }
-                                voiceResult is com.playerid.app.viewmodels.VoiceAssistantResult.Success -> {
-                                    val player = voiceResult.player
-                                    val gradYear = try {
-                                        val grad = player?.javaClass?.getMethod("getGraduationYear")?.invoke(player) as? String
-                                        if (!grad.isNullOrBlank()) grad else null
-                                    } catch (_: Exception) {
-                                        null
-                                    } ?: try {
-                                        val acad = player?.javaClass?.getMethod("getAcademicYear")?.invoke(player) as? String
-                                        if (!acad.isNullOrBlank()) acad else null
-                                    } catch (_: Exception) {
-                                        null
-                                    }
-                                    Row(
-                                        modifier = Modifier.padding(32.dp),
-                                        verticalAlignment = Alignment.Top
+
+                                Box(modifier = Modifier.weight(1f)) {
+                                    OutlinedButton(
+                                        onClick = { yearMenuExpanded = true },
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Column(modifier = Modifier.fillMaxWidth()) {
-                                            Text(
-                                                text = player?.name ?: "",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 24.sp,
-                                                color = Color.White,
-                                                maxLines = 2,
-                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.Top
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .width(48.dp)
-                                                        .height(48.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text(
-                                                        text = "#${player?.number ?: ""}",
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        fontSize = 28.sp,
-                                                        color = Color(0xFFFFC107),
-                                                        maxLines = 1,
-                                                        overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-                                                        softWrap = false
-                                                    )
+                                        Text(
+                                            text = selectedAcademicYearFilter,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = yearMenuExpanded,
+                                        onDismissRequest = { yearMenuExpanded = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("All Years") },
+                                            onClick = {
+                                                selectedAcademicYearFilter = "All Years"
+                                                yearMenuExpanded = false
+                                            }
+                                        )
+                                        availableAcademicYears.forEach { year ->
+                                            DropdownMenuItem(
+                                                text = { Text(year) },
+                                                onClick = {
+                                                    selectedAcademicYearFilter = year
+                                                    yearMenuExpanded = false
                                                 }
-                                                Spacer(modifier = Modifier.width(32.dp))
-                                                Column(
-                                                    modifier = Modifier.weight(1f),
-                                                    horizontalAlignment = Alignment.Start
-                                                ) {
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            if (filteredRoster.isEmpty()) {
+                                Text(
+                                    text = "No matching players",
+                                    color = Color(0xFF78909C),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 300.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    items(filteredRoster, key = { it.id }) { player ->
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(0xFFF8FAFD),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    showManualRoster = false
+                                                    rosterQuery = ""
+                                                    viewModel.processVoiceCommand(player.number)
+                                                }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "#${player.number}",
+                                                    color = Color(0xFF1976D2),
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleMedium
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
                                                     Text(
-                                                        text = "Position: ${player?.position ?: ""}",
+                                                        text = player.name,
+                                                        color = Color(0xFF263238),
+                                                        style = MaterialTheme.typography.bodyLarge,
                                                         fontWeight = FontWeight.Medium,
-                                                        fontSize = 16.sp,
-                                                        color = Color.White.copy(alpha = 0.85f),
                                                         maxLines = 1,
-                                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                                        modifier = Modifier.padding(start = 8.dp)
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
-                                                    if (gradYear != null) {
-                                                        Text(
-                                                            text = "Grad Year: $gradYear",
-                                                            fontWeight = FontWeight.Normal,
-                                                            fontSize = 16.sp,
-                                                            color = Color.White.copy(alpha = 0.7f),
-                                                            maxLines = 1,
-                                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                                            modifier = Modifier.padding(start = 8.dp)
-                                                        )
-                                                    }
+                                                    Text(
+                                                        text = "${player.position} • ${player.academicYear}",
+                                                        color = Color(0xFF607D8B),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
                                                 }
                                             }
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Button(onClick = {
-                                        showResult = false
-                                        viewModel.clearVoiceResult()
-                                    }) {
-                                        Text("Dismiss")
-                                    }
                                 }
                             }
                         }
                     }
                 }
-                            // Show results window after speech input
-                            // Only show results window after speech input completes (onResults or onError)
-                            // Removed duplicate LaunchedEffect for showResult
             }
+        }
+
+        val successResult = voiceResult as? com.playerid.app.viewmodels.VoiceAssistantResult.Success
+        val errorResult = voiceResult as? com.playerid.app.viewmodels.VoiceAssistantResult.Error
+        val successPlayer = successResult?.player
+
+        LaunchedEffect(isListening) {
+            if (isListening) showResult = false
+        }
+        LaunchedEffect(voiceResult) {
+            if (voiceResult != null) {
+                showResult = true
+                if (voiceResult is com.playerid.app.viewmodels.VoiceAssistantResult.Error) {
+                    showManualRoster = true
+                }
+                resultWindowsShown += 1
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.i(
+                        "PlayerIDVoiceScreen",
+                        "result window shown #$resultWindowsShown with ${voiceResult::class.simpleName}"
+                    )
+                }
+            }
+        }
+
+        if (showResult && voiceResult != null && !isListening) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.22f))
+                    .padding(horizontal = 22.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White,
+                    tonalElevation = 8.dp,
+                    shadowElevation = 10.dp,
+                    border = BorderStroke(
+                        width = 2.dp,
+                        color = if (errorResult != null) Color(0xFFFF9800) else Color(0xFF1976D2)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { }
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = cardVerticalPadding)) {
+                        Text(
+                            text = if (errorResult != null) "Could not find player" else "Player found",
+                            color = if (errorResult != null) Color(0xFFE65100) else Color(0xFF1565C0),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (successPlayer != null) {
+                            Text(
+                                text = successPlayer.name,
+                                color = Color(0xFF263238),
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "#${successPlayer.number}",
+                                color = Color(0xFF1976D2),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = "Position: ${successPlayer.position}",
+                                color = Color(0xFF455A64),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
+                            if (!successPlayer.academicYear.isNullOrBlank()) {
+                                Text(
+                                    text = "Year: ${successPlayer.academicYear}",
+                                    color = Color(0xFF607D8B),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                        } else {
+                            val fallbackMessage = errorResult?.message ?: successResult?.message.orEmpty()
+                            Text(
+                                text = fallbackMessage,
+                                color = Color(0xFF37474F),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
             if (isListening) {
                 // Reset showResult safely using a setter
                 LaunchedEffect(isListening) {
@@ -500,6 +774,5 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     )
                 }
             }
-        }
     }
 }
