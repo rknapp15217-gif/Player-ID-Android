@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
@@ -225,6 +226,12 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
     var positionMenuExpanded by remember { mutableStateOf(false) }
     var yearMenuExpanded by remember { mutableStateOf(false) }
     val selectedTeam = selectedTeamState.value ?: ""
+    val selectedTeamMeta = remember(teams, selectedTeam) {
+        teams.firstOrNull { it.name == selectedTeam }
+    }
+    val teamPrimary = parsePlayerScreenColor(selectedTeamMeta?.color, Color(0xFF1976D2))
+    val teamSecondary = parsePlayerScreenColor(selectedTeamMeta?.awayColor, Color(0xFFE3F2FD))
+    val onTeamPrimary = if (teamPrimary.luminance() > 0.55f) Color.Black else Color.White
     val teamRoster = remember(allPlayers, selectedTeam) {
         allPlayers.filter { it.team == selectedTeam }
     }
@@ -295,7 +302,14 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF3F6FA))
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        teamSecondary.copy(alpha = 0.22f),
+                        Color(0xFFF3F6FA)
+                    )
+                )
+            )
             .clickable {
                 if (voiceResult != null) {
                     showResult = false
@@ -313,13 +327,13 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
         ) {
             Text(
                 text = "Player ID",
-                color = Color(0xFF1976D2),
+                color = teamPrimary,
                 style = titleStyle,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = "Voice-first roster lookup",
-                color = Color(0xFF455A64),
+                color = teamPrimary.copy(alpha = 0.75f),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp)
             )
@@ -337,7 +351,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     Text(
                         text = "Team",
                         style = MaterialTheme.typography.labelLarge,
-                        color = Color(0xFF607D8B)
+                        color = teamPrimary.copy(alpha = 0.75f)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     ExposedDropdownMenuBox(
@@ -353,10 +367,14 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
                             },
                             colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color(0xFFF8FAFD),
-                                unfocusedContainerColor = Color(0xFFF8FAFD),
-                                focusedIndicatorColor = Color(0xFF1976D2),
-                                unfocusedIndicatorColor = Color(0xFFCFD8DC)
+                                focusedContainerColor = teamSecondary.copy(alpha = 0.22f),
+                                unfocusedContainerColor = teamSecondary.copy(alpha = 0.14f),
+                                focusedIndicatorColor = teamPrimary,
+                                unfocusedIndicatorColor = teamPrimary.copy(alpha = 0.35f),
+                                focusedTextColor = Color(0xFF263238),
+                                unfocusedTextColor = Color(0xFF263238),
+                                focusedTrailingIconColor = teamPrimary,
+                                unfocusedTrailingIconColor = teamPrimary.copy(alpha = 0.7f)
                             ),
                             modifier = Modifier
                                 .menuAnchor()
@@ -400,7 +418,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = if (isListening) Color(0xFF90CAF9) else Color(0xFF1976D2),
+                            color = if (isListening) teamSecondary else teamPrimary,
                             tonalElevation = 10.dp,
                             shadowElevation = 10.dp,
                             modifier = Modifier.size(micButtonSize)
@@ -429,7 +447,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                                 }
                                             }
                                         },
-                                    tint = Color.White
+                                    tint = onTeamPrimary
                                 )
                             }
                         }
@@ -438,7 +456,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
 
                         Text(
                             text = if (isListening) "Listening..." else "Tap to Speak",
-                            color = Color(0xFF37474F),
+                            color = teamPrimary.copy(alpha = 0.8f),
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
@@ -462,11 +480,14 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     ) {
                         Text(
                             text = "Can't find by voice?",
-                            color = Color(0xFF37474F),
+                            color = teamPrimary.copy(alpha = 0.85f),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )
-                        TextButton(onClick = { showManualRoster = !showManualRoster }) {
+                        TextButton(
+                            onClick = { showManualRoster = !showManualRoster },
+                            colors = ButtonDefaults.textButtonColors(contentColor = teamPrimary)
+                        ) {
                             Text(if (showManualRoster) "Hide" else "Browse the Lineup")
                             Icon(
                                 imageVector = if (showManualRoster) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
@@ -586,7 +607,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                     items(filteredRoster, key = { it.id }) { player ->
                                         Surface(
                                             shape = RoundedCornerShape(12.dp),
-                                            color = Color(0xFFF8FAFD),
+                                            color = teamSecondary.copy(alpha = 0.18f),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable {
@@ -601,12 +622,18 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text(
-                                                    text = "#${player.number}",
-                                                    color = Color(0xFF1976D2),
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = MaterialTheme.typography.titleMedium
-                                                )
+                                                Box(
+                                                    modifier = Modifier.width(44.dp),
+                                                    contentAlignment = Alignment.CenterEnd
+                                                ) {
+                                                    Text(
+                                                        text = "#${player.number}",
+                                                        color = teamPrimary,
+                                                        fontWeight = FontWeight.Bold,
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        maxLines = 1
+                                                    )
+                                                }
                                                 Spacer(modifier = Modifier.width(12.dp))
                                                 Column {
                                                     Text(
@@ -674,51 +701,73 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     shadowElevation = 10.dp,
                     border = BorderStroke(
                         width = 2.dp,
-                        color = if (errorResult != null) Color(0xFFFF9800) else Color(0xFF1976D2)
+                        color = if (errorResult != null) Color(0xFFFF9800) else teamPrimary
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { }
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = cardVerticalPadding)) {
-                        Text(
-                            text = if (errorResult != null) "Could not find player" else "Player found",
-                            color = if (errorResult != null) Color(0xFFE65100) else Color(0xFF1565C0),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
                         if (successPlayer != null) {
-                            Text(
-                                text = successPlayer.name,
-                                color = Color(0xFF263238),
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "#${successPlayer.number}",
-                                color = Color(0xFF1976D2),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                            Text(
-                                text = "Position: ${successPlayer.position}",
-                                color = Color(0xFF455A64),
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(top = 6.dp)
-                            )
-                            if (!successPlayer.academicYear.isNullOrBlank()) {
-                                Text(
-                                    text = "Year: ${successPlayer.academicYear}",
-                                    color = Color(0xFF607D8B),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(IntrinsicSize.Min),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .padding(end = 14.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Text(
+                                        text = "#${successPlayer.number}",
+                                        color = teamPrimary,
+                                        fontSize = 46.sp,
+                                        lineHeight = 46.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = successPlayer.name,
+                                        color = Color(0xFF263238),
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "Position: ${successPlayer.position}",
+                                        color = Color(0xFF455A64),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                    if (!successPlayer.academicYear.isNullOrBlank()) {
+                                        Text(
+                                            text = "Year: ${successPlayer.academicYear}",
+                                            color = Color(0xFF607D8B),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        )
+                                    }
+                                }
                             }
                         } else {
+                            if (errorResult != null) {
+                                Text(
+                                    text = "Could not find player",
+                                    color = Color(0xFFE65100),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                            }
                             val fallbackMessage = errorResult?.message ?: successResult?.message.orEmpty()
                             Text(
                                 text = fallbackMessage,
@@ -742,7 +791,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = Color(0xFF2196F3).copy(alpha = 0.85f),
+                        color = teamPrimary.copy(alpha = 0.85f),
                         tonalElevation = 8.dp,
                         modifier = Modifier.size((160 * pulse.value).dp)
                     ) {
@@ -774,5 +823,14 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     )
                 }
             }
+    }
+}
+
+private fun parsePlayerScreenColor(raw: String?, fallback: Color): Color {
+    if (raw.isNullOrBlank()) return fallback
+    return try {
+        Color(android.graphics.Color.parseColor(raw))
+    } catch (_: IllegalArgumentException) {
+        fallback
     }
 }

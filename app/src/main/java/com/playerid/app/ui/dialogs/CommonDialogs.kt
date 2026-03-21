@@ -1,10 +1,22 @@
 package com.playerid.app.ui.dialogs
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -343,12 +355,31 @@ fun EditPlayerDialog(
 @Composable
 fun AddTeamDialog(
     onDismiss: () -> Unit,
-    onAdd: (String, String) -> Unit,
+    onAdd: (String, String, String, String, String, String) -> Unit,
     existingTeams: List<String> = emptyList()
 ) {
     var teamName by remember { mutableStateOf("") }
     var selectedSport by remember { mutableStateOf("Soccer") }
+    var selectedHomeColorHex by remember { mutableStateOf("#1976D2") }
+    var selectedAwayColorHex by remember { mutableStateOf("#FFFFFF") }
+    var selectedHomeJerseyColorHex by remember { mutableStateOf("#1976D2") }
+    var selectedAwayJerseyColorHex by remember { mutableStateOf("#FFFFFF") }
+    var activeColorTarget by remember { mutableStateOf("Theme 1") }
     var sportDropdownExpanded by remember { mutableStateOf(false) }
+    val presetColors = listOf(
+        "Navy" to "#0B3D91",
+        "Royal" to "#1976D2",
+        "Red" to "#E53E3E",
+        "Maroon" to "#7A0019",
+        "Green" to "#059669",
+        "Black" to "#111827",
+        "White" to "#FFFFFF",
+        "Gray" to "#9CA3AF",
+        "Gold" to "#D4AF37",
+        "Orange" to "#EA580C",
+        "Purple" to "#7C3AED",
+        "Teal" to "#0D9488"
+    )
     val sports = listOf("Soccer", "Basketball", "Hockey", "Baseball", "Football", "Lacrosse", "Volleyball", "Other")
     
     val similarTeams = remember(teamName, existingTeams) {
@@ -408,6 +439,75 @@ fun AddTeamDialog(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Colors",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val currentSelectedColor = when (activeColorTarget) {
+                    "Theme 1" -> selectedHomeColorHex
+                    "Theme 2" -> selectedAwayColorHex
+                    "Home Jersey" -> selectedHomeJerseyColorHex
+                    else -> selectedAwayJerseyColorHex
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "Theme 1" to selectedHomeColorHex,
+                        "Theme 2" to selectedAwayColorHex,
+                        "Home Jersey" to selectedHomeJerseyColorHex,
+                        "Away Jersey" to selectedAwayJerseyColorHex
+                    ).forEach { (label, colorHex) ->
+                        val swatchColor = Color(android.graphics.Color.parseColor(colorHex))
+                        OutlinedButton(
+                            onClick = { activeColorTarget = label },
+                            modifier = Modifier.fillMaxWidth(),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = if (activeColorTarget == label) 2.dp else 1.dp,
+                                color = if (activeColorTarget == label) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(label)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .background(swatchColor, CircleShape)
+                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                                    )
+                                    Text(colorHex, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TeamColorPickerField(
+                    label = "Select Color For $activeColorTarget",
+                    selectedColorHex = currentSelectedColor,
+                    onColorSelected = { selectedHex ->
+                        when (activeColorTarget) {
+                            "Theme 1" -> selectedHomeColorHex = selectedHex
+                            "Theme 2" -> selectedAwayColorHex = selectedHex
+                            "Home Jersey" -> selectedHomeJerseyColorHex = selectedHex
+                            "Away Jersey" -> selectedAwayJerseyColorHex = selectedHex
+                        }
+                    },
+                    presetColors = presetColors
+                )
                 
                 // Show similar teams warning
                 if (similarTeams.isNotEmpty()) {
@@ -448,12 +548,153 @@ fun AddTeamDialog(
             Button(
                 onClick = {
                     if (teamName.isNotBlank()) {
-                        onAdd(teamName, selectedSport)
+                        onAdd(
+                            teamName,
+                            selectedSport,
+                            selectedHomeColorHex,
+                            selectedAwayColorHex,
+                            selectedHomeJerseyColorHex,
+                            selectedAwayJerseyColorHex
+                        )
                     }
                 },
                 enabled = teamName.isNotBlank()
             ) {
                 Text(if (similarTeams.isNotEmpty()) "Create Anyway" else "Create Team")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun EditTeamColorsDialog(
+    teamName: String,
+    initialHomeColor: String,
+    initialAwayColor: String,
+    initialHomeJerseyColor: String,
+    initialAwayJerseyColor: String,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String, String) -> Unit
+) {
+    var selectedHomeColorHex by remember { mutableStateOf(initialHomeColor) }
+    var selectedAwayColorHex by remember { mutableStateOf(initialAwayColor) }
+    var selectedHomeJerseyColorHex by remember { mutableStateOf(initialHomeJerseyColor) }
+    var selectedAwayJerseyColorHex by remember { mutableStateOf(initialAwayJerseyColor) }
+    var activeColorTarget by remember { mutableStateOf("Theme 1") }
+
+    val presetColors = listOf(
+        "Navy" to "#0B3D91",
+        "Royal" to "#1976D2",
+        "Red" to "#E53E3E",
+        "Maroon" to "#7A0019",
+        "Green" to "#059669",
+        "Black" to "#111827",
+        "White" to "#FFFFFF",
+        "Gray" to "#9CA3AF",
+        "Gold" to "#D4AF37",
+        "Orange" to "#EA580C",
+        "Purple" to "#7C3AED",
+        "Teal" to "#0D9488"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Team Colors") },
+        text = {
+            Column {
+                Text(
+                    text = teamName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Colors",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val currentSelectedColor = when (activeColorTarget) {
+                    "Theme 1" -> selectedHomeColorHex
+                    "Theme 2" -> selectedAwayColorHex
+                    "Home Jersey" -> selectedHomeJerseyColorHex
+                    else -> selectedAwayJerseyColorHex
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "Theme 1" to selectedHomeColorHex,
+                        "Theme 2" to selectedAwayColorHex,
+                        "Home Jersey" to selectedHomeJerseyColorHex,
+                        "Away Jersey" to selectedAwayJerseyColorHex
+                    ).forEach { (label, colorHex) ->
+                        val swatchColor = Color(android.graphics.Color.parseColor(colorHex))
+                        OutlinedButton(
+                            onClick = { activeColorTarget = label },
+                            modifier = Modifier.fillMaxWidth(),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = if (activeColorTarget == label) 2.dp else 1.dp,
+                                color = if (activeColorTarget == label) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(label)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .background(swatchColor, CircleShape)
+                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                                    )
+                                    Text(colorHex, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TeamColorPickerField(
+                    label = "Select Color For $activeColorTarget",
+                    selectedColorHex = currentSelectedColor,
+                    onColorSelected = { selectedHex ->
+                        when (activeColorTarget) {
+                            "Theme 1" -> selectedHomeColorHex = selectedHex
+                            "Theme 2" -> selectedAwayColorHex = selectedHex
+                            "Home Jersey" -> selectedHomeJerseyColorHex = selectedHex
+                            "Away Jersey" -> selectedAwayJerseyColorHex = selectedHex
+                        }
+                    },
+                    presetColors = presetColors
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(
+                        selectedHomeColorHex,
+                        selectedAwayColorHex,
+                        selectedHomeJerseyColorHex,
+                        selectedAwayJerseyColorHex
+                    )
+                }
+            ) {
+                Text("Save Colors")
             }
         },
         dismissButton = {
@@ -562,4 +803,161 @@ fun DeletePlayerDialog(
             }
         }
     )
+}
+
+@Composable
+private fun TeamColorPickerField(
+    label: String,
+    selectedColorHex: String,
+    onColorSelected: (String) -> Unit,
+    presetColors: List<Pair<String, String>>
+) {
+    var showCustom by remember { mutableStateOf(false) }
+
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = label, style = MaterialTheme.typography.labelMedium)
+            TextButton(onClick = { showCustom = !showCustom }) {
+                Text(if (showCustom) "Use Presets" else "Custom")
+            }
+        }
+
+        if (showCustom) {
+            TeamColorWheelPicker(
+                label = "",
+                selectedColorHex = selectedColorHex,
+                onColorSelected = onColorSelected
+            )
+        } else {
+            presetColors.chunked(4).forEach { rowColors ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rowColors.forEach { (name, hex) ->
+                        val swatchColor = Color(android.graphics.Color.parseColor(hex))
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .background(swatchColor, CircleShape)
+                                    .border(
+                                        width = if (selectedColorHex == hex) 3.dp else 1.dp,
+                                        color = if (selectedColorHex == hex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                        shape = CircleShape
+                                    )
+                                    .clickable { onColorSelected(hex) }
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            Text(
+                text = selectedColorHex,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun TeamColorWheelPicker(
+    label: String,
+    selectedColorHex: String,
+    onColorSelected: (String) -> Unit
+) {
+    var hue by remember(selectedColorHex) { mutableStateOf(hexToHue(selectedColorHex)) }
+
+    Column {
+        if (label.isNotBlank()) {
+            Text(text = label, style = MaterialTheme.typography.labelMedium)
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        val sweepColors = remember {
+            listOf(
+                Color(0xFFFF0000),
+                Color(0xFFFFFF00),
+                Color(0xFF00FF00),
+                Color(0xFF00FFFF),
+                Color(0xFF0000FF),
+                Color(0xFFFF00FF),
+                Color(0xFFFF0000)
+            )
+        }
+
+        val selectedColor = remember(hue) {
+            Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.9f, 0.95f)))
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(88.dp)
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, _ ->
+                            val center = Offset(size.width / 2f, size.height / 2f)
+                            val p = change.position
+                            val angle = Math.toDegrees(
+                                kotlin.math.atan2((p.y - center.y).toDouble(), (p.x - center.x).toDouble())
+                            ).toFloat()
+                            hue = (angle + 360f + 90f) % 360f
+                            onColorSelected(hueToHex(hue))
+                        }
+                    }
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawCircle(
+                        brush = Brush.sweepGradient(sweepColors),
+                        radius = size.minDimension / 2f,
+                        style = Stroke(width = size.minDimension * 0.24f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .background(selectedColor, CircleShape)
+                    .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Text(selectedColorHex, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+private fun hueToHex(hue: Float): String {
+    val colorInt = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.9f, 0.95f))
+    return String.format("#%06X", 0xFFFFFF and colorInt)
+}
+
+private fun hexToHue(hex: String): Float {
+    return try {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(hex), hsv)
+        hsv[0]
+    } catch (_: Exception) {
+        210f
+    }
 }

@@ -304,7 +304,15 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addTeam(teamName: String, sport: String = "Soccer", description: String = "") {
+    fun addTeam(
+        teamName: String,
+        sport: String = "Soccer",
+        description: String = "",
+        color: String = "#1976D2",
+        awayColor: String = "#FFFFFF",
+        homeJerseyColor: String = "#1976D2",
+        awayJerseyColor: String = "#FFFFFF"
+    ) {
         viewModelScope.launch {
             val existingTeam = teamDao.getTeamByName(teamName)
             if (existingTeam == null) {
@@ -312,6 +320,10 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
                     id = UUID.randomUUID().toString(),
                     name = teamName,
                     sport = sport,
+                    color = color,
+                    awayColor = awayColor,
+                    homeJerseyColor = homeJerseyColor,
+                    awayJerseyColor = awayJerseyColor,
                     description = description,
                     createdBy = currentUser
                 )
@@ -321,6 +333,31 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Auto-subscribe user to the team they created
                 subscribeToTeam(teamName)
+            }
+        }
+    }
+
+    fun updateTeamColors(
+        teamName: String,
+        color: String,
+        awayColor: String,
+        homeJerseyColor: String,
+        awayJerseyColor: String
+    ) {
+        viewModelScope.launch {
+            val existingTeam = teamDao.getTeamByName(teamName)
+            if (existingTeam != null) {
+                teamDao.updateTeam(
+                    existingTeam.copy(
+                        color = color,
+                        awayColor = awayColor,
+                        homeJerseyColor = homeJerseyColor,
+                        awayJerseyColor = awayJerseyColor,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+                loadTeamStatistics()
+                loadAllTeamNames()
             }
         }
     }

@@ -1,5 +1,7 @@
 package com.playerid.app.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -9,28 +11,54 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     teamViewModel: com.playerid.app.viewmodels.TeamViewModel? = null,
-    playerViewModel: com.playerid.app.viewmodels.PlayerViewModel? = null
+    playerViewModel: com.playerid.app.viewmodels.PlayerViewModel? = null,
+    onNavigateToReferral: () -> Unit = {}
 ) {
+    val selectedTeamName by (teamViewModel?.selectedTeam?.collectAsState() ?: remember { mutableStateOf(null) })
+    val subscribedTeams by (teamViewModel?.subscribedTeams?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
+    val selectedTeam = remember(subscribedTeams, selectedTeamName) {
+        subscribedTeams.firstOrNull { it.name == selectedTeamName }
+    }
+    val teamPrimary = parseSettingsColor(selectedTeam?.color, Color(0xFF1976D2))
+    val teamSecondary = parseSettingsColor(selectedTeam?.awayColor, Color(0xFFE3F2FD))
+    val onTeamPrimary = if (teamPrimary.luminance() > 0.55f) Color.Black else Color.White
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        teamSecondary.copy(alpha = 0.18f),
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
         Text(
             text = "⚙️ Settings",
             style = MaterialTheme.typography.headlineMedium,
+            color = teamPrimary,
             modifier = Modifier.padding(bottom = 24.dp)
         )
         
         // Camera Settings
-        SettingsSection(title = "Camera & Detection") {
+        SettingsSection(
+            title = "Camera & Detection",
+            teamPrimary = teamPrimary,
+            teamSecondary = teamSecondary
+        ) {
             SettingsItem(
                 title = "Detection Sensitivity",
                 subtitle = "Adjust text detection sensitivity",
@@ -51,12 +79,17 @@ fun SettingsScreen(
                 subtitle = "Display detection confidence and timing",
                 icon = Icons.Default.BugReport,
                 checked = showDebugInfo,
-                onCheckedChange = { showDebugInfo = it }
+                onCheckedChange = { showDebugInfo = it },
+                teamPrimary = teamPrimary
             )
         }
         
         // AR Settings
-        SettingsSection(title = "Augmented Reality") {
+        SettingsSection(
+            title = "Augmented Reality",
+            teamPrimary = teamPrimary,
+            teamSecondary = teamSecondary
+        ) {
             SettingsItem(
                 title = "Bubble Style",
                 subtitle = "Customize player name bubbles",
@@ -77,12 +110,17 @@ fun SettingsScreen(
                 subtitle = "Keep bubbles visible when not detected",
                 icon = Icons.Default.PushPin,
                 checked = persistentBubbles,
-                onCheckedChange = { persistentBubbles = it }
+                onCheckedChange = { persistentBubbles = it },
+                teamPrimary = teamPrimary
             )
         }
         
         // Team Settings
-        SettingsSection(title = "Team Management") {
+        SettingsSection(
+            title = "Team Management",
+            teamPrimary = teamPrimary,
+            teamSecondary = teamSecondary
+        ) {
             SettingsItem(
                 title = "Auto Team Learning",
                 subtitle = "Automatically learn team colors",
@@ -112,7 +150,11 @@ fun SettingsScreen(
         }
         
         // Data Settings
-        SettingsSection(title = "Data & Privacy") {
+        SettingsSection(
+            title = "Data & Privacy",
+            teamPrimary = teamPrimary,
+            teamSecondary = teamSecondary
+        ) {
             SettingsItem(
                 title = "Export Database",
                 subtitle = "Export player data to JSON/CSV",
@@ -142,7 +184,18 @@ fun SettingsScreen(
         }
         
         // App Info
-        SettingsSection(title = "About") {
+        SettingsSection(
+            title = "About",
+            teamPrimary = teamPrimary,
+            teamSecondary = teamSecondary
+        ) {
+            SettingsItem(
+                title = "Refer a Friend",
+                subtitle = "Invite others to try PlayerID",
+                icon = Icons.Default.PersonAdd,
+                onClick = onNavigateToReferral
+            )
+
             SettingsItem(
                 title = "App Version",
                 subtitle = "PlayerID v1.0",
@@ -170,7 +223,7 @@ fun SettingsScreen(
         // Credits
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                containerColor = teamSecondary.copy(alpha = 0.24f)
             )
         ) {
             Column(
@@ -180,12 +233,12 @@ fun SettingsScreen(
                 Text(
                     text = "📱 Built with Android",
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = teamPrimary
                 )
                 Text(
                     text = "Using ARCore, ML Kit, CameraX, and Jetpack Compose",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = onTeamPrimary.copy(alpha = 0.7f)
                 )
             }
         }
@@ -195,20 +248,22 @@ fun SettingsScreen(
 @Composable
 fun SettingsSection(
     title: String,
+    teamPrimary: Color,
+    teamSecondary: Color,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column {
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
+            color = teamPrimary,
             modifier = Modifier.padding(vertical = 8.dp)
         )
         
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
+                containerColor = teamSecondary.copy(alpha = 0.16f)
             )
         ) {
             Column {
@@ -225,11 +280,13 @@ fun SettingsItem(
     title: String,
     subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    teamPrimary: Color = MaterialTheme.colorScheme.primary
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -237,7 +294,7 @@ fun SettingsItem(
             imageVector = icon,
             contentDescription = title,
             modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = teamPrimary
         )
         
         Spacer(modifier = Modifier.width(16.dp))
@@ -259,7 +316,7 @@ fun SettingsItem(
         Icon(
             imageVector = Icons.Default.ChevronRight,
             contentDescription = "Open",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = teamPrimary.copy(alpha = 0.75f)
         )
     }
 }
@@ -270,7 +327,8 @@ fun SettingsToggleItem(
     subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    teamPrimary: Color = MaterialTheme.colorScheme.primary
 ) {
     Row(
         modifier = Modifier
@@ -282,7 +340,7 @@ fun SettingsToggleItem(
             imageVector = icon,
             contentDescription = title,
             modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = teamPrimary
         )
         
         Spacer(modifier = Modifier.width(16.dp))
@@ -303,7 +361,20 @@ fun SettingsToggleItem(
         
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = teamPrimary,
+                checkedTrackColor = teamPrimary.copy(alpha = 0.45f)
+            )
         )
+    }
+}
+
+private fun parseSettingsColor(raw: String?, fallback: Color): Color {
+    if (raw.isNullOrBlank()) return fallback
+    return try {
+        Color(android.graphics.Color.parseColor(raw))
+    } catch (_: IllegalArgumentException) {
+        fallback
     }
 }

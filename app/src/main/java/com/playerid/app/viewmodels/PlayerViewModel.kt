@@ -3,6 +3,7 @@ package com.playerid.app.viewmodels
 import android.app.Application
 import android.graphics.PointF
 import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -115,19 +116,43 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
-            // Stadium announcer effect: lower pitch, slower rate
-            tts?.setPitch(0.8f)
-            tts?.setSpeechRate(0.85f)
-            // Try to select a male US voice if available
-            val voices = tts?.voices
-            val announcerVoice = voices?.firstOrNull {
-                it.locale == Locale.US && it.name.contains("male", ignoreCase = true)
-            }
-            if (announcerVoice != null) {
-                tts?.voice = announcerVoice
+            // Keep prosody near neutral to avoid the synthetic "robot" effect.
+            tts?.setPitch(1.0f)
+            tts?.setSpeechRate(0.94f)
+
+            val preferredVoice = selectMostNaturalVoice(tts?.voices)
+            if (preferredVoice != null) {
+                tts?.voice = preferredVoice
+                Log.d(TAG, "Using TTS voice: ${preferredVoice.name}")
+            } else {
+                Log.d(TAG, "No preferred TTS voice found; using engine default")
             }
             isTtsReady = true
         }
+    }
+
+    private fun selectMostNaturalVoice(voices: Set<Voice>?): Voice? {
+        if (voices.isNullOrEmpty()) return null
+
+        val usVoices = voices.filter {
+            it.locale == Locale.US &&
+                !it.isNetworkConnectionRequired &&
+                !it.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
+        }
+
+        val candidates = if (usVoices.isNotEmpty()) usVoices else voices.toList()
+
+        val preferredNameHints = listOf("neural", "wavenet", "studio", "natural", "enhanced")
+
+        return candidates
+            .sortedWith(
+                compareByDescending<Voice> { voice ->
+                    preferredNameHints.any { hint -> voice.name.contains(hint, ignoreCase = true) }
+                }
+                    .thenByDescending { it.quality }
+                    .thenBy { it.latency }
+            )
+            .firstOrNull()
     }
 
     private fun speak(text: String) {

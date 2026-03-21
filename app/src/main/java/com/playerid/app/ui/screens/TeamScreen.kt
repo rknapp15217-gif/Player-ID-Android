@@ -2,6 +2,7 @@ package com.playerid.app.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,16 +20,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PeopleAlt
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lightbulb
@@ -54,7 +56,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -63,17 +64,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.playerid.app.data.Player
 import com.playerid.app.ui.dialogs.AddPlayerDialog
 import com.playerid.app.ui.dialogs.AddTeamDialog
-import com.playerid.app.ui.dialogs.DeletePlayerDialog
 import com.playerid.app.ui.dialogs.DeleteTeamDialog
+import com.playerid.app.ui.dialogs.DeletePlayerDialog
 import com.playerid.app.ui.dialogs.EditPlayerDialog
+import com.playerid.app.ui.dialogs.EditTeamColorsDialog
 import com.playerid.app.ui.dialogs.RenameTeamDialog
 import com.playerid.app.ui.components.*
 import com.playerid.app.ui.theme.*
@@ -99,15 +105,17 @@ fun TeamScreen(
     onVideoEdit: (android.net.Uri) -> Unit = { }
 ) {
     val selectedTeam by teamViewModel.selectedTeam.collectAsState()
-    val isTeamSelected by teamViewModel.isTeamSelected.collectAsState()
-    
-    // Show team management if a team is selected, otherwise show team selection
-    if (isTeamSelected && selectedTeam != null) {
+
+    // Always land on team selection first; enter management only after explicit selection here.
+    var showTeamSelection by rememberSaveable { mutableStateOf(true) }
+
+    if (!showTeamSelection && selectedTeam != null) {
         TeamManagementView(
             teamName = selectedTeam!!,
             playerViewModel = playerViewModel,
             teamViewModel = teamViewModel,
             onClearTeam = {
+                showTeamSelection = true
                 teamViewModel.clearTeamSelection()
                 playerViewModel.setSelectedTeam(null)
             },
@@ -125,6 +133,7 @@ fun TeamScreen(
                 if (teamName == "__BROWSE_ALL_TEAMS__") {
                     onNavigateToCrowdSourced()
                 } else {
+                    showTeamSelection = false
                     teamViewModel.selectTeam(teamName)
                     playerViewModel.setSelectedTeam(teamName)
                 }
@@ -146,6 +155,7 @@ fun TeamSelectionView(
     // Dialog states for team management
     var showAddTeamDialog by remember { mutableStateOf(false) }
     var showRenameTeamDialog by remember { mutableStateOf(false) }
+    var showEditTeamColorsDialog by remember { mutableStateOf(false) }
     var showDeleteTeamDialog by remember { mutableStateOf(false) }
     var selectedTeamForAction by remember { mutableStateOf<String?>(null) }
     var showManagementMode by remember { mutableStateOf(false) }
@@ -163,6 +173,22 @@ fun TeamSelectionView(
             icon = Icons.Default.Groups,
             gradient = listOf(SpotrGreen, SpotrTeal)
         )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            OutlinedButton(
+                onClick = { showAddTeamDialog = true },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Create team", modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Create Team")
+            }
+        }
         
         Column(
             modifier = Modifier.fillMaxSize()
@@ -200,6 +226,15 @@ fun TeamSelectionView(
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold
                                         )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            TeamColorDot(label = "Home", colorHex = team.color)
+                                            TeamColorDot(label = "Away", colorHex = team.awayColor)
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         if (teamStats != null) {
                                             Text(
                                                 text = "${teamStats.playerCount} players • by ${teamStats.createdBy}",
@@ -220,32 +255,46 @@ fun TeamSelectionView(
                             
                             // Show management buttons only when in management mode
                             if (showManagementMode) {
-                                // Rename team button
-                                IconButton(
-                                    onClick = { 
-                                        selectedTeamForAction = team.name
-                                        showRenameTeamDialog = true 
-                                    }
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    horizontalAlignment = Alignment.End
                                 ) {
-                                    Icon(
-                                        Icons.Default.Edit, 
-                                        contentDescription = "Rename team",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                
-                                // Leave team button
-                                IconButton(
-                                    onClick = { 
-                                        selectedTeamForAction = team.name
-                                        showDeleteTeamDialog = true 
+                                    OutlinedButton(
+                                        onClick = {
+                                            selectedTeamForAction = team.name
+                                            showEditTeamColorsDialog = true
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Colors", style = MaterialTheme.typography.labelMedium)
                                     }
-                                ) {
-                                    Icon(
-                                        Icons.Default.ExitToApp, 
-                                        contentDescription = "Leave team",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            selectedTeamForAction = team.name
+                                            showRenameTeamDialog = true
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Rename", style = MaterialTheme.typography.labelMedium)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            selectedTeamForAction = team.name
+                                            showDeleteTeamDialog = true
+                                        },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Leave", style = MaterialTheme.typography.labelMedium)
+                                    }
                                 }
                             }
                         }
@@ -284,6 +333,14 @@ fun TeamSelectionView(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                 )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = { showAddTeamDialog = true }
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Create team")
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Create New Team")
+                                }
                             }
                         }
                     }
@@ -312,16 +369,6 @@ fun TeamSelectionView(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(if (showManagementMode) "Done" else "Manage")
                     }
-                }
-                
-                // Create new team button
-                OutlinedButton(
-                    onClick = { showAddTeamDialog = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Create")
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Create New Team")
                 }
                 
                 // TeamSnap import button (only show if repository is available)
@@ -378,14 +425,52 @@ fun TeamSelectionView(
     if (showAddTeamDialog) {
         AddTeamDialog(
             onDismiss = { showAddTeamDialog = false },
-            onAdd = { teamName, sport ->
-                teamViewModel.addTeam(teamName, sport)
+            onAdd = { teamName, sport, homeColor, awayColor, homeJerseyColor, awayJerseyColor ->
+                teamViewModel.addTeam(
+                    teamName = teamName,
+                    sport = sport,
+                    color = homeColor,
+                    awayColor = awayColor,
+                    homeJerseyColor = homeJerseyColor,
+                    awayJerseyColor = awayJerseyColor
+                )
                 showAddTeamDialog = false
             }
         )
     }
     
     selectedTeamForAction?.let { teamName ->
+        if (showEditTeamColorsDialog) {
+            val teamToEdit = subscribedTeams.firstOrNull { it.name == teamName }
+            if (teamToEdit != null) {
+                EditTeamColorsDialog(
+                    teamName = teamName,
+                    initialHomeColor = teamToEdit.color,
+                    initialAwayColor = teamToEdit.awayColor,
+                    initialHomeJerseyColor = teamToEdit.homeJerseyColor,
+                    initialAwayJerseyColor = teamToEdit.awayJerseyColor,
+                    onDismiss = {
+                        showEditTeamColorsDialog = false
+                        selectedTeamForAction = null
+                    },
+                    onSave = { homeColor, awayColor, homeJerseyColor, awayJerseyColor ->
+                        teamViewModel.updateTeamColors(
+                            teamName = teamName,
+                            color = homeColor,
+                            awayColor = awayColor,
+                            homeJerseyColor = homeJerseyColor,
+                            awayJerseyColor = awayJerseyColor
+                        )
+                        showEditTeamColorsDialog = false
+                        selectedTeamForAction = null
+                    }
+                )
+            } else {
+                showEditTeamColorsDialog = false
+                selectedTeamForAction = null
+            }
+        }
+
         if (showRenameTeamDialog) {
             RenameTeamDialog(
                 teamName = teamName,
@@ -400,11 +485,11 @@ fun TeamSelectionView(
                 }
             )
         }
-        
+
         if (showDeleteTeamDialog) {
             DeleteTeamDialog(
                 teamName = teamName,
-                onDismiss = { 
+                onDismiss = {
                     showDeleteTeamDialog = false
                     selectedTeamForAction = null
                 },
@@ -483,94 +568,23 @@ fun TeamManagementView(
     onVideoSelected: (android.net.Uri, List<Player>) -> Unit = { _, _ -> },
     onVideoEdit: (android.net.Uri) -> Unit = { }
 ) {
-    var activeTab by remember { mutableStateOf("highlights") } // "roster" or "highlights"
-    var videoLibraryVideos by remember { mutableStateOf<List<com.playerid.app.data.VideoClip>>(emptyList()) }
-    var videoLibraryLoading by remember { mutableStateOf(false) }
-    var showCleanupDialog by remember { mutableStateOf(false) }
-    var cleanupInProgress by remember { mutableStateOf(false) }
-    var videoToDelete by remember { mutableStateOf<com.playerid.app.data.VideoClip?>(null) }
-    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = rememberCoroutineScope()
-    
-    // Load videos when tab changes to highlights
-    LaunchedEffect(activeTab, teamName) {
-        if (activeTab == "highlights") {
-            videoLibraryLoading = true
-            try {
-                // Load videos from the file system
-                videoLibraryVideos = loadRecordedVideosForTeam(context, teamName)
-            } finally {
-                videoLibraryLoading = false
-            }
-        } else {
-            videoLibraryVideos = emptyList()
-        }
+    val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
+    val selectedTeamMeta = remember(subscribedTeams, teamName) {
+        subscribedTeams.firstOrNull { it.name == teamName }
     }
+    val homeColor = parseTeamColor(selectedTeamMeta?.color, fallback = Color(0xFF1976D2))
+    val awayColor = parseTeamColor(selectedTeamMeta?.awayColor, fallback = Color(0xFFFFFFFF))
+    val homeTextColor = if (homeColor.luminance() > 0.55f) Color.Black else Color.White
+
     val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
     val teamPlayers = remember(allPlayers, teamName) {
         allPlayers.filter { it.team == teamName }
     }
-    var sortMode by remember { mutableStateOf(PlayerSortMode.NUMBER) }
-    var positionFilter by remember { mutableStateOf<String?>(null) }
-    var yearFilter by remember { mutableStateOf<String?>(null) }
-    var showFilters by remember { mutableStateOf(false) }  // Collapse filters by default
-    var positionExpanded by remember { mutableStateOf(false) }
-    var yearExpanded by remember { mutableStateOf(false) }
-    val positionOptions = remember(teamPlayers) {
-        teamPlayers.map { it.position.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .sorted()
-    }
-    val yearOptionsAll = remember(teamPlayers) {
-        teamPlayers.map { it.academicYear.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .sortedWith(compareBy(::yearSortKey).thenBy { it })
-    }
-    val yearOptionsForPosition = remember(teamPlayers, positionFilter) {
-        if (positionFilter == null) {
-            yearOptionsAll
-        } else {
-            teamPlayers
-                .filter { it.position.equals(positionFilter, ignoreCase = true) }
-                .map { it.academicYear.trim() }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .sortedWith(compareBy(::yearSortKey).thenBy { it })
-        }
-    }
-    val positionOptionsForYear = remember(teamPlayers, yearFilter) {
-        if (yearFilter == null) {
-            positionOptions
-        } else {
-            teamPlayers
-                .filter { it.academicYear.equals(yearFilter, ignoreCase = true) }
-                .map { it.position.trim() }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .sorted()
-        }
-    }
-    val filteredPlayers = remember(teamPlayers, positionFilter, yearFilter) {
-        teamPlayers.filter { player ->
-            val positionMatch = positionFilter?.let { it.equals(player.position, ignoreCase = true) } ?: true
-            val yearMatch = yearFilter?.let { it.equals(player.academicYear, ignoreCase = true) } ?: true
-            positionMatch && yearMatch
-        }
-    }
-    val displayPlayers = remember(filteredPlayers, sortMode) {
-        when (sortMode) {
-            PlayerSortMode.NUMBER -> filteredPlayers.sortedWith(
-                compareBy<Player> { it.number.toIntOrNull() ?: Int.MAX_VALUE }
-                    .thenBy { it.number }
-            )
-            PlayerSortMode.LAST_NAME -> filteredPlayers.sortedWith(
-                compareBy<Player> { playerLastName(it.name).lowercase() }
-                    .thenBy { it.name.lowercase() }
-            )
-        }
+    val displayPlayers = remember(teamPlayers) {
+        teamPlayers.sortedWith(
+            compareBy<Player> { it.number.toIntOrNull() ?: Int.MAX_VALUE }
+                .thenBy { it.number }
+        )
     }
     
     // Dialog states
@@ -596,6 +610,11 @@ fun TeamManagementView(
             title = { Text("Import roster") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Open your roster app (TeamSnap, GameChanger, etc.), take a screenshot, then import it here.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     OutlinedButton(
                         onClick = {
                             showImportRosterOptions = false
@@ -627,7 +646,7 @@ fun TeamManagementView(
                         ) {
                             Icon(Icons.Default.PhoneAndroid, contentDescription = "Import app")
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("From app capture")
+                            Text("From app")
                         }
                     }
                     OutlinedButton(
@@ -670,82 +689,40 @@ fun TeamManagementView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(
-                    text = teamName,
-                    style = MaterialTheme.typography.headlineMedium
-                )
+                Box(
+                    modifier = Modifier
+                        .background(
+                            brush = Brush.horizontalGradient(listOf(homeColor, awayColor)),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = teamName,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = homeTextColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
-            
-            IconButton(onClick = onClearTeam) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Leave team")
+
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClearTeam) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Leave team")
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Tab selector buttons
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(
-                onClick = { activeTab = "highlights" },
-                modifier = Modifier.weight(1f),
-                colors = if (activeTab == "highlights") {
-                    ButtonDefaults.outlinedButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                } else {
-                    ButtonDefaults.outlinedButtonColors()
-                }
-            ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Highlights")
-            }
-            
-            OutlinedButton(
-                onClick = { activeTab = "roster" },
-                modifier = Modifier.weight(1f),
-                colors = if (activeTab == "roster") {
-                    ButtonDefaults.outlinedButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                } else {
-                    ButtonDefaults.outlinedButtonColors()
-                }
-            ) {
-                Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Roster")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        LaunchedEffect(positionFilter, yearOptionsForPosition) {
-            if (yearFilter != null && !yearOptionsForPosition.contains(yearFilter!!)) {
-                yearFilter = null
-            }
-        }
-
-        LaunchedEffect(yearFilter, positionOptionsForYear) {
-            if (positionFilter != null && !positionOptionsForYear.contains(positionFilter!!)) {
-                positionFilter = null
-            }
-        }
-
-        // Conditionally display roster or highlights content
-        if (activeTab == "roster") {
         Button(
             onClick = { showAddPlayerDialog = true },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
+                containerColor = homeColor,
+                contentColor = homeTextColor
             )
         ) {
             Icon(Icons.Default.Add, contentDescription = "Add")
@@ -753,143 +730,21 @@ fun TeamManagementView(
             Text("Add Team Player", fontSize = 18.sp, fontWeight = FontWeight.Medium)
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Filters toggle button
-        TextButton(
-            onClick = { showFilters = !showFilters },
-            modifier = Modifier.fillMaxWidth()
+        OutlinedButton(
+            onClick = { showImportRosterOptions = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, awayColor)
         ) {
-            Text(
-                if (showFilters) "Hide filters" else "Show filters",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Icon(Icons.Default.CloudDownload, contentDescription = "Import roster")
+            Spacer(modifier = Modifier.width(10.dp))
+            Text("Import Team Roster", fontWeight = FontWeight.Medium)
         }
 
-        // Collapsed filters section
-        if (showFilters) {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Sort by",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedButton(
-                    onClick = { sortMode = PlayerSortMode.NUMBER },
-                    colors = if (sortMode == PlayerSortMode.NUMBER) {
-                        ButtonDefaults.outlinedButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    } else {
-                        ButtonDefaults.outlinedButtonColors()
-                    }
-                ) {
-                    Text("Number")
-                }
-                OutlinedButton(
-                    onClick = { sortMode = PlayerSortMode.LAST_NAME },
-                    colors = if (sortMode == PlayerSortMode.LAST_NAME) {
-                        ButtonDefaults.outlinedButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    } else {
-                        ButtonDefaults.outlinedButtonColors()
-                    }
-                ) {
-                    Text("Last name")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ExposedDropdownMenuBox(
-                    expanded = positionExpanded,
-                    onExpandedChange = { positionExpanded = !positionExpanded },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    OutlinedTextField(
-                        value = positionFilter ?: "All positions",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Position") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = positionExpanded) },
-                        modifier = Modifier.menuAnchor()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = positionExpanded,
-                        onDismissRequest = { positionExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("All positions") },
-                            onClick = {
-                                positionFilter = null
-                                positionExpanded = false
-                            }
-                        )
-                        positionOptionsForYear.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option) },
-                                onClick = {
-                                    positionFilter = option
-                                    positionExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-                ExposedDropdownMenuBox(
-                    expanded = yearExpanded,
-                    onExpandedChange = { yearExpanded = !yearExpanded },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    OutlinedTextField(
-                        value = yearFilter ?: "All years",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Year") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = yearExpanded) },
-                        modifier = Modifier.menuAnchor()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = yearExpanded,
-                        onDismissRequest = { yearExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("All years") },
-                            onClick = {
-                                yearFilter = null
-                                yearExpanded = false
-                            }
-                        )
-                        yearOptionsForPosition.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option) },
-                                onClick = {
-                                    yearFilter = option
-                                    yearExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-        }
+        Spacer(modifier = Modifier.height(12.dp))
         
         Spacer(modifier = Modifier.height(16.dp))
         
@@ -921,28 +776,6 @@ fun TeamManagementView(
                     )
                 }
             }
-        } else if (displayPlayers.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SearchOff,
-                        contentDescription = "No matches",
-                        modifier = Modifier.size(56.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "No players match those filters",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -959,71 +792,8 @@ fun TeamManagementView(
                 }
             }
         }
-        } else {
-            // Highlights tab - show embedded video library directly
-            val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
-            val rosterPlayers = remember(allPlayers, teamName) {
-                allPlayers.filter { it.team == teamName }
-            }
-
-            if (cleanupInProgress) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            OutlinedButton(
-                onClick = { showCleanupDialog = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Delete all clips")
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            VideoLibraryScreen(
-                teamName = teamName,
-                videos = videoLibraryVideos,
-                rosterPlayers = rosterPlayers,
-                isLoading = false,
-                lastRefreshedLabel = "",
-                onNavigateBack = {},
-                onRefresh = {},
-                onVideoSelected = { videoUri, players ->
-                    onVideoSelected(videoUri, players)
-                },
-                onVideoEdit = { videoUri ->
-                    onVideoEdit(videoUri)
-                },
-                onVideoDelete = { video ->
-                    videoToDelete = video
-                    showDeleteConfirmDialog = true
-                },
-                onVideoNameChanged = { video, newName ->
-                    val prefs = context.getSharedPreferences("video_custom_names", android.content.Context.MODE_PRIVATE)
-                    prefs.edit().putString(video.id, newName).apply()
-                    videoLibraryVideos = videoLibraryVideos.map {
-                        if (it.id == video.id) it.copy(gameTitle = newName) else it
-                    }
-                },
-                onToggleHighlight = { video ->
-                    val newStatus = !video.isHighlight
-                    val prefs = context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE)
-                    prefs.edit().putBoolean(video.id, newStatus).apply()
-                    videoLibraryVideos = videoLibraryVideos.map {
-                        if (it.id == video.id) it.copy(isHighlight = newStatus) else it
-                    }
-                },
-                onCreateHighlightReel = { },
-                showTopBar = false
-            )
-        }
     }
-    
+
     // Dialogs
     if (showAddPlayerDialog) {
         val availableTeams by teamViewModel.availableTeams.collectAsState()
@@ -1057,93 +827,14 @@ fun TeamManagementView(
     if (showDeletePlayerDialog && playerToDelete != null) {
         DeletePlayerDialog(
             player = playerToDelete!!,
-            onDismiss = { 
+            onDismiss = {
                 showDeletePlayerDialog = false
                 playerToDelete = null
             },
             onDelete = {
-                playerToDelete?.let { playerViewModel.deletePlayer(it) }
+                playerViewModel.deletePlayer(playerToDelete!!)
                 showDeletePlayerDialog = false
                 playerToDelete = null
-            }
-        )
-    }
-
-    if (showOcrImportDialog && ocrImageUri != null) {
-        RosterOcrImportDialog(
-            teamName = teamName,
-            imageUri = ocrImageUri!!,
-            onDismiss = {
-                showOcrImportDialog = false
-                ocrImageUri = null
-            },
-            onImport = { candidates: List<RosterCandidate> ->
-                playerViewModel.importRosterCandidates(
-                    teamName = teamName,
-                    candidates = candidates,
-                    addedBy = teamViewModel.getCurrentUser()
-                )
-                showOcrImportDialog = false
-                ocrImageUri = null
-            }
-        )
-    }
-
-    if (showCleanupDialog) {
-        AlertDialog(
-            onDismissRequest = { showCleanupDialog = false },
-            title = { Text("Delete team clips?") },
-            text = {
-                Text("This removes only clips associated with $teamName from your phone and clears their saved mappings. This cannot be undone.")
-            },
-            dismissButton = {
-                TextButton(onClick = { showCleanupDialog = false }) {
-                    Text("Cancel")
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showCleanupDialog = false
-                        cleanupInProgress = true
-                        scope.launch {
-                            cleanupTeamClips(context, teamName)
-                            videoLibraryVideos = loadRecordedVideosForTeam(context, teamName)
-                            cleanupInProgress = false
-                        }
-                    }
-                ) {
-                    Text("Delete")
-                }
-            }
-        )
-    }
-
-    if (showDeleteConfirmDialog && videoToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirmDialog = false },
-            title = { Text("Delete clip?") },
-            text = {
-                Text("This will permanently delete '${videoToDelete!!.gameTitle}' from your phone.")
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirmDialog = false }) {
-                    Text("Cancel")
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteConfirmDialog = false
-                        scope.launch {
-                            deleteClip(context, videoToDelete!!)
-                            videoLibraryVideos = loadRecordedVideosForTeam(context, teamName)
-                            videoToDelete = null
-                        }
-                    }
-                ) {
-                    Text("Delete")
-                }
             }
         )
     }
@@ -1442,5 +1133,31 @@ fun TeamPlayerCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TeamColorDot(label: String, colorHex: String?) {
+    val color = parseTeamColor(colorHex, fallback = Color(0xFF9E9E9E))
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(color, androidx.compose.foundation.shape.CircleShape)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+private fun parseTeamColor(hex: String?, fallback: Color): Color {
+    if (hex.isNullOrBlank()) return fallback
+    return try {
+        Color(android.graphics.Color.parseColor(hex))
+    } catch (_: Exception) {
+        fallback
     }
 }

@@ -26,7 +26,7 @@ interface UserTeamSubscriptionDao {
     fun getUserSubscribedTeams(userId: String): Flow<List<Team>>
     
     @Query("""
-        SELECT teams.id, teams.name, teams.description, teams.color, 
+        SELECT teams.id, teams.name, teams.description, teams.color, teams.awayColor,
                teams.createdBy, teams.isActive, teams.isVerified, teams.isArchived,
                teams.createdAt, teams.updatedAt, teams.reportCount, teams.verificationCount,
                COUNT(players.id) as playerCount,

@@ -48,6 +48,9 @@ data class Team(
     val description: String = "",
     val sport: String = "Soccer", // Sport type: Soccer, Basketball, Hockey, etc.
     val color: String = "",
+    val awayColor: String = "#FFFFFF",
+    val homeJerseyColor: String = "#1976D2",
+    val awayJerseyColor: String = "#FFFFFF",
     val createdBy: String = "Unknown", // Track who created the team
     val isActive: Boolean = true,
     val isVerified: Boolean = false, // Community verification badge

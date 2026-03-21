@@ -35,7 +35,7 @@ interface TeamDao {
     
     // Advanced queries for crowd-sourcing features
     @Query("""
-        SELECT teams.id, teams.name, teams.description, teams.color, 
+        SELECT teams.id, teams.name, teams.description, teams.color, teams.awayColor,
                teams.createdBy, teams.isActive, teams.isVerified, teams.isArchived,
                teams.createdAt, teams.updatedAt, teams.reportCount, teams.verificationCount,
                COUNT(players.id) as playerCount,
@@ -86,6 +86,7 @@ data class TeamWithPlayerCount(
     val name: String,
     val description: String,
     val color: String,
+    val awayColor: String,
     val createdBy: String,
     val isActive: Boolean,
     val isVerified: Boolean,

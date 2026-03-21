@@ -294,8 +294,16 @@ fun CrowdSourcedTeamsScreen(
     if (showAddTeamDialog) {
         AddTeamDialog(
             onDismiss = { showAddTeamDialog = false },
-            onAdd = { teamName, sport ->
-                teamViewModel.addTeam(teamName, sport, "Community contributed team")
+            onAdd = { teamName, sport, homeColor, awayColor, homeJerseyColor, awayJerseyColor ->
+                teamViewModel.addTeam(
+                    teamName = teamName,
+                    sport = sport,
+                    description = "Community contributed team",
+                    color = homeColor,
+                    awayColor = awayColor,
+                    homeJerseyColor = homeJerseyColor,
+                    awayJerseyColor = awayJerseyColor
+                )
                 showAddTeamDialog = false
             },
             existingTeams = allTeamNames
