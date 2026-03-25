@@ -52,6 +52,17 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = '1.5.1'
     }
+
+    androidResources {
+        noCompress += [
+            'tflite',
+            'lite',
+            'binarypb',
+            'bincfg',
+            'fb',
+            'pb'
+        ]
+    }
     
     packaging {
         resources {

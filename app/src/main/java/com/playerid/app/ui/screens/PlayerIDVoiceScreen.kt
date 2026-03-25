@@ -1,8 +1,13 @@
 
 package com.playerid.app.ui.screens
+import android.content.Context
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,6 +35,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +57,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import com.playerid.app.BuildConfig
+import com.playerid.app.ui.components.SpotrScreenHeader
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
 
@@ -56,6 +65,7 @@ import com.playerid.app.viewmodels.TeamViewModel
 @Composable
 fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel) {
     val localContext = LocalContext.current
+    val localView = LocalView.current
     val permissionState = remember {
         mutableStateOf(
             androidx.core.content.ContextCompat.checkSelfPermission(
@@ -64,14 +74,11 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         )
     }
-    val launcher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted: Boolean ->
-            permissionState.value = granted
-        }
-    // ...existing code...
-    // ...existing code...
-    // ...existing code...
-    // SpeechRecognizer integration
+    var pendingMicTap by rememberSaveable { mutableStateOf(false) }
+    var listenAttempts by rememberSaveable { mutableIntStateOf(0) }
+    var resultWindowsShown by rememberSaveable { mutableIntStateOf(0) }
+    
+    // SpeechRecognizer integration setup
     val recognitionIntent = remember {
         android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(
@@ -85,7 +92,68 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
     }
     var isSpeechActive by remember { mutableStateOf(false) }
     var speechRecognizer by remember { mutableStateOf<android.speech.SpeechRecognizer?>(null) }
-    var showResult by remember { mutableStateOf(false) }
+    
+    fun startListening() {
+        listenAttempts += 1
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i(
+                "PlayerIDVoiceScreen",
+                "startListening attempt #$listenAttempts"
+            )
+        }
+        // Fire tactile feedback from the guaranteed listening entrypoint.
+        try {
+            localView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager = localContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                manager?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                localContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            vibrator?.let {
+                if (it.hasVibrator()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        it.vibrate(VibrationEffect.createOneShot(32L, VibrationEffect.DEFAULT_AMPLITUDE))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        it.vibrate(32L)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("PlayerIDVoiceScreen", "startListening haptic failed", e)
+        }
+        viewModel.clearVoiceResult()
+        if (speechRecognizer == null || !android.speech.SpeechRecognizer.isRecognitionAvailable(localContext)) {
+            viewModel.setListening(false)
+            isSpeechActive = false
+            viewModel.reportVoiceError("Speech recognition is not available on this device.")
+            return
+        }
+        try {
+            speechRecognizer?.startListening(recognitionIntent)
+            viewModel.setListening(true)
+            isSpeechActive = true
+        } catch (e: Exception) {
+            isSpeechActive = false
+            viewModel.setListening(false)
+            viewModel.reportVoiceError("Could not start listening. Please try again.")
+            android.util.Log.e("PlayerIDVoiceScreen", "startListening failed", e)
+        }
+    }
+    
+    val launcher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted: Boolean ->
+            permissionState.value = granted
+            if (granted && pendingMicTap) {
+                pendingMicTap = false
+                startListening()
+            } else {
+                pendingMicTap = false
+            }
+        }
+    
     DisposableEffect(Unit) {
         if (speechRecognizer == null && android.speech.SpeechRecognizer.isRecognitionAvailable(localContext)) {
             speechRecognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(localContext)
@@ -119,6 +187,18 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                 android.util.Log.d("PlayerIDVoiceScreen", "onError: $error")
                 isSpeechActive = false
                 viewModel.setListening(false)
+                val message = when (error) {
+                    android.speech.SpeechRecognizer.ERROR_NO_MATCH -> "I couldn't match that to a player. Try again."
+                    android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "I didn't hear anything. Try tapping and speaking again."
+                    android.speech.SpeechRecognizer.ERROR_NETWORK,
+                    android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network issue while listening. Please try again."
+                    android.speech.SpeechRecognizer.ERROR_AUDIO,
+                    android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+                    android.speech.SpeechRecognizer.ERROR_SERVER -> "Speech recognition failed. Please try again."
+                    android.speech.SpeechRecognizer.ERROR_CLIENT -> "Speech recognition was interrupted. Please try again."
+                    else -> "Could not process speech. Please try again."
+                }
+                viewModel.reportVoiceError(message)
             }
 
             override fun onResults(p0: Bundle) {
@@ -139,6 +219,8 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                         "processVoiceCommand (best): $phraseToSend from '$bestPhrase'"
                     )
                     viewModel.processVoiceCommand(phraseToSend)
+                } else {
+                    viewModel.reportVoiceError("I didn't catch a player number. Try again.")
                 }
             }
 
@@ -168,31 +250,54 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
         }
     }
 
-    var listenAttempts by rememberSaveable { mutableIntStateOf(0) }
-    var resultWindowsShown by rememberSaveable { mutableIntStateOf(0) }
-
-    fun startListening() {
-        listenAttempts += 1
-        if (BuildConfig.DEBUG) {
-            android.util.Log.i(
-                "PlayerIDVoiceScreen",
-                "startListening attempt #$listenAttempts"
-            )
-        }
-        viewModel.clearVoiceResult()
-        showResult = false
-        viewModel.setListening(true)
-        isSpeechActive = true
-        try {
-            speechRecognizer?.startListening(recognitionIntent)
-        } catch (e: Exception) {
-            isSpeechActive = false
-            viewModel.setListening(false)
-            android.util.Log.e("PlayerIDVoiceScreen", "startListening failed", e)
-        }
-    }
     val isListening by viewModel.isListening.collectAsState()
     val voiceResult = viewModel.voiceResult.collectAsState().value
+    val haptic = LocalHapticFeedback.current
+
+    fun triggerMicTapFeedback() {
+        android.util.Log.d("PlayerIDVoiceScreen", "triggerMicTapFeedback() called")
+        try {
+            localView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            android.util.Log.d("PlayerIDVoiceScreen", "View haptic feedback executed")
+        } catch (e: Exception) {
+            android.util.Log.e("PlayerIDVoiceScreen", "View haptic failed: ${e.message}")
+        }
+        try {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            android.util.Log.d("PlayerIDVoiceScreen", "Compose haptic feedback executed")
+        } catch (e: Exception) {
+            android.util.Log.e("PlayerIDVoiceScreen", "Compose haptic failed: ${e.message}")
+        }
+        
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager = localContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                manager?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                localContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            android.util.Log.d("PlayerIDVoiceScreen", "Vibrator obtained: ${vibrator != null}")
+            vibrator?.let {
+                android.util.Log.d("PlayerIDVoiceScreen", "Vibrator hasVibrator: ${it.hasVibrator()}")
+                if (it.hasVibrator()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        it.vibrate(VibrationEffect.createOneShot(24L, VibrationEffect.DEFAULT_AMPLITUDE))
+                        android.util.Log.d("PlayerIDVoiceScreen", "Vibrator API 26+ vibrate called")
+                    } else {
+                        @Suppress("DEPRECATION")
+                        it.vibrate(24L)
+                        android.util.Log.d("PlayerIDVoiceScreen", "Vibrator deprecated vibrate called")
+                    }
+                } else {
+                    android.util.Log.d("PlayerIDVoiceScreen", "Device reports no vibrator support")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("PlayerIDVoiceScreen", "Vibrator failed: ${e.message}", e)
+        }
+    }
+
     val debugMessage = remember { mutableStateOf("") }
     val pulse = remember { Animatable(1f) }
     val configuration = LocalConfiguration.current
@@ -285,7 +390,11 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
             val matchesYear = selectedAcademicYearFilter == "All Years" ||
                 player.academicYear.equals(selectedAcademicYearFilter, ignoreCase = true)
             matchesQuery && matchesPosition && matchesYear
-        }
+        }.sortedWith(
+            compareBy<com.playerid.app.data.Player> { it.number.toIntOrNull() ?: Int.MAX_VALUE }
+                .thenBy { it.number }
+                .thenBy { it.name }
+        )
     }
 
     LaunchedEffect(availablePositions, selectedPositionFilter) {
@@ -309,93 +418,59 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                         Color(0xFFF3F6FA)
                     )
                 )
-            )
-            .clickable {
-                if (voiceResult != null) {
-                    showResult = false
-                    viewModel.clearVoiceResult()
-                }
-            },
+            ),
         contentAlignment = Alignment.TopCenter
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = horizontalPadding, vertical = verticalPadding),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.fillMaxSize()
         ) {
-            Text(
-                text = "Player ID",
-                color = teamPrimary,
-                style = titleStyle,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Voice-first roster lookup",
-                color = teamPrimary.copy(alpha = 0.75f),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp)
+            SpotrScreenHeader(
+                title = "Player ID",
+                icon = Icons.Default.Mic,
+                gradient = listOf(teamPrimary, teamSecondary)
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                tonalElevation = 2.dp,
-                shadowElevation = 2.dp,
-                color = Color.White,
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = horizontalPadding, vertical = verticalPadding),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Team",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = teamPrimary.copy(alpha = 0.75f)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ExposedDropdownMenuBox(
-                        expanded = expanded,
-                        onExpandedChange = { expanded = !expanded }
-                    ) {
-                        TextField(
-                            value = selectedTeam,
-                            onValueChange = {},
-                            readOnly = true,
-                            placeholder = { Text("Select Team") },
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                            },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = teamSecondary.copy(alpha = 0.22f),
-                                unfocusedContainerColor = teamSecondary.copy(alpha = 0.14f),
-                                focusedIndicatorColor = teamPrimary,
-                                unfocusedIndicatorColor = teamPrimary.copy(alpha = 0.35f),
-                                focusedTextColor = Color(0xFF263238),
-                                unfocusedTextColor = Color(0xFF263238),
-                                focusedTrailingIconColor = teamPrimary,
-                                unfocusedTrailingIconColor = teamPrimary.copy(alpha = 0.7f)
-                            ),
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth()
-                        )
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
-                        ) {
-                            teams.forEach { team ->
-                                DropdownMenuItem(
-                                    text = { Text(team.name) },
-                                    onClick = {
-                                        viewModel.setSelectedTeam(team.name)
-                                        teamViewModel.selectTeam(team.name)
-                                        expanded = false
-                                    }
-                                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    tonalElevation = 2.dp,
+                    shadowElevation = 2.dp,
+                    color = Color.White,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Box {
+                            OutlinedButton(
+                                onClick = { expanded = true },
+                                border = BorderStroke(1.5.dp, teamPrimary),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Team: ${selectedTeam.ifBlank { "Select" }}", color = teamPrimary)
+                            }
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false }
+                            ) {
+                                teams.forEach { team ->
+                                    DropdownMenuItem(
+                                        text = { Text(team.name) },
+                                        onClick = {
+                                            viewModel.setSelectedTeam(team.name)
+                                            teamViewModel.selectTeam(team.name)
+                                            expanded = false
+                                        }
+                                    )
+                                }
                             }
                         }
-                    }
                 }
             }
 
@@ -421,7 +496,26 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                             color = if (isListening) teamSecondary else teamPrimary,
                             tonalElevation = 10.dp,
                             shadowElevation = 10.dp,
-                            modifier = Modifier.size(micButtonSize)
+                            modifier = Modifier
+                                .size(micButtonSize)
+                                .clickable(enabled = !isListening) {
+                                    android.util.Log.d("PlayerIDVoiceScreen", "Mic button clicked")
+                                    if (!permissionState.value) {
+                                        android.util.Log.d("PlayerIDVoiceScreen", "Permission not granted, launching permission request")
+                                        pendingMicTap = true
+                                        launcher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                    } else {
+                                        android.util.Log.d("PlayerIDVoiceScreen", "Permission granted, calling startListening")
+                                        pendingMicTap = false
+                                        if (BuildConfig.DEBUG) {
+                                            android.util.Log.d(
+                                                "PlayerIDVoiceScreen",
+                                                "Mic tapped, starting listening"
+                                            )
+                                        }
+                                        startListening()
+                                    }
+                                }
                         ) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
@@ -430,23 +524,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                 Icon(
                                     Icons.Filled.Mic,
                                     contentDescription = "Voice Player ID",
-                                    modifier = Modifier
-                                        .size(micIconSize)
-                                        .clickable(enabled = !isListening) {
-                                            if (!isListening) {
-                                                if (!permissionState.value) {
-                                                    launcher.launch(android.Manifest.permission.RECORD_AUDIO)
-                                                } else {
-                                                    if (BuildConfig.DEBUG) {
-                                                        android.util.Log.d(
-                                                            "PlayerIDVoiceScreen",
-                                                            "Mic tapped, starting listening"
-                                                        )
-                                                    }
-                                                    startListening()
-                                                }
-                                            }
-                                        },
+                                    modifier = Modifier.size(micIconSize),
                                     tint = onTeamPrimary
                                 )
                             }
@@ -667,15 +745,11 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
         val errorResult = voiceResult as? com.playerid.app.viewmodels.VoiceAssistantResult.Error
         val successPlayer = successResult?.player
 
-        LaunchedEffect(isListening) {
-            if (isListening) showResult = false
-        }
         LaunchedEffect(voiceResult) {
+            if (voiceResult is com.playerid.app.viewmodels.VoiceAssistantResult.Error) {
+                showManualRoster = true
+            }
             if (voiceResult != null) {
-                showResult = true
-                if (voiceResult is com.playerid.app.viewmodels.VoiceAssistantResult.Error) {
-                    showManualRoster = true
-                }
                 resultWindowsShown += 1
                 if (BuildConfig.DEBUG) {
                     android.util.Log.i(
@@ -686,14 +760,8 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
             }
         }
 
-        if (showResult && voiceResult != null && !isListening) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.22f))
-                    .padding(horizontal = 22.dp),
-                contentAlignment = Alignment.Center
-            ) {
+        if (voiceResult != null) {
+            Dialog(onDismissRequest = { viewModel.clearVoiceResult() }) {
                 Surface(
                     shape = RoundedCornerShape(24.dp),
                     color = Color.White,
@@ -775,16 +843,13 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                 style = MaterialTheme.typography.bodyLarge
                             )
                         }
+
                     }
                 }
             }
         }
 
             if (isListening) {
-                // Reset showResult safely using a setter
-                LaunchedEffect(isListening) {
-                    if (isListening) showResult = false
-                }
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -823,6 +888,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     )
                 }
             }
+        }
     }
 }
 

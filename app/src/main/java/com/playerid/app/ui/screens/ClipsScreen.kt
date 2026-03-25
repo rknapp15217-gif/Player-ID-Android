@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.playerid.app.data.Player
 import com.playerid.app.data.VideoClip
+import com.playerid.app.ui.components.SpotrScreenHeader
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
 import kotlinx.coroutines.Dispatchers
@@ -116,7 +117,7 @@ fun ClipsScreen(
     highlightPlaylistUris?.let { playlistUris ->
         VideoPlaybackScreen(
             videoUri = playlistUris.first(),
-            detectedPlayers = rosterPlayers,
+            detectedPlayers = emptyList(),
             onNavigateBack = { highlightPlaylistUris = null },
             playlistUris = playlistUris
         )
@@ -124,120 +125,116 @@ fun ClipsScreen(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(teamSecondary.copy(alpha = 0.18f), Color.Transparent)
-                )
-            )
-            .padding(16.dp)
+        modifier = Modifier.fillMaxSize()
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    "Clips",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = teamPrimary
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Box {
-            OutlinedButton(
-                onClick = { showTeamMenu = true },
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, teamPrimary)
-            ) {
-                Text("Team: ${teamName ?: "Select"}", color = teamPrimary)
-            }
-            DropdownMenu(
-                expanded = showTeamMenu,
-                onDismissRequest = { showTeamMenu = false }
-            ) {
-                subscribedTeams.forEach { team ->
-                    DropdownMenuItem(
-                        text = { Text(team.name) },
-                        onClick = {
-                            playerViewModel.setSelectedTeam(team.name)
-                            teamViewModel.selectTeam(team.name)
-                            showTeamMenu = false
-                        }
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        if (cleanupInProgress) {
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth(),
-                color = teamPrimary,
-                trackColor = teamSecondary.copy(alpha = 0.35f)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        VideoLibraryScreen(
-            teamName = teamName!!,
-            videos = videos,
-            rosterPlayers = rosterPlayers,
-            isLoading = isLoading,
-            lastRefreshedLabel = "",
-            onNavigateBack = {},
-            onRefresh = {
-                scope.launch {
-                    isLoading = true
-                    videos = loadTeamVideosForClips(context, teamName!!)
-                    isLoading = false
-                }
-            },
-            onVideoSelected = { uri, _ ->
-                try {
-                    val playIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, "video/*")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(playIntent)
-                } catch (_: ActivityNotFoundException) {
-                    Toast.makeText(context, "No video player app found", Toast.LENGTH_SHORT).show()
-                } catch (_: Exception) {
-                    Toast.makeText(context, "Unable to open clip", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onVideoEdit = { _ -> },
-            onVideoDelete = { video ->
-                videoToDelete = video
-                showDeleteDialog = true
-            },
-            onVideoNameChanged = { video, newName ->
-                val prefs = context.getSharedPreferences("video_custom_names", android.content.Context.MODE_PRIVATE)
-                prefs.edit().putString(video.id, newName).apply()
-                videos = videos.map { if (it.id == video.id) it.copy(gameTitle = newName) else it }
-            },
-            onToggleHighlight = { video ->
-                val newStatus = !video.isHighlight
-                val prefs = context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE)
-                prefs.edit().putBoolean(video.id, newStatus).apply()
-                videos = videos.map { if (it.id == video.id) it.copy(isHighlight = newStatus) else it }
-            },
-            onCreateHighlightReel = { filter ->
-                val highlights = videos.filter { it.isHighlight }
-                val filtered = filterHighlightsForClips(highlights, filter)
-                if (filtered.isEmpty()) {
-                    Toast.makeText(context, "No highlights found for ${filter.label}", Toast.LENGTH_SHORT).show()
-                } else {
-                    highlightPlaylistUris = filtered.map { Uri.parse(it.filePath) }
-                }
-            },
-            showTopBar = false
+        SpotrScreenHeader(
+            title = "Clips",
+            icon = Icons.Default.PlayArrow,
+            gradient = listOf(teamPrimary, teamSecondary)
         )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(teamSecondary.copy(alpha = 0.18f), Color.Transparent)
+                    )
+                )
+                .padding(16.dp)
+        ) {
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Box {
+                OutlinedButton(
+                    onClick = { showTeamMenu = true },
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, teamPrimary)
+                ) {
+                    Text("Team: ${teamName ?: "Select"}", color = teamPrimary)
+                }
+                DropdownMenu(
+                    expanded = showTeamMenu,
+                    onDismissRequest = { showTeamMenu = false }
+                ) {
+                    subscribedTeams.forEach { team ->
+                        DropdownMenuItem(
+                            text = { Text(team.name) },
+                            onClick = {
+                                playerViewModel.setSelectedTeam(team.name)
+                                teamViewModel.selectTeam(team.name)
+                                showTeamMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (cleanupInProgress) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = teamPrimary,
+                    trackColor = teamSecondary.copy(alpha = 0.35f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            VideoLibraryScreen(
+                teamName = teamName!!,
+                videos = videos,
+                rosterPlayers = rosterPlayers,
+                isLoading = isLoading,
+                lastRefreshedLabel = "",
+                onNavigateBack = {},
+                onRefresh = {
+                    scope.launch {
+                        isLoading = true
+                        videos = loadTeamVideosForClips(context, teamName!!)
+                        isLoading = false
+                    }
+                },
+                onVideoSelected = { uri, _ ->
+                    try {
+                        val playIntent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "video/*")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(playIntent)
+                    } catch (_: ActivityNotFoundException) {
+                        Toast.makeText(context, "No video player app found", Toast.LENGTH_SHORT).show()
+                    } catch (_: Exception) {
+                        Toast.makeText(context, "Unable to open clip", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onVideoEdit = { _ -> },
+                onVideoDelete = { video ->
+                    videoToDelete = video
+                    showDeleteDialog = true
+                },
+                onVideoNameChanged = { video, newName ->
+                    val prefs = context.getSharedPreferences("video_custom_names", android.content.Context.MODE_PRIVATE)
+                    prefs.edit().putString(video.id, newName).apply()
+                    videos = videos.map { if (it.id == video.id) it.copy(gameTitle = newName) else it }
+                },
+                onToggleHighlight = { video ->
+                    val newStatus = !video.isHighlight
+                    val prefs = context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE)
+                    prefs.edit().putBoolean(video.id, newStatus).apply()
+                    videos = videos.map { if (it.id == video.id) it.copy(isHighlight = newStatus) else it }
+                },
+                onCreateHighlightReel = { filter ->
+                    val highlights = videos.filter { it.isHighlight }
+                    val filtered = filterHighlightsForClips(highlights, filter)
+                    if (filtered.isEmpty()) {
+                        Toast.makeText(context, "No highlights found for ${filter.label}", Toast.LENGTH_SHORT).show()
+                    } else {
+                        highlightPlaylistUris = filtered.map { Uri.parse(it.filePath) }
+                    }
+                },
+                showTopBar = false
+            )
+        }
     }
 
     if (showCleanupDialog) {
@@ -319,7 +316,8 @@ private suspend fun deleteClipForClips(context: android.content.Context, video: 
             context.getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE),
             context.getSharedPreferences("video_start_times", android.content.Context.MODE_PRIVATE),
             context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE),
-            context.getSharedPreferences("video_custom_names", android.content.Context.MODE_PRIVATE)
+            context.getSharedPreferences("video_custom_names", android.content.Context.MODE_PRIVATE),
+            context.getSharedPreferences("video_opponent_names", android.content.Context.MODE_PRIVATE)
         )
         prefs.forEach { pref ->
             pref.edit()
@@ -335,6 +333,9 @@ private suspend fun loadTeamVideosForClips(context: android.content.Context, tea
         val videos = mutableListOf<VideoClip>()
         val teamPrefs = context.getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE)
         val startPrefs = context.getSharedPreferences("video_start_times", android.content.Context.MODE_PRIVATE)
+        val highlightPrefs = context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE)
+        val customNamePrefs = context.getSharedPreferences("video_custom_names", android.content.Context.MODE_PRIVATE)
+        val opponentPrefs = context.getSharedPreferences("video_opponent_names", android.content.Context.MODE_PRIVATE)
         val moviesDirs = context.getExternalFilesDirs(android.os.Environment.DIRECTORY_MOVIES).filterNotNull()
         val seenIds = mutableSetOf<String>()
 
@@ -358,6 +359,17 @@ private suspend fun loadTeamVideosForClips(context: android.content.Context, tea
                 val createdAt = storedStartTime ?: file.lastModified()
                 val gameDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
+                val customName = customNamePrefs.getString(videoPath, null)
+                    ?: customNamePrefs.getString(fileUriString, null)
+                val opponentName = opponentPrefs.getString(videoPath, null)
+                    ?: opponentPrefs.getString(fileUriString, null)
+                val isHighlight = highlightPrefs.getBoolean(videoPath, false)
+                    || highlightPrefs.getBoolean(fileUriString, false)
+                val gameTitle = buildClipTitle(
+                    baseTitle = file.nameWithoutExtension,
+                    opponentName = opponentName,
+                    customName = customName
+                )
 
                 val duration = try {
                     val retriever = android.media.MediaMetadataRetriever()
@@ -377,8 +389,8 @@ private suspend fun loadTeamVideosForClips(context: android.content.Context, tea
                         duration = duration,
                         createdAt = createdAt,
                         gameDate = gameDate,
-                        gameTitle = file.nameWithoutExtension,
-                        isHighlight = false
+                        gameTitle = gameTitle,
+                        isHighlight = isHighlight
                     )
                 )
                 seenIds.add(videoPath)
@@ -424,6 +436,15 @@ private suspend fun loadTeamVideosForClips(context: android.content.Context, tea
                 val gameDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
                 val duration = cursor.getLong(durationIndex)
+                val customName = customNamePrefs.getString(uriString, null)
+                val opponentName = opponentPrefs.getString(uriString, null)
+                val isHighlight = highlightPrefs.getBoolean(uriString, false)
+                val baseTitle = displayName.substringBeforeLast(".", displayName)
+                val gameTitle = buildClipTitle(
+                    baseTitle = baseTitle,
+                    opponentName = opponentName,
+                    customName = customName
+                )
 
                 videos.add(
                     VideoClip(
@@ -432,8 +453,8 @@ private suspend fun loadTeamVideosForClips(context: android.content.Context, tea
                         duration = duration,
                         createdAt = createdAt,
                         gameDate = gameDate,
-                        gameTitle = displayName.substringBeforeLast(".", displayName),
-                        isHighlight = false
+                        gameTitle = gameTitle,
+                        isHighlight = isHighlight
                     )
                 )
                 seenIds.add(uriString)
@@ -475,11 +496,28 @@ private fun filterHighlightsForClips(videos: List<VideoClip>, filter: HighlightR
     val oneMonthMillis = 30L * oneDayMillis
     val oneSeasonMillis = 120L * oneDayMillis
 
-    return when (filter) {
+    val filtered = when (filter) {
         HighlightReelFilter.ALL -> videos
         HighlightReelFilter.TODAY -> videos.filter { now - it.createdAt < oneDayMillis }
         HighlightReelFilter.THIS_WEEK -> videos.filter { now - it.createdAt < oneWeekMillis }
         HighlightReelFilter.THIS_MONTH -> videos.filter { now - it.createdAt < oneMonthMillis }
         HighlightReelFilter.THIS_SEASON -> videos.filter { now - it.createdAt < oneSeasonMillis }
+    }
+
+    // Highlight reels should play in timeline order from oldest to newest.
+    return filtered.sortedBy { it.createdAt }
+}
+
+private fun buildClipTitle(baseTitle: String, opponentName: String?, customName: String?): String {
+    val trimmedCustom = customName?.trim().orEmpty()
+    if (trimmedCustom.isNotEmpty()) return trimmedCustom
+
+    val trimmedOpponent = opponentName?.trim().orEmpty()
+    if (trimmedOpponent.isEmpty()) return baseTitle
+
+    return if (baseTitle.contains("vs", ignoreCase = true)) {
+        baseTitle
+    } else {
+        "$baseTitle vs $trimmedOpponent"
     }
 }

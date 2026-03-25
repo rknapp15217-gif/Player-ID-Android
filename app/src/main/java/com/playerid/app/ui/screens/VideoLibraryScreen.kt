@@ -1,8 +1,13 @@
 package com.playerid.app.ui.screens
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,21 +24,28 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalContext
 import com.playerid.app.data.Player
 import com.playerid.app.data.VideoClip
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -267,6 +279,8 @@ private fun VideoClipCard(
 ) {
     var showNameEditDialog by remember { mutableStateOf(false) }
     var editedName by remember(video.id, video.gameTitle) { mutableStateOf(video.gameTitle) }
+    val context = LocalContext.current
+    val thumbnail by rememberVideoThumbnail(context, video.filePath)
 
     if (showNameEditDialog) {
         AlertDialog(
@@ -308,41 +322,56 @@ private fun VideoClipCard(
         )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .aspectRatio(16f / 9f)
+                    .clickable(onClick = onPlayClick)
+                    .background(Color.Black)
             ) {
-                // Larger thumbnail for better visibility
-                Box(
-                    modifier = Modifier
-                        .size(100.dp, 75.dp)
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
+                if (thumbnail != null) {
+                    Image(
+                        bitmap = thumbnail!!.asImageBitmap(),
+                        contentDescription = "Clip preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(42.dp)
+                )
 
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopStart)
+                        .background(Color.Black.copy(alpha = 0.72f))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             video.gameTitle.ifBlank { "Game Video" },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            modifier = Modifier.weight(1f)
+                            color = Color.White,
+                            maxLines = 1
                         )
+                        Text(
+                            "${formatDateTime(video.createdAt)} • ${formatDuration(video.duration)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.88f),
+                            maxLines = 1
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         IconButton(
                             onClick = { showNameEditDialog = true },
                             modifier = Modifier.size(24.dp)
@@ -350,8 +379,8 @@ private fun VideoClipCard(
                             Icon(
                                 Icons.Default.Edit,
                                 contentDescription = "Edit name",
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.primary
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White
                             )
                         }
                         IconButton(
@@ -361,100 +390,80 @@ private fun VideoClipCard(
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = "Delete clip",
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.error
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        formatDateTime(video.createdAt),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                    Text(
-                        formatDuration(video.duration),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
-                    )
                 }
             }
 
-            // Large buttons row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Play button - primary action
                 Button(
                     onClick = onPlayClick,
                     modifier = Modifier
                         .weight(1f)
-                        .height(56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    )
+                        .height(38.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(
                         Icons.Default.PlayArrow,
                         contentDescription = null,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(15.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Watch", fontSize = 18.sp)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Watch", fontSize = 13.sp)
                 }
 
-                // Highlight toggle - clearly labeled
                 OutlinedButton(
                     onClick = onToggleHighlight,
                     modifier = Modifier
                         .weight(1f)
-                        .height(56.dp),
+                        .height(38.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (video.isHighlight) Color(0xFF4CAF50).copy(alpha = 0.15f) else Color.Transparent
+                        containerColor = if (video.isHighlight) Color(0xFF4CAF50).copy(alpha = 0.14f) else Color.Transparent
                     ),
                     border = BorderStroke(
-                        width = 2.dp,
+                        width = 1.dp,
                         color = if (video.isHighlight) Color(0xFF4CAF50) else MaterialTheme.colorScheme.outline
-                    )
+                    ),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(
                         imageVector = if (video.isHighlight) Icons.Default.CheckCircle else Icons.Default.AddCircleOutline,
                         contentDescription = null,
                         tint = if (video.isHighlight) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         if (video.isHighlight) "Included" else "Include",
-                        fontSize = 18.sp,
+                        fontSize = 13.sp,
                         color = if (video.isHighlight) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface
                     )
                 }
-            }
 
-            // Edit button - secondary action
-            Button(
-                onClick = onEditClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                )
-            ) {
-                Icon(
-                    Icons.Default.Edit,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Edit & Add Overlays", fontSize = 16.sp)
+                OutlinedButton(
+                    onClick = onEditClick,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Edit", fontSize = 13.sp)
+                }
             }
         }
     }
@@ -510,5 +519,35 @@ private fun filterHighlightsByDate(videos: List<VideoClip>, filter: HighlightRee
         HighlightReelFilter.THIS_WEEK -> videos.filter { now - it.createdAt < oneWeekMillis }
         HighlightReelFilter.THIS_MONTH -> videos.filter { now - it.createdAt < oneMonthMillis }
         HighlightReelFilter.THIS_SEASON -> videos.filter { now - it.createdAt < oneSeasonMillis }
+    }
+}
+
+@Composable
+private fun rememberVideoThumbnail(context: Context, filePath: String) = produceState<Bitmap?>(
+    initialValue = null,
+    key1 = filePath
+) {
+    value = withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
+        try {
+            val sourceUri = Uri.parse(filePath)
+            if (sourceUri.scheme == "content") {
+                retriever.setDataSource(context, sourceUri)
+            } else {
+                val directPath = if (sourceUri.scheme == "file") sourceUri.path else filePath
+                if (directPath.isNullOrBlank()) return@withContext null
+                retriever.setDataSource(directPath)
+            }
+
+            retriever.getFrameAtTime(1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.getFrameAtTime()
+        } catch (_: Exception) {
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
+            }
+        }
     }
 }

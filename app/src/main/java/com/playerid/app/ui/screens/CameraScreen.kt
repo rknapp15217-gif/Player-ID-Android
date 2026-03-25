@@ -76,7 +76,6 @@ import com.playerid.app.utils.RecordingManager
 import com.playerid.app.utils.RecordingState
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.VoiceAction
-import com.playerid.app.viewmodels.VoiceAssistantResult
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -161,25 +160,6 @@ fun CameraScreen(
     teamViewModel: com.playerid.app.viewmodels.TeamViewModel,
     onNavigateToClips: () -> Unit = {}
 ) {
-    // Overlay state and result
-    val voiceResult by viewModel.voiceResult.collectAsState()
-    var showVoiceResult by remember { mutableStateOf(false) }
-    var autoDismissJob: Job? by remember { mutableStateOf(null) }
-    val overlayScope = rememberCoroutineScope()
-    LaunchedEffect(voiceResult) {
-        if (voiceResult != null) {
-            Log.d("CameraScreen", "Voice result window triggered: $voiceResult")
-            showVoiceResult = true
-            autoDismissJob?.cancel()
-            autoDismissJob = overlayScope.launch {
-                delay(3500)
-                Log.d("CameraScreen", "Voice result window auto-dismissed")
-                showVoiceResult = false
-                viewModel.clearVoiceResult()
-            }
-        }
-    }
-
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     val configuration = LocalConfiguration.current
@@ -262,7 +242,8 @@ fun CameraScreen(
                     context = context,
                     videoUri = uri,
                     teamName = clipTeam,
-                    startedAtMs = clipStartTime
+                    startedAtMs = clipStartTime,
+                    opponentName = selectedOpponent
                 )
             }
             val teamLabel = selectedTeam ?: "selected team"
@@ -481,24 +462,6 @@ fun CameraScreen(
                                 )
                             }
                         }
-                        // Mic button for speech recognition
-                        FloatingActionButton(
-                            onClick = {
-                                if (!isSpeechActive && cameraPermissionsState.allPermissionsGranted) {
-                                    startListening()
-                                }
-                            },
-                            modifier = Modifier,
-                            containerColor = if (isSpeechActive) teamSecondary else teamPrimary,
-                            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = if (isSpeechActive) "Listening..." else "Start Voice Command",
-                                tint = if (isSpeechActive) onTeamSecondary else onTeamPrimary,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
                     }
                 }
             },
@@ -609,112 +572,6 @@ fun CameraScreen(
                     )
                 }
 
-                val successResult = voiceResult as? VoiceAssistantResult.Success
-                val errorResult = voiceResult as? VoiceAssistantResult.Error
-                val successPlayer = successResult?.player
-
-                // Voice result window overlay (same layout as Player ID screen)
-                if (showVoiceResult && voiceResult != null) {
-                    Log.d("CameraScreen", "Voice result window shown: $voiceResult")
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.22f))
-                            .padding(horizontal = 22.dp)
-                            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-                                Log.d("CameraScreen", "Voice result window manually dismissed")
-                                showVoiceResult = false
-                                viewModel.clearVoiceResult()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(24.dp),
-                            color = Color.White,
-                            tonalElevation = 8.dp,
-                            shadowElevation = 10.dp,
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = 2.dp,
-                                color = if (errorResult != null) Color(0xFFFF9800) else teamPrimary
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 22.dp, vertical = 24.dp)
-                            ) {
-                                if (successPlayer != null) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(IntrinsicSize.Min),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxHeight()
-                                                .padding(end = 14.dp),
-                                            contentAlignment = Alignment.CenterStart
-                                        ) {
-                                            Text(
-                                                text = "#${successPlayer.number}",
-                                                color = teamPrimary,
-                                                fontSize = 46.sp,
-                                                lineHeight = 46.sp,
-                                                fontWeight = FontWeight.ExtraBold
-                                            )
-                                        }
-
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.Center
-                                        ) {
-                                            Text(
-                                                text = successPlayer.name,
-                                                color = Color(0xFF263238),
-                                                style = MaterialTheme.typography.headlineSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 2,
-                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = "Position: ${successPlayer.position}",
-                                                color = Color(0xFF455A64),
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                modifier = Modifier.padding(top = 4.dp)
-                                            )
-                                            if (!successPlayer.academicYear.isNullOrBlank()) {
-                                                Text(
-                                                    text = "Year: ${successPlayer.academicYear}",
-                                                    color = Color(0xFF607D8B),
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    modifier = Modifier.padding(top = 2.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    if (errorResult != null) {
-                                        Text(
-                                            text = "Could not find player",
-                                            color = Color(0xFFE65100),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                    }
-                                    val fallbackMessage = errorResult?.message ?: successResult?.message.orEmpty()
-                                    Text(
-                                        text = fallbackMessage,
-                                        color = Color(0xFF37474F),
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
                 if (isStandby) {
                     Box(
                         modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.98f)).clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {},
@@ -913,15 +770,23 @@ private fun persistClipTeamMetadata(
     context: Context,
     videoUri: Uri,
     teamName: String,
-    startedAtMs: Long
+    startedAtMs: Long,
+    opponentName: String?
 ) {
     val teamPrefs = context.getSharedPreferences("video_team_names", Context.MODE_PRIVATE)
     val startPrefs = context.getSharedPreferences("video_start_times", Context.MODE_PRIVATE)
+    val opponentPrefs = context.getSharedPreferences("video_opponent_names", Context.MODE_PRIVATE)
+    val cleanedOpponent = opponentName?.trim().orEmpty()
 
     val uriKey = videoUri.toString()
     teamPrefs.edit().putString(uriKey, teamName).apply()
     if (startedAtMs > 0L) {
         startPrefs.edit().putLong(uriKey, startedAtMs).apply()
+    }
+    if (cleanedOpponent.isNotEmpty()) {
+        opponentPrefs.edit().putString(uriKey, cleanedOpponent).apply()
+    } else {
+        opponentPrefs.edit().remove(uriKey).apply()
     }
 
     if (videoUri.scheme == "file") {
@@ -930,6 +795,11 @@ private fun persistClipTeamMetadata(
             teamPrefs.edit().putString(pathKey, teamName).apply()
             if (startedAtMs > 0L) {
                 startPrefs.edit().putLong(pathKey, startedAtMs).apply()
+            }
+            if (cleanedOpponent.isNotEmpty()) {
+                opponentPrefs.edit().putString(pathKey, cleanedOpponent).apply()
+            } else {
+                opponentPrefs.edit().remove(pathKey).apply()
             }
         }
     }

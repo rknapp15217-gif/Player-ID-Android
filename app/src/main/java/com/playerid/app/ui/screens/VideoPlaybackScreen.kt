@@ -122,35 +122,28 @@ fun VideoPlaybackScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { 
-                    Column {
+            if (!isPlaylistMode) {
+                TopAppBar(
+                    title = {
                         Text(
-                            if (isPlaylistMode) "✨ Highlight Reel" else "Video Playback",
+                            "Video Playback",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        if (isPlaylistMode) {
-                            Text(
-                                "Clip ${currentVideoIndex + 1} of $totalVideos",
-                                fontSize = 12.sp,
-                                color = Color.White.copy(alpha = 0.8f)
-                            )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.Default.ArrowBack, "Back")
                         }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White,
+                        actionIconContentColor = Color.White
+                    )
                 )
-            )
+            }
         }
     ) { paddingValues ->
         Column(
@@ -161,10 +154,16 @@ fun VideoPlaybackScreen(
         ) {
             // Video player
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(Color.Black)
+                modifier = if (isPlaylistMode) {
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black)
+                }
             ) {
                 AndroidView(
                     factory = { ctx ->
@@ -176,63 +175,117 @@ fun VideoPlaybackScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Overlay selected player name bubbles
-                Box(modifier = Modifier.fillMaxSize()) {
-                    detectedPlayers.filter { selectedPlayerIds.contains(it.id) }.forEach { player ->
-                        // Position bubbles at different locations (row-by-row layout)
-                        val rowIndex = detectedPlayers.filter { selectedPlayerIds.contains(it.id) }
-                            .indexOf(player)
-                        val row = rowIndex / 3
-                        val col = rowIndex % 3
-                        
-                        val bubbleOffset = Offset(
-                            x = 40.dp.value + (col * 120.dp.value),
-                            y = 40.dp.value + (row * 100.dp.value)
+                if (!isPlaylistMode) {
+                    // Overlay selected player name bubbles
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        detectedPlayers.filter { selectedPlayerIds.contains(it.id) }.forEach { player ->
+                            // Position bubbles at different locations (row-by-row layout)
+                            val rowIndex = detectedPlayers.filter { selectedPlayerIds.contains(it.id) }
+                                .indexOf(player)
+                            val row = rowIndex / 3
+                            val col = rowIndex % 3
+
+                            val bubbleOffset = Offset(
+                                x = 40.dp.value + (col * 120.dp.value),
+                                y = 40.dp.value + (row * 100.dp.value)
+                            )
+
+                            PlayerNameBubble(
+                                playerName = player.name,
+                                jerseyNumber = player.number,
+                                offset = bubbleOffset,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopStart)
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(
+                                Icons.Default.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White
+                            )
+                        }
+                        Text(
+                            "${currentVideoIndex + 1} / $totalVideos",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
                         )
-                        
-                        PlayerNameBubble(
-                            playerName = player.name,
-                            jerseyNumber = player.number,
-                            offset = bubbleOffset,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (videoDuration > 0) {
+                            LinearProgressIndicator(
+                                progress = { currentPosition.toFloat() / videoDuration.toFloat() },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = Color.White,
+                                trackColor = Color.White.copy(alpha = 0.35f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+
+                        IconButton(onClick = { isPlaying = !isPlaying }) {
+                            Icon(
+                                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            // Playback progress bar
-            if (videoDuration > 0) {
-                LinearProgressIndicator(
-                    progress = { currentPosition.toFloat() / videoDuration.toFloat() },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            // Playback controls
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = { isPlaying = !isPlaying }
-                ) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
+            if (!isPlaylistMode) {
+                // Playback progress bar
+                if (videoDuration > 0) {
+                    LinearProgressIndicator(
+                        progress = { currentPosition.toFloat() / videoDuration.toFloat() },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
-                Text(
-                    "${(currentPosition / 1000 / 60) % 60}:${(currentPosition / 1000) % 60} / " +
-                    "${(videoDuration / 1000 / 60) % 60}:${(videoDuration / 1000) % 60}",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
+                // Playback controls
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { isPlaying = !isPlaying }
+                    ) {
+                        Icon(
+                            if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+
+                    Text(
+                        "${(currentPosition / 1000 / 60) % 60}:${(currentPosition / 1000) % 60} / " +
+                        "${(videoDuration / 1000 / 60) % 60}:${(videoDuration / 1000) % 60}",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
             }
 
             // Player selection for overlay (hidden in playlist mode)
