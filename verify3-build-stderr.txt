@@ -1,0 +1,26 @@
+Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/capture/ScreenCaptureService.kt:40:25 Unresolved reference: R
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/data/teamsnap/TeamSnapOAuthConfig.kt:3:25 Unresolved reference: BuildConfig
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/data/teamsnap/TeamSnapOAuthConfig.kt:11:27 Unresolved reference: BuildConfig
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/data/teamsnap/TeamSnapOAuthConfig.kt:12:31 Unresolved reference: BuildConfig
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/ui/screens/PlayerIDVoiceScreen.kt:59:25 Unresolved reference: BuildConfig
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/ui/screens/PlayerIDVoiceScreen.kt:98:13 Unresolved reference: BuildConfig
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/ui/screens/PlayerIDVoiceScreen.kt:510:45 Unresolved reference: BuildConfig
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/ui/screens/PlayerIDVoiceScreen.kt:754:21 Unresolved reference: BuildConfig
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/ui/theme/Type.kt:10:25 Unresolved reference: R
+e: file:///C:/src/PlayerID-Android/app/src/main/java/com/playerid/app/ui/theme/Type.kt:15:20 Unresolved reference: R
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 3m 14s

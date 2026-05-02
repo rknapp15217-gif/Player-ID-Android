@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -67,7 +68,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
@@ -96,6 +96,7 @@ import kotlinx.coroutines.withContext
 fun TeamScreen(
     teamViewModel: TeamViewModel,
     playerViewModel: PlayerViewModel,
+    cameraHandoffToken: Int = 0,
     teamSnapRepository: TeamSnapRepository? = null,
     onNavigateToCrowdSourced: () -> Unit = {},
     onNavigateToWebImport: (String) -> Unit = {},
@@ -104,20 +105,24 @@ fun TeamScreen(
     onVideoSelected: (android.net.Uri, List<Player>) -> Unit = { _, _ -> },
     onVideoEdit: (android.net.Uri) -> Unit = { }
 ) {
-    val selectedTeam by teamViewModel.selectedTeam.collectAsState()
+    val cameraTeam by teamViewModel.selectedTeam.collectAsState()
+    // Local state per screen; Camera only hands off on explicit camera navigation exits.
+    var localTeam by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(cameraHandoffToken) {
+        localTeam = cameraTeam
+    }
 
     // Always land on team selection first; enter management only after explicit selection here.
     var showTeamSelection by rememberSaveable { mutableStateOf(true) }
 
-    if (!showTeamSelection && selectedTeam != null) {
+    if (!showTeamSelection && localTeam != null) {
         TeamManagementView(
-            teamName = selectedTeam!!,
+            teamName = localTeam!!,
             playerViewModel = playerViewModel,
             teamViewModel = teamViewModel,
             onClearTeam = {
                 showTeamSelection = true
-                teamViewModel.clearTeamSelection()
-                playerViewModel.setSelectedTeam(null)
+                localTeam = null
             },
             onNavigateToWebImport = onNavigateToWebImport,
             onNavigateToAppImport = onNavigateToAppImport,
@@ -133,9 +138,8 @@ fun TeamScreen(
                 if (teamName == "__BROWSE_ALL_TEAMS__") {
                     onNavigateToCrowdSourced()
                 } else {
+                    localTeam = teamName
                     showTeamSelection = false
-                    teamViewModel.selectTeam(teamName)
-                    playerViewModel.setSelectedTeam(teamName)
                 }
             }
         )
@@ -152,13 +156,8 @@ fun TeamSelectionView(
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
     val subscribedTeamsWithStats by teamViewModel.subscribedTeamsWithStats.collectAsState()
     
-    // Dialog states for team management
+    // Dialog states
     var showAddTeamDialog by remember { mutableStateOf(false) }
-    var showRenameTeamDialog by remember { mutableStateOf(false) }
-    var showEditTeamColorsDialog by remember { mutableStateOf(false) }
-    var showDeleteTeamDialog by remember { mutableStateOf(false) }
-    var selectedTeamForAction by remember { mutableStateOf<String?>(null) }
-    var showManagementMode by remember { mutableStateOf(false) }
     var showTipsDialog by remember { mutableStateOf(false) }
     var showTeamSnapImportDialog by remember { mutableStateOf(false) }
     
@@ -166,18 +165,10 @@ fun TeamSelectionView(
         modifier = Modifier
             .fillMaxSize()
     ) {
-        // Modern header with gradient
-        SpotrScreenHeader(
-            title = "My Teams",
-            subtitle = "Teams you've subscribed to for player management",
-            icon = Icons.Default.Groups,
-            gradient = listOf(SpotrGreen, SpotrTeal)
-        )
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.End
         ) {
             OutlinedButton(
@@ -198,7 +189,7 @@ fun TeamSelectionView(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 20.dp),
-                contentPadding = PaddingValues(top = 24.dp),
+                contentPadding = PaddingValues(top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Subscribed teams list or empty state
@@ -211,7 +202,11 @@ fun TeamSelectionView(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Card(
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                onClick = { onTeamSelected(team.name) },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = parseTeamColor(team.color, fallback = Color(0xFF1976D2)).copy(alpha = 0.10f)
+                                )
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -237,64 +232,14 @@ fun TeamSelectionView(
                                         Spacer(modifier = Modifier.height(4.dp))
                                         if (teamStats != null) {
                                             Text(
-                                                text = "${teamStats.playerCount} players • by ${teamStats.createdBy}",
+                                                text = "${teamStats.playerCount} players",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
-                                    
-                                    Button(
-                                        onClick = { onTeamSelected(team.name) },
-                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                                    ) {
-                                        Text("Select")
-                                    }
-                                }
-                            }
-                            
-                            // Show management buttons only when in management mode
-                            if (showManagementMode) {
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    horizontalAlignment = Alignment.End
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            selectedTeamForAction = team.name
-                                            showEditTeamColorsDialog = true
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                    ) {
-                                        Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Colors", style = MaterialTheme.typography.labelMedium)
-                                    }
 
-                                    OutlinedButton(
-                                        onClick = {
-                                            selectedTeamForAction = team.name
-                                            showRenameTeamDialog = true
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                    ) {
-                                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Rename", style = MaterialTheme.typography.labelMedium)
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = {
-                                            selectedTeamForAction = team.name
-                                            showDeleteTeamDialog = true
-                                        },
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                    ) {
-                                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Leave", style = MaterialTheme.typography.labelMedium)
-                                    }
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
                                 }
                             }
                         }
@@ -352,25 +297,6 @@ fun TeamSelectionView(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Management mode toggle (only show when there are teams)
-                if (subscribedTeams.isNotEmpty()) {
-                    Button(
-                        onClick = { showManagementMode = !showManagementMode },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = if (showManagementMode) 
-                            ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                        else 
-                            ButtonDefaults.buttonColors()
-                    ) {
-                        Icon(
-                            if (showManagementMode) Icons.Default.Check else Icons.Default.Edit,
-                            contentDescription = if (showManagementMode) "Done managing" else "Manage teams"
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (showManagementMode) "Done" else "Manage")
-                    }
-                }
-                
                 // TeamSnap import button (only show if repository is available)
                 if (teamSnapRepository != null) {
                     OutlinedButton(
@@ -439,69 +365,6 @@ fun TeamSelectionView(
         )
     }
     
-    selectedTeamForAction?.let { teamName ->
-        if (showEditTeamColorsDialog) {
-            val teamToEdit = subscribedTeams.firstOrNull { it.name == teamName }
-            if (teamToEdit != null) {
-                EditTeamColorsDialog(
-                    teamName = teamName,
-                    initialHomeColor = teamToEdit.color,
-                    initialAwayColor = teamToEdit.awayColor,
-                    initialHomeJerseyColor = teamToEdit.homeJerseyColor,
-                    initialAwayJerseyColor = teamToEdit.awayJerseyColor,
-                    onDismiss = {
-                        showEditTeamColorsDialog = false
-                        selectedTeamForAction = null
-                    },
-                    onSave = { homeColor, awayColor, homeJerseyColor, awayJerseyColor ->
-                        teamViewModel.updateTeamColors(
-                            teamName = teamName,
-                            color = homeColor,
-                            awayColor = awayColor,
-                            homeJerseyColor = homeJerseyColor,
-                            awayJerseyColor = awayJerseyColor
-                        )
-                        showEditTeamColorsDialog = false
-                        selectedTeamForAction = null
-                    }
-                )
-            } else {
-                showEditTeamColorsDialog = false
-                selectedTeamForAction = null
-            }
-        }
-
-        if (showRenameTeamDialog) {
-            RenameTeamDialog(
-                teamName = teamName,
-                onDismiss = { 
-                    showRenameTeamDialog = false
-                    selectedTeamForAction = null
-                },
-                onRename = { newName ->
-                    teamViewModel.renameTeam(teamName, newName)
-                    showRenameTeamDialog = false
-                    selectedTeamForAction = null
-                }
-            )
-        }
-
-        if (showDeleteTeamDialog) {
-            DeleteTeamDialog(
-                teamName = teamName,
-                onDismiss = {
-                    showDeleteTeamDialog = false
-                    selectedTeamForAction = null
-                },
-                onDelete = {
-                    teamViewModel.unsubscribeFromTeam(teamName)
-                    showDeleteTeamDialog = false
-                    selectedTeamForAction = null
-                }
-            )
-        }
-    }
-    
     // Tips Dialog
     if (showTipsDialog) {
         AlertDialog(
@@ -523,7 +386,7 @@ fun TeamSelectionView(
             text = {
                 Text(
                     text = "• Tap team name to select and manage players\n\n" +
-                           "• Use 'Manage' button to rename teams or leave teams\n\n" +
+                           "• Team colors, rename, and leave are on the selected team screen\n\n" +
                            "• 'Browse All Existing Teams' to find and join teams\n\n" +
                            "• 'Create New Team' adds a team that everyone can see\n\n" +
                            "• In camera view, tap a player to learn team colors automatically",
@@ -574,7 +437,6 @@ fun TeamManagementView(
     }
     val homeColor = parseTeamColor(selectedTeamMeta?.color, fallback = Color(0xFF1976D2))
     val awayColor = parseTeamColor(selectedTeamMeta?.awayColor, fallback = Color(0xFFFFFFFF))
-    val homeTextColor = if (homeColor.luminance() > 0.55f) Color.Black else Color.White
 
     val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
     val teamPlayers = remember(allPlayers, teamName) {
@@ -592,6 +454,11 @@ fun TeamManagementView(
     var editingPlayer by remember { mutableStateOf<Player?>(null) }
     var showDeletePlayerDialog by remember { mutableStateOf(false) }
     var playerToDelete by remember { mutableStateOf<Player?>(null) }
+    var showRenameTeamDialog by remember { mutableStateOf(false) }
+    var showEditTeamColorsDialog by remember { mutableStateOf(false) }
+    var showLeaveTeamDialog by remember { mutableStateOf(false) }
+    var showTeamActions by remember { mutableStateOf(false) }
+    var showRoster by remember { mutableStateOf(false) }
     var showOcrImportDialog by remember { mutableStateOf(false) }
     var showImportRosterOptions by remember { mutableStateOf(false) }
     var ocrImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -688,22 +555,26 @@ fun TeamManagementView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Box(
                     modifier = Modifier
-                        .background(
-                            brush = Brush.horizontalGradient(listOf(homeColor, awayColor)),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = teamName,
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = homeTextColor,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                        .size(10.dp)
+                        .background(homeColor, CircleShape)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(awayColor, CircleShape)
+                )
+                Text(
+                    text = teamName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -715,29 +586,11 @@ fun TeamManagementView(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(
-            onClick = { showAddPlayerDialog = true },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = homeColor,
-                contentColor = homeTextColor
-            )
-        ) {
-            Icon(Icons.Default.Add, contentDescription = "Add")
-            Spacer(modifier = Modifier.width(12.dp))
-            Text("Add Team Player", fontSize = 18.sp, fontWeight = FontWeight.Medium)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         OutlinedButton(
             onClick = { showImportRosterOptions = true },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, awayColor)
+                .height(52.dp)
         ) {
             Icon(Icons.Default.CloudDownload, contentDescription = "Import roster")
             Spacer(modifier = Modifier.width(10.dp))
@@ -745,50 +598,124 @@ fun TeamManagementView(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Team players list
-        if (teamPlayers.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+
+        OutlinedButton(
+            onClick = { showRoster = !showRoster },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Group, contentDescription = "Edit roster")
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(if (showRoster) "Hide Edit Current Roster (${teamPlayers.size})" else "Edit Current Roster (${teamPlayers.size})")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Team players list and add player (collapsed by default)
+        if (showRoster) {
+            Button(
+                onClick = { showAddPlayerDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Icon(Icons.Default.Add, contentDescription = "Add player")
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Add Team Player", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            if (teamPlayers.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Group,
-                        contentDescription = "No players",
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "No players in $teamName yet",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Add players to start collaborating!",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Group,
+                            contentDescription = "No players",
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "No players in $teamName yet",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Add players to start collaborating!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(displayPlayers) { player ->
+                        TeamPlayerCard(
+                            player = player,
+                            onEdit = { editingPlayer = player },
+                            onDelete = {
+                                playerToDelete = player
+                                showDeletePlayerDialog = true
+                            }
+                        )
+                    }
                 }
             }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(
+            onClick = { showTeamActions = !showTeamActions },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+        ) {
+            Icon(Icons.Default.Edit, contentDescription = "Edit team settings")
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(if (showTeamActions) "Hide Edit Team Settings" else "Edit Team Settings", fontWeight = FontWeight.Medium)
+        }
+
+        if (showTeamActions) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(displayPlayers) { player ->
-                    TeamPlayerCard(
-                        player = player,
-                        onEdit = { editingPlayer = player },
-                        onDelete = { 
-                            playerToDelete = player
-                            showDeletePlayerDialog = true
-                        }
-                    )
+                OutlinedButton(
+                    onClick = { showEditTeamColorsDialog = true },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Colors")
+                }
+                OutlinedButton(
+                    onClick = { showRenameTeamDialog = true },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Rename")
+                }
+                OutlinedButton(
+                    onClick = { showLeaveTeamDialog = true },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Leave")
                 }
             }
         }
@@ -835,6 +762,60 @@ fun TeamManagementView(
                 playerViewModel.deletePlayer(playerToDelete!!)
                 showDeletePlayerDialog = false
                 playerToDelete = null
+            }
+        )
+    }
+
+    if (showEditTeamColorsDialog) {
+        if (selectedTeamMeta != null) {
+            EditTeamColorsDialog(
+                teamName = teamName,
+                initialHomeColor = selectedTeamMeta.color,
+                initialAwayColor = selectedTeamMeta.awayColor,
+                initialHomeJerseyColor = selectedTeamMeta.homeJerseyColor,
+                initialAwayJerseyColor = selectedTeamMeta.awayJerseyColor,
+                onDismiss = {
+                    showEditTeamColorsDialog = false
+                },
+                onSave = { newHome, newAway, newHomeJersey, newAwayJersey ->
+                    teamViewModel.updateTeamColors(
+                        teamName = teamName,
+                        color = newHome,
+                        awayColor = newAway,
+                        homeJerseyColor = newHomeJersey,
+                        awayJerseyColor = newAwayJersey
+                    )
+                    showEditTeamColorsDialog = false
+                }
+            )
+        } else {
+            showEditTeamColorsDialog = false
+        }
+    }
+
+    if (showRenameTeamDialog) {
+        RenameTeamDialog(
+            teamName = teamName,
+            onDismiss = {
+                showRenameTeamDialog = false
+            },
+            onRename = { newName ->
+                teamViewModel.renameTeam(teamName, newName)
+                showRenameTeamDialog = false
+            }
+        )
+    }
+
+    if (showLeaveTeamDialog) {
+        DeleteTeamDialog(
+            teamName = teamName,
+            onDismiss = {
+                showLeaveTeamDialog = false
+            },
+            onDelete = {
+                teamViewModel.unsubscribeFromTeam(teamName)
+                showLeaveTeamDialog = false
+                onClearTeam()
             }
         )
     }

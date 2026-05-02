@@ -6,14 +6,15 @@ import androidx.room.RoomDatabase
 import android.content.Context
 
 @Database(
-    entities = [Player::class, Team::class, UserTeamSubscription::class], 
-    version = 9,
+    entities = [Player::class, Team::class, UserTeamSubscription::class, VideoDetectionResultEntity::class], 
+    version = 10,
     exportSchema = false
 )
 abstract class PlayerDatabase : RoomDatabase() {
     abstract fun playerDao(): PlayerDao
     abstract fun teamDao(): TeamDao
     abstract fun userTeamSubscriptionDao(): UserTeamSubscriptionDao
+    abstract fun videoDetectionResultDao(): VideoDetectionResultDao
     
     companion object {
         @Volatile

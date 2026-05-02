@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -44,7 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -57,13 +55,16 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import com.playerid.app.BuildConfig
-import com.playerid.app.ui.components.SpotrScreenHeader
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel) {
+fun PlayerIDVoiceScreen(
+    viewModel: PlayerViewModel,
+    teamViewModel: TeamViewModel,
+    cameraHandoffToken: Int = 0
+) {
     val localContext = LocalContext.current
     val localView = LocalView.current
     val permissionState = remember {
@@ -77,6 +78,14 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
     var pendingMicTap by rememberSaveable { mutableStateOf(false) }
     var listenAttempts by rememberSaveable { mutableIntStateOf(0) }
     var resultWindowsShown by rememberSaveable { mutableIntStateOf(0) }
+    val teams by teamViewModel.subscribedTeams.collectAsState()
+    val allPlayers by viewModel.allPlayers.collectAsState(initial = emptyList())
+    val cameraTeam by teamViewModel.selectedTeam.collectAsState()
+    // Local state per screen; Camera only hands off on explicit camera navigation exits.
+    var localSelectedTeam by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(cameraHandoffToken) {
+        localSelectedTeam = cameraTeam
+    }
     
     // SpeechRecognizer integration setup
     val recognitionIntent = remember {
@@ -214,11 +223,21 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                         ?: results.find { numberRegex.containsMatchIn(it) } ?: results.first()
                     val match = numberRegex.find(bestPhrase)
                     val phraseToSend = match?.value ?: bestPhrase
+                    val orderedHypotheses = buildList {
+                        add(phraseToSend)
+                        addAll(results)
+                    }.map { it.trim() }.filter { it.isNotBlank() }.distinct()
                     android.util.Log.d(
                         "PlayerIDVoiceScreen",
-                        "processVoiceCommand (best): $phraseToSend from '$bestPhrase'"
+                        "processVoiceCommandHypotheses (best): $phraseToSend from '$bestPhrase' total=${orderedHypotheses.size}"
                     )
-                    viewModel.processVoiceCommand(phraseToSend)
+                    viewModel.processVoiceCommandHypotheses(
+                        spokenTexts = orderedHypotheses,
+                        selectedTeamOverride = localSelectedTeam,
+                        onTeamSwitched = { switchedTeam ->
+                            localSelectedTeam = switchedTeam
+                        }
+                    )
                 } else {
                     viewModel.reportVoiceError("I didn't catch a player number. Try again.")
                 }
@@ -320,9 +339,6 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
         }
     }
 
-    val teams by teamViewModel.subscribedTeams.collectAsState()
-    val allPlayers by viewModel.allPlayers.collectAsState(initial = emptyList())
-    val selectedTeamState = viewModel.selectedTeam.collectAsState()
     var expanded by remember { mutableStateOf(false) }
     var showManualRoster by rememberSaveable { mutableStateOf(false) }
     var rosterQuery by rememberSaveable { mutableStateOf("") }
@@ -330,13 +346,11 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
     var selectedAcademicYearFilter by rememberSaveable { mutableStateOf("All Years") }
     var positionMenuExpanded by remember { mutableStateOf(false) }
     var yearMenuExpanded by remember { mutableStateOf(false) }
-    val selectedTeam = selectedTeamState.value ?: ""
+    val selectedTeam = localSelectedTeam ?: ""
     val selectedTeamMeta = remember(teams, selectedTeam) {
         teams.firstOrNull { it.name == selectedTeam }
     }
     val teamPrimary = parsePlayerScreenColor(selectedTeamMeta?.color, Color(0xFF1976D2))
-    val teamSecondary = parsePlayerScreenColor(selectedTeamMeta?.awayColor, Color(0xFFE3F2FD))
-    val onTeamPrimary = if (teamPrimary.luminance() > 0.55f) Color.Black else Color.White
     val teamRoster = remember(allPlayers, selectedTeam) {
         allPlayers.filter { it.team == selectedTeam }
     }
@@ -411,25 +425,12 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        teamSecondary.copy(alpha = 0.22f),
-                        Color(0xFFF3F6FA)
-                    )
-                )
-            ),
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.TopCenter
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            SpotrScreenHeader(
-                title = "Player ID",
-                icon = Icons.Default.Mic,
-                gradient = listOf(teamPrimary, teamSecondary)
-            )
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -437,42 +438,38 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     .padding(horizontal = horizontalPadding, vertical = verticalPadding),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    tonalElevation = 2.dp,
-                    shadowElevation = 2.dp,
-                    color = Color.White,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Box {
-                            OutlinedButton(
-                                onClick = { expanded = true },
-                                border = BorderStroke(1.5.dp, teamPrimary),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Team: ${selectedTeam.ifBlank { "Select" }}", color = teamPrimary)
-                            }
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false }
-                            ) {
-                                teams.forEach { team ->
-                                    DropdownMenuItem(
-                                        text = { Text(team.name) },
-                                        onClick = {
-                                            viewModel.setSelectedTeam(team.name)
-                                            teamViewModel.selectTeam(team.name)
-                                            expanded = false
-                                        }
-                                    )
-                                }
-                            }
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { expanded = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(teamPrimary, CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Team: ${selectedTeam.ifBlank { "Select" }}")
                         }
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        teams.forEach { team ->
+                            DropdownMenuItem(
+                                text = { Text(team.name) },
+                                onClick = {
+                                    localSelectedTeam = team.name
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
                 }
-            }
 
             Spacer(modifier = Modifier.height(14.dp))
 
@@ -493,7 +490,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = if (isListening) teamSecondary else teamPrimary,
+                            color = if (isListening) teamPrimary.copy(alpha = 0.7f) else teamPrimary,
                             tonalElevation = 10.dp,
                             shadowElevation = 10.dp,
                             modifier = Modifier
@@ -525,7 +522,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                     Icons.Filled.Mic,
                                     contentDescription = "Voice Player ID",
                                     modifier = Modifier.size(micIconSize),
-                                    tint = onTeamPrimary
+                                    tint = Color.White
                                 )
                             }
                         }
@@ -534,7 +531,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
 
                         Text(
                             text = if (isListening) "Listening..." else "Tap to Speak",
-                            color = teamPrimary.copy(alpha = 0.8f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
@@ -553,18 +550,12 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Can't find by voice?",
-                            color = teamPrimary.copy(alpha = 0.85f),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
                         TextButton(
                             onClick = { showManualRoster = !showManualRoster },
-                            colors = ButtonDefaults.textButtonColors(contentColor = teamPrimary)
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Text(if (showManualRoster) "Hide" else "Browse the Lineup")
                             Icon(
@@ -685,14 +676,9 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                     items(filteredRoster, key = { it.id }) { player ->
                                         Surface(
                                             shape = RoundedCornerShape(12.dp),
-                                            color = teamSecondary.copy(alpha = 0.18f),
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clickable {
-                                                    showManualRoster = false
-                                                    rosterQuery = ""
-                                                    viewModel.processVoiceCommand(player.number)
-                                                }
                                         ) {
                                             Row(
                                                 modifier = Modifier
@@ -706,7 +692,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                                 ) {
                                                     Text(
                                                         text = "#${player.number}",
-                                                        color = teamPrimary,
+                                                        color = MaterialTheme.colorScheme.primary,
                                                         fontWeight = FontWeight.Bold,
                                                         style = MaterialTheme.typography.titleMedium,
                                                         maxLines = 1
@@ -743,7 +729,13 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
 
         val successResult = voiceResult as? com.playerid.app.viewmodels.VoiceAssistantResult.Success
         val errorResult = voiceResult as? com.playerid.app.viewmodels.VoiceAssistantResult.Error
-        val successPlayer = successResult?.player
+        val successPlayers = when {
+            successResult == null -> emptyList()
+            successResult.players.isNotEmpty() -> successResult.players
+            successResult.player != null -> listOf(successResult.player)
+            else -> emptyList()
+        }
+        val successPlayer = successPlayers.singleOrNull()
 
         LaunchedEffect(voiceResult) {
             if (voiceResult is com.playerid.app.viewmodels.VoiceAssistantResult.Error) {
@@ -769,7 +761,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                     shadowElevation = 10.dp,
                     border = BorderStroke(
                         width = 2.dp,
-                        color = if (errorResult != null) Color(0xFFFF9800) else teamPrimary
+                        color = if (errorResult != null) Color(0xFFFF9800) else MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -791,7 +783,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                 ) {
                                     Text(
                                         text = "#${successPlayer.number}",
-                                        color = teamPrimary,
+                                        color = MaterialTheme.colorScheme.primary,
                                         fontSize = 46.sp,
                                         lineHeight = 46.sp,
                                         fontWeight = FontWeight.ExtraBold
@@ -826,6 +818,45 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                                     }
                                 }
                             }
+                        } else if (successPlayers.isNotEmpty()) {
+                            Text(
+                                text = successResult?.message ?: "Multiple matches found",
+                                color = Color(0xFF263238),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            successPlayers.forEach { player ->
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                                        Text(
+                                            text = "#${player.number} ${player.name}",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Position: ${player.position}",
+                                            color = Color(0xFF455A64),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        if (!player.academicYear.isNullOrBlank()) {
+                                            Text(
+                                                text = "Year: ${player.academicYear}",
+                                                color = Color(0xFF607D8B),
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         } else {
                             if (errorResult != null) {
                                 Text(
@@ -856,7 +887,7 @@ fun PlayerIDVoiceScreen(viewModel: PlayerViewModel, teamViewModel: TeamViewModel
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = teamPrimary.copy(alpha = 0.85f),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                         tonalElevation = 8.dp,
                         modifier = Modifier.size((160 * pulse.value).dp)
                     ) {

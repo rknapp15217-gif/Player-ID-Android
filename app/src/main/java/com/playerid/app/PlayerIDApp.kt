@@ -21,8 +21,10 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier // Keep only one import
 import androidx.compose.foundation.background
@@ -56,8 +58,6 @@ fun PlayerIDApp() {
     val navController = rememberNavController()
     val playerViewModel: PlayerViewModel = viewModel()
     val teamViewModel: TeamViewModel = viewModel()
-    val selectedTeamByPlayerVm by playerViewModel.selectedTeam.collectAsState()
-    val selectedTeamByTeamVm by teamViewModel.selectedTeam.collectAsState()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: "camera"
     val navItems = listOf(
@@ -70,17 +70,15 @@ fun PlayerIDApp() {
     val selectedIndex = navItems.indexOfFirst { routeItem ->
         currentRoute == routeItem.route || currentRoute.startsWith("${routeItem.route}/")
     }.coerceAtLeast(0)
+    var previousRoute by remember { mutableStateOf(currentRoute) }
+    var cameraHandoffToken by remember { mutableStateOf(0) }
 
-    LaunchedEffect(selectedTeamByTeamVm, selectedTeamByPlayerVm) {
-        when {
-            !selectedTeamByTeamVm.isNullOrBlank() && selectedTeamByPlayerVm != selectedTeamByTeamVm -> {
-                playerViewModel.setSelectedTeam(selectedTeamByTeamVm)
-            }
-            selectedTeamByTeamVm.isNullOrBlank() && !selectedTeamByPlayerVm.isNullOrBlank() -> {
-                val fallbackTeam = selectedTeamByPlayerVm ?: return@LaunchedEffect
-                teamViewModel.selectTeam(fallbackTeam)
-            }
+    // Camera is master only when leaving Camera to any other screen.
+    LaunchedEffect(currentRoute) {
+        if (previousRoute == "camera" && currentRoute != "camera") {
+            cameraHandoffToken += 1
         }
+        previousRoute = currentRoute
     }
 
     CompositionLocalProvider(
@@ -105,13 +103,15 @@ fun PlayerIDApp() {
                         composable("playeridvoice") {
                             PlayerIDVoiceScreen(
                                 viewModel = playerViewModel,
-                                teamViewModel = teamViewModel
+                                teamViewModel = teamViewModel,
+                                cameraHandoffToken = cameraHandoffToken
                             )
                         }
                         composable("teams") {
                             TeamScreen(
                                 teamViewModel = teamViewModel,
                                 playerViewModel = playerViewModel,
+                                cameraHandoffToken = cameraHandoffToken,
                                 onNavigateToWebImport = { teamName ->
                                     navController.navigate("webRosterImport/${Uri.encode(teamName)}")
                                 },
@@ -124,6 +124,7 @@ fun PlayerIDApp() {
                             ClipsScreen(
                                 playerViewModel = playerViewModel,
                                 teamViewModel = teamViewModel,
+                                cameraHandoffToken = cameraHandoffToken,
                                 onNavigateToTeams = { navController.navigate("teams") }
                             )
                         }

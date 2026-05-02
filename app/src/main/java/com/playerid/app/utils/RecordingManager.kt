@@ -31,6 +31,10 @@ class RecordingManager(private val context: Context) {
         this.videoCapture = videoCapture
     }
 
+    fun setTargetRotation(rotation: Int) {
+        videoCapture?.targetRotation = rotation
+    }
+
     fun getLastRecordingStartTimeMs(): Long {
         return lastRecordingStartTimeMs
     }

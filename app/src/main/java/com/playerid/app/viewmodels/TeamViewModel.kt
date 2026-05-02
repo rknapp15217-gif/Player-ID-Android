@@ -99,7 +99,7 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun restoreLastSelectedTeamIfAvailable() {
         if (_selectedTeam.value != null) return
-        val lastTeam = prefs.getString(KEY_LAST_SELECTED_TEAM, null) ?: return
+        val lastTeam = prefs.getString(KEY_LAST_SELECTED_TEAM, null) ?: "North Allegheny Lacrosse"
         val team = teamDao.getTeamByName(lastTeam)
         if (team != null) {
             selectTeam(lastTeam)
@@ -136,7 +136,10 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
                         id = UUID.randomUUID().toString(),
                         name = "North Allegheny Lacrosse",
                         description = "High school varsity lacrosse - Spring season",
-                        color = "#1976D2",
+                        color = "#000000",
+                        awayColor = "#FFB81C",
+                        homeJerseyColor = "#000000",
+                        awayJerseyColor = "#FFFFFF",
                         createdBy = "Coach_Thompson"
                     ),
                     Team(
@@ -217,9 +220,9 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
                 loadAllTeamNames()
                 loadSubscribedTeams()
 
-                // Auto-select Ryan's Team for immediate testing
-                selectTeam("Ryan's Team")
-                println("TeamViewModel: Initialized ${defaultTeams.size} default teams and selected Ryan's Team")
+                // Auto-select North Allegheny Lacrosse for immediate testing
+                selectTeam("North Allegheny Lacrosse")
+                println("TeamViewModel: Initialized ${defaultTeams.size} default teams and selected North Allegheny Lacrosse")
             }
 
             // ALWAYS ensure Ryan's Team exists, regardless of other teams
@@ -240,14 +243,25 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
                     teamName = "Ryan's Team"
                 )
                 subscriptionDao.subscribeToTeam(subscription)
-
-                // Select Ryan's Team
-                selectTeam("Ryan's Team")
-                println("TeamViewModel: Added and selected Ryan's Team")
+                println("TeamViewModel: Added Ryan's Team")
             } else {
-                // Ryan's Team exists, just select it
-                selectTeam("Ryan's Team")
-                println("TeamViewModel: Found existing Ryan's Team, selected it")
+                println("TeamViewModel: Found existing Ryan's Team")
+            }
+
+            // Keep North Allegheny colors aligned with team branding (black + gold).
+            val northAllegheny = teamDao.getTeamByName("North Allegheny Lacrosse")
+            if (northAllegheny != null) {
+                val brandedNorthAllegheny = northAllegheny.copy(
+                    color = "#000000",
+                    awayColor = "#FFB81C",
+                    homeJerseyColor = "#000000",
+                    awayJerseyColor = "#FFFFFF",
+                    updatedAt = System.currentTimeMillis()
+                )
+                if (northAllegheny != brandedNorthAllegheny) {
+                    teamDao.updateTeam(brandedNorthAllegheny)
+                    println("TeamViewModel: Updated North Allegheny colors to black/gold branding")
+                }
             }
 
             // ALWAYS ensure Ryan's Team subscription exists (in case it was lost)
