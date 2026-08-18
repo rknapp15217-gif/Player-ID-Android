@@ -1,5 +1,6 @@
 package com.playerid.app.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -10,12 +11,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.playerid.app.BuildConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     teamViewModel: com.playerid.app.viewmodels.TeamViewModel? = null,
-    playerViewModel: com.playerid.app.viewmodels.PlayerViewModel? = null
+    playerViewModel: com.playerid.app.viewmodels.PlayerViewModel? = null,
+    onNavigateToPlayers: () -> Unit = {},
+    onNavigateToAdmin: () -> Unit = {},
+    onNavigateToReferral: () -> Unit = {},
+    onNavigateToDesignSystem: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -164,6 +170,35 @@ fun SettingsScreen(
                 onClick = { /* TODO */ }
             )
         }
+
+        SettingsSection(title = "Tools") {
+            SettingsItem(
+                title = "Players",
+                subtitle = "Browse all players",
+                icon = Icons.Default.People,
+                onClick = onNavigateToPlayers
+            )
+            SettingsItem(
+                title = "Admin",
+                subtitle = "Open administrator tools",
+                icon = Icons.Default.AdminPanelSettings,
+                onClick = onNavigateToAdmin
+            )
+            SettingsItem(
+                title = "Referral",
+                subtitle = "Open referral and rewards screen",
+                icon = Icons.Default.CardGiftcard,
+                onClick = onNavigateToReferral
+            )
+            if (BuildConfig.DEBUG) {
+                SettingsItem(
+                    title = "AI Design Explorer",
+                    subtitle = "Generate and validate Compose UI with ChatGPT",
+                    icon = Icons.Default.AutoFixHigh,
+                    onClick = onNavigateToDesignSystem
+                )
+            }
+        }
         
         Spacer(modifier = Modifier.height(32.dp))
         
@@ -230,6 +265,7 @@ fun SettingsItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

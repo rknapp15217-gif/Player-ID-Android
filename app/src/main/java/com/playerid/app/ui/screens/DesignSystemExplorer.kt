@@ -27,31 +27,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.playerid.app.ui.ai.DesignSystemAnalyzer
-import com.playerid.app.ui.ai.DesignValidator
-import com.playerid.app.ui.ai.OpenAIClient
-import com.playerid.app.ui.ai.UIDesignGenerator
-import kotlinx.coroutines.launch
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.playerid.app.viewmodels.DesignSystemExplorerViewModel
 
 @Composable
 fun DesignSystemExplorer() {
-    val analyzer = remember { DesignSystemAnalyzer() }
-    val validator = remember { DesignValidator() }
-    val generator = remember { UIDesignGenerator(OpenAIClient()) }
-    val scope = rememberCoroutineScope()
-
-    var requirements by remember { mutableStateOf("Create a player profile screen with stats and recent clips") }
-    var generatedCode by remember { mutableStateOf("") }
-    var analysisSummary by remember { mutableStateOf("") }
-    var validationSummary by remember { mutableStateOf("") }
-    var isGenerating by remember { mutableStateOf(false) }
+    val factory = remember { DesignSystemExplorerViewModel.Factory() }
+    val viewModel: DesignSystemExplorerViewModel = viewModel(factory = factory)
+    val state by viewModel.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -72,77 +60,47 @@ fun DesignSystemExplorer() {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("New Screen Requirements", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(
-                        value = requirements,
-                        onValueChange = { requirements = it },
+                        value = state.requirements,
+                        onValueChange = viewModel::updateRequirements,
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
-                            val snapshot = analyzer.defaultSnapshot()
-                            analysisSummary = buildString {
-                                appendLine("Colors: ${snapshot.colorTokens.joinToString()}")
-                                appendLine("Typography: ${snapshot.typographyTokens.joinToString()}")
-                                appendLine("Components: ${snapshot.spotrComponents.joinToString()}")
-                            }
-                        }) {
+                        Button(onClick = viewModel::analyzeDesignSystem) {
                             Icon(Icons.Default.Insights, contentDescription = "Analyze")
                             Spacer(Modifier.width(6.dp))
                             Text("Analyze Design System")
                         }
                         Button(
-                            enabled = !isGenerating,
-                            onClick = {
-                                isGenerating = true
-                                scope.launch {
-                                    val result = generator.generateComposeScreen(requirements)
-                                    generatedCode = result.fold(
-                                        onSuccess = { it.composeCode },
-                                        onFailure = { "Generation failed: ${it.message}" }
-                                    )
-                                    isGenerating = false
-                                }
-                            }
+                            enabled = !state.isGenerating,
+                            onClick = viewModel::generateUi
                         ) {
                             Icon(Icons.Default.AutoFixHigh, contentDescription = "Generate")
                             Spacer(Modifier.width(6.dp))
                             Text("Generate UI")
                         }
                     }
-                    if (isGenerating) {
+                    if (state.isGenerating) {
                         CircularProgressIndicator(strokeWidth = 2.dp)
                     }
                 }
             }
 
-            if (analysisSummary.isNotBlank()) {
-                SectionCard(title = "Design Snapshot", content = analysisSummary)
+            if (state.analysisSummary.isNotBlank()) {
+                SectionCard(title = "Design Snapshot", content = state.analysisSummary)
             }
 
-            if (generatedCode.isNotBlank()) {
-                SectionCard(title = "Generated Compose Code", content = generatedCode)
-                Button(onClick = {
-                    val result = validator.validate(generatedCode, analyzer.defaultSnapshot())
-                    validationSummary = buildString {
-                        appendLine("Valid: ${result.isValid}")
-                        if (result.warnings.isNotEmpty()) {
-                            appendLine("Warnings:")
-                            result.warnings.forEach { appendLine("• $it") }
-                        }
-                        if (result.suggestions.isNotEmpty()) {
-                            appendLine("Suggestions:")
-                            result.suggestions.forEach { appendLine("• $it") }
-                        }
-                    }
-                }) {
+            if (state.generatedCode.isNotBlank()) {
+                SectionCard(title = "Generated Compose Code", content = state.generatedCode)
+                Button(onClick = viewModel::validateGeneratedUi) {
                     Icon(Icons.Default.CheckCircle, contentDescription = "Validate")
                     Spacer(Modifier.width(6.dp))
                     Text("Run Design Validation")
                 }
             }
 
-            if (validationSummary.isNotBlank()) {
-                SectionCard(title = "Validation Output", content = validationSummary)
+            if (state.validationSummary.isNotBlank()) {
+                SectionCard(title = "Validation Output", content = state.validationSummary)
             }
         }
     }

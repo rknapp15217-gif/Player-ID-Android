@@ -33,7 +33,7 @@ class DesignValidator {
     }
 
     private companion object {
-        val HEX_COLOR_REGEX = Regex("""0x[0-9A-Fa-f]{6,8}""")
+        val HEX_COLOR_REGEX = Regex("""Color\(0[xX][0-9A-Fa-f]{8}\)""")
     }
 }
 

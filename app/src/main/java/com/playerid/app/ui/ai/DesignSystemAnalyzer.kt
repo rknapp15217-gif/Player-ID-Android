@@ -57,7 +57,10 @@ class DesignSystemAnalyzer {
     )
 
     private companion object {
-        val COLOR_TOKEN_REGEX = Regex("""val\s+([A-Za-z0-9_]+)\s*=\s*Color\(""")
+        val COLOR_TOKEN_REGEX = Regex(
+            pattern = """^\s*val\s+([A-Z][A-Za-z0-9_]+)\s*=\s*Color\(""",
+            option = RegexOption.MULTILINE
+        )
         val TYPE_TOKEN_REGEX = Regex("""([A-Za-z]+)\s*=\s*TextStyle\(""")
         val COMPONENT_REGEX = Regex("""fun\s+(Spotr[A-Za-z0-9_]+)\(""")
     }

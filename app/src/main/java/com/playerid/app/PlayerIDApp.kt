@@ -186,16 +186,15 @@ fun PlayerIDApp() {
         if (granted) startListening()
     }
 
-    val navItems = listOf(
-        BottomNavItem("Camera", Icons.Default.PhotoCamera, "camera"),
-        BottomNavItem("Validate", Icons.Default.CloudDownload, "validate"),
-        BottomNavItem("My Team", Icons.Default.Groups, "team"),
-        BottomNavItem("Settings", Icons.Default.Settings, "settings"),
-        BottomNavItem("Players", Icons.Default.People, "players"),
-        BottomNavItem("Admin", Icons.Default.AdminPanelSettings, "admin"),
-        BottomNavItem("Referral", Icons.Default.CardGiftcard, "referral"),
-        BottomNavItem("AI Design", Icons.Default.AutoFixHigh, "design_system")
-    )
+    val navItems = buildList {
+        add(BottomNavItem("Camera", Icons.Default.PhotoCamera, "camera"))
+        add(BottomNavItem("Validate", Icons.Default.CloudDownload, "validate"))
+        add(BottomNavItem("My Team", Icons.Default.Groups, "team"))
+        add(BottomNavItem("Settings", Icons.Default.Settings, "settings"))
+        if (BuildConfig.DEBUG) {
+            add(BottomNavItem("AI Design", Icons.Default.AutoFixHigh, "design_system"))
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -561,7 +560,11 @@ fun PlayerIDApp() {
                     composable("settings") {
                         SettingsScreen(
                             teamViewModel = teamViewModel,
-                            playerViewModel = playerViewModel
+                            playerViewModel = playerViewModel,
+                            onNavigateToPlayers = { navController.navigate("players") },
+                            onNavigateToAdmin = { navController.navigate("admin") },
+                            onNavigateToReferral = { navController.navigate("referral") },
+                            onNavigateToDesignSystem = { navController.navigate("design_system") }
                         )
                     }
                     composable("players") {

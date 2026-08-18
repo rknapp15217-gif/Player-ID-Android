@@ -22,6 +22,12 @@ class OpenAIClient(
         temperature: Double = 0.2,
         maxTokens: Int = 1200
     ): Result<String> = withContext(Dispatchers.IO) {
+        if (!BuildConfig.DEBUG) {
+            return@withContext Result.failure(
+                IllegalStateException("OpenAI client is debug-only. Use a backend proxy for release builds.")
+            )
+        }
+
         val apiKey = apiKeyProvider().trim()
         if (apiKey.isBlank()) {
             return@withContext Result.failure(IllegalStateException("OpenAI API key is missing"))
@@ -61,9 +67,10 @@ class OpenAIClient(
     }
 
     private companion object {
-        val JSON = "application/json; charset=utf-8".toMediaType()
+        private val JSON = "application/json; charset=utf-8".toMediaType()
+        private const val BEARER_PREFIX = "Bearer "
 
-        fun authHeader(apiKey: String): String = "B" + "earer " + apiKey
+        fun authHeader(apiKey: String): String = BEARER_PREFIX + apiKey
     }
 }
 
