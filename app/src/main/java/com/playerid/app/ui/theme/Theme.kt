@@ -27,12 +27,12 @@ private val DarkColorScheme = darkColorScheme(
     onBackground = Color.White,
     surface = SpotrSurfaceDark,
     onSurface = Color.White,
-    surfaceVariant = Color(0xFF1F2937),
-    onSurfaceVariant = Color(0xFFE5E7EB),
+    surfaceVariant = Color(0xFF1B344D),
+    onSurfaceVariant = Color(0xFFB8C7D9),
     error = ErrorRed,
     onError = Color.White,
     outline = SpotrOutlineDark,
-    outlineVariant = Color(0xFF1F2937)
+    outlineVariant = Color(0xFF29445F)
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -46,12 +46,12 @@ private val LightColorScheme = lightColorScheme(
     onBackground = SpotrText,
     surface = SpotrSurfaceLight,
     onSurface = SpotrText,
-    surfaceVariant = Color(0xFFEFF1F5),
-    onSurfaceVariant = Color(0xFF4B5563),
+    surfaceVariant = Color(0xFFE8F0F5),
+    onSurfaceVariant = Color(0xFF526477),
     error = ErrorRed,
     onError = Color.White,
     outline = SpotrOutline,
-    outlineVariant = Color(0xFFEAECEF)
+    outlineVariant = Color(0xFFE1EAF0)
 )
 
 @Composable

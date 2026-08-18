@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -11,6 +12,7 @@ import androidx.compose.ui.Modifier
 import com.playerid.app.data.teamsnap.TeamSnapAuthCallback
 import com.playerid.app.ui.theme.PlayerIDTheme
 import com.playerid.app.PlayerIDApp
+import com.playerid.app.utils.MediaPermissionHelper
 
 class MainActivity : ComponentActivity() {
     
@@ -19,10 +21,26 @@ class MainActivity : ComponentActivity() {
             android.util.Log.e("MainActivity", "🔥 STATIC BLOCK: MainActivity class loaded!")
         }
     }
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.all { it.value }
+        android.util.Log.i("MainActivity", "📸 Media permissions result: $permissions, all granted: $allGranted")
+        if (allGranted) {
+            AppNavigationCallback.permissionsGranted()
+        }
+    }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         android.util.Log.i("MainActivity", "🚀 MainActivity.onCreate() started")
         super.onCreate(savedInstanceState)
+        
+        // Request media permissions if needed
+        if (!MediaPermissionHelper.hasMediaPermissions(this)) {
+            android.util.Log.i("MainActivity", "📸 Requesting media permissions...")
+            MediaPermissionHelper.requestMediaPermissions(this, permissionLauncher)
+        }
         
         // Handle OAuth redirect
         intent?.data?.let { uri ->

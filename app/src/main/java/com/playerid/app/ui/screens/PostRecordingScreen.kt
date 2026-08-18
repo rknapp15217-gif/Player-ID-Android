@@ -188,6 +188,29 @@ fun PostRecordingScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             MomentTagButton(
+                                tag = MomentTag.SAVE,
+                                isSelected = selectedTag == MomentTag.SAVE,
+                                onClick = {
+                                    selectedTag = MomentTag.SAVE
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            MomentTagButton(
+                                tag = MomentTag.FACEOFF_WIN,
+                                isSelected = selectedTag == MomentTag.FACEOFF_WIN,
+                                onClick = {
+                                    selectedTag = MomentTag.FACEOFF_WIN
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            MomentTagButton(
                                 tag = MomentTag.ASSIST,
                                 isSelected = selectedTag == MomentTag.ASSIST,
                                 onClick = {
@@ -202,23 +225,15 @@ fun PostRecordingScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             MomentTagButton(
-                                tag = MomentTag.SAVE,
-                                isSelected = selectedTag == MomentTag.SAVE,
+                                tag = MomentTag.DEFENSIVE_STOP,
+                                isSelected = selectedTag == MomentTag.DEFENSIVE_STOP,
                                 onClick = {
-                                    selectedTag = MomentTag.SAVE
+                                    selectedTag = MomentTag.DEFENSIVE_STOP
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
                                 modifier = Modifier.weight(1f)
                             )
-                            MomentTagButton(
-                                tag = MomentTag.BIG_PLAY,
-                                isSelected = selectedTag == MomentTag.BIG_PLAY,
-                                onClick = {
-                                    selectedTag = MomentTag.BIG_PLAY
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
+                            Spacer(modifier = Modifier.weight(1f))
                         }
                     }
                 }
@@ -386,8 +401,9 @@ enum class MomentTag(
     val emoji: String,
     val overlayText: String
 ) {
-    GOAL("Goal", "⚽", "GOAL"),
-    ASSIST("Assist", "🎯", "ASSIST"),
+    GOAL("Goal", "🥍", "GOAL"),
     SAVE("Save", "🧤", "SAVE"),
-    BIG_PLAY("Big Play", "⭐", "BIG PLAY")
+    FACEOFF_WIN("Faceoff Win", "🏁", "FACEOFF WIN"),
+    ASSIST("Assist", "🎯", "ASSIST"),
+    DEFENSIVE_STOP("Defensive Stop", "🛡️", "DEFENSIVE STOP")
 }

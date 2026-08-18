@@ -13,6 +13,9 @@ interface PlayerDao {
     
     @Query("SELECT * FROM players WHERE team = :teamName AND isActive = 1")
     fun getPlayersByTeam(teamName: String): Flow<List<Player>>
+
+    @Query("SELECT * FROM players WHERE team = :teamName AND isActive = 1")
+    suspend fun getPlayersByTeamSnapshot(teamName: String): List<Player>
     
     @Query("SELECT * FROM players WHERE number = :number AND team = :team AND isActive = 1 LIMIT 1")
     suspend fun getPlayerByNumber(number: String, team: String): Player?

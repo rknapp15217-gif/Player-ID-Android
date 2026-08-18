@@ -105,8 +105,15 @@ class RecordingManager(private val context: Context) {
             activeRecording = null
             
             // Only call the finish callback if we AREN'T ignoring this result
-            if (!ignoreNextResult) {
-                onFinished(uri)
+            val shouldInvokeCallback = !ignoreNextResult
+            Log.d("RecordingManager", "Finalize callback decision: shouldInvokeCallback=$shouldInvokeCallback ignoreNextResult=$ignoreNextResult uri=$uri")
+            if (shouldInvokeCallback) {
+                try {
+                    onFinished(uri)
+                    Log.d("RecordingManager", "onFinished invoked successfully for uri=$uri")
+                } catch (e: Exception) {
+                    Log.e("RecordingManager", "onFinished threw for uri=$uri", e)
+                }
             } else {
                 deleteOutputUri(uri)
                 Log.d("RecordingManager", "Recording discarded and deleted to free mic.")

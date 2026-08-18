@@ -20,6 +20,12 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     private val subscriptionDao = database.userTeamSubscriptionDao()
     private val prefs = application.getSharedPreferences("team_selection", Context.MODE_PRIVATE)
 
+    private val _kidOptions = MutableStateFlow(listOf("Tyson", "Brooklyn"))
+    val kidOptions: StateFlow<List<String>> = _kidOptions.asStateFlow()
+
+    private val _selectedKid = MutableStateFlow(DEFAULT_KID_NAME)
+    val selectedKid: StateFlow<String> = _selectedKid.asStateFlow()
+
     private val _selectedTeam = MutableStateFlow<String?>(null)
     val selectedTeam: StateFlow<String?> = _selectedTeam.asStateFlow()
 
@@ -291,14 +297,68 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     fun selectTeam(teamName: String) {
         _selectedTeam.value = teamName
         _isTeamSelected.value = true
+        _selectedKid.value = getSelectedKidForTeam(teamName)
         prefs.edit().putString(KEY_LAST_SELECTED_TEAM, teamName).apply()
     }
 
     fun clearTeamSelection() {
         _selectedTeam.value = null
         _isTeamSelected.value = false
+        _selectedKid.value = DEFAULT_KID_NAME
         _learnedTeamColor.value = null
         prefs.edit().remove(KEY_LAST_SELECTED_TEAM).apply()
+    }
+
+    fun getAssignedKidForTeam(teamName: String?): String? {
+        val normalizedTeam = teamName?.trim().orEmpty()
+        if (normalizedTeam.isEmpty()) return null
+        val kid = prefs.getString(KEY_ASSIGNED_KID_PREFIX + normalizedTeam.lowercase(), null)
+        return kid?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun assignKidToTeam(teamName: String, kidName: String) {
+        val normalizedTeam = teamName.trim()
+        if (normalizedTeam.isEmpty()) return
+        val normalizedKid = normalizeKidName(kidName)
+        prefs.edit()
+            .putString(KEY_ASSIGNED_KID_PREFIX + normalizedTeam.lowercase(), normalizedKid)
+            .apply()
+        if (_selectedTeam.value == normalizedTeam) {
+            _selectedKid.value = normalizedKid
+        }
+    }
+
+    fun getSelectedKidForTeam(teamName: String?): String {
+        val normalizedTeam = teamName?.trim().orEmpty()
+        if (normalizedTeam.isEmpty()) return DEFAULT_KID_NAME
+        val teamKey = normalizedTeam.lowercase()
+        val explicitlySelected = prefs.getString(KEY_SELECTED_KID_PREFIX + teamKey, null)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        if (explicitlySelected != null) {
+            return normalizeKidName(explicitlySelected)
+        }
+        val assigned = prefs.getString(KEY_ASSIGNED_KID_PREFIX + teamKey, null)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        return normalizeKidName(assigned)
+    }
+
+    fun selectKidForTeam(teamName: String?, kidName: String) {
+        val normalizedKid = normalizeKidName(kidName)
+        val normalizedTeam = teamName?.trim().orEmpty()
+        if (normalizedTeam.isNotEmpty()) {
+            prefs.edit()
+                .putString(KEY_SELECTED_KID_PREFIX + normalizedTeam.lowercase(), normalizedKid)
+                .apply()
+        }
+        _selectedKid.value = normalizedKid
+    }
+
+    private fun normalizeKidName(kidName: String?): String {
+        val requested = kidName?.trim().orEmpty()
+        val canonical = _kidOptions.value.firstOrNull { it.equals(requested, ignoreCase = true) }
+        return canonical ?: DEFAULT_KID_NAME
     }
 
     fun learnTeamColor(color: String, teamName: String) {
@@ -481,5 +541,8 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val KEY_LAST_SELECTED_TEAM = "last_selected_team"
+        private const val KEY_ASSIGNED_KID_PREFIX = "assigned_kid_"
+        private const val KEY_SELECTED_KID_PREFIX = "selected_kid_"
+        private const val DEFAULT_KID_NAME = "Tyson"
     }
 }

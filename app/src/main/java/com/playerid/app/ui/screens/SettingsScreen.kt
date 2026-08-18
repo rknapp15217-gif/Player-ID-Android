@@ -1,8 +1,12 @@
 package com.playerid.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -14,15 +18,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.playerid.app.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     teamViewModel: com.playerid.app.viewmodels.TeamViewModel? = null,
     playerViewModel: com.playerid.app.viewmodels.PlayerViewModel? = null,
-    onNavigateToReferral: () -> Unit = {}
+    onNavigateToReferral: () -> Unit = {},
+    onNavigateBack: () -> Unit = {}
 ) {
+    BackHandler(enabled = true) {
+        onNavigateBack()
+    }
     val selectedTeamName by (teamViewModel?.selectedTeam?.collectAsState() ?: remember { mutableStateOf(null) })
     val subscribedTeams by (teamViewModel?.subscribedTeams?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
     val selectedTeam = remember(subscribedTeams, selectedTeamName) {
@@ -34,7 +44,8 @@ fun SettingsScreen(
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .heightIn(max = 760.dp)
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
@@ -46,12 +57,19 @@ fun SettingsScreen(
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Text(
-            text = "⚙️ Settings",
-            style = MaterialTheme.typography.headlineMedium,
-            color = teamPrimary,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 16.dp)
+        ) {
+            IconButton(onClick = onNavigateBack) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = teamPrimary)
+            }
+            Text(
+                text = stringResource(R.string.settings_title),
+                style = MaterialTheme.typography.headlineMedium,
+                color = teamPrimary
+            )
+        }
         
         // Camera Settings
         SettingsSection(
@@ -231,12 +249,12 @@ fun SettingsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "📱 Built with Android",
+                    text = stringResource(R.string.settings_built_with_android),
                     style = MaterialTheme.typography.titleMedium,
                     color = teamPrimary
                 )
                 Text(
-                    text = "Using ARCore, ML Kit, CameraX, and Jetpack Compose",
+                    text = stringResource(R.string.settings_stack_summary),
                     style = MaterialTheme.typography.bodySmall,
                     color = onTeamPrimary.copy(alpha = 0.7f)
                 )
@@ -315,7 +333,7 @@ fun SettingsItem(
         
         Icon(
             imageVector = Icons.Default.ChevronRight,
-            contentDescription = "Open",
+            contentDescription = stringResource(R.string.open),
             tint = teamPrimary.copy(alpha = 0.75f)
         )
     }

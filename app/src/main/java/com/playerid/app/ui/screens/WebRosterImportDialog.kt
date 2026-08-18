@@ -33,6 +33,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.RadioButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,9 +88,21 @@ fun WebRosterImportScreen(
     var tableOptions by remember { mutableStateOf<List<TableRoster>>(emptyList()) }
     var showTablePicker by remember { mutableStateOf(false) }
     var tableSelection by remember { mutableStateOf(-1) }
+    var showConfirmation by remember { mutableStateOf(false) }
+    var showOverwriteWarning by remember { mutableStateOf(false) }
+    var importedCount by remember { mutableStateOf(0) }
+    var importedCandidates by remember { mutableStateOf<List<RosterCandidate>>(emptyList()) }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+
+    LaunchedEffect(showConfirmation, importedCandidates) {
+        if (showConfirmation && importedCandidates.isNotEmpty()) {
+            delay(1400)
+            onImport(importedCandidates)
+            showConfirmation = false
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -387,7 +400,7 @@ fun WebRosterImportScreen(
                                 isProcessing = false
                             }
                         },
-                        enabled = !isProcessing
+                        enabled = !isProcessing && !showConfirmation
                     ) {
                         Text("Capture")
                     }
@@ -395,16 +408,81 @@ fun WebRosterImportScreen(
                     TextButton(
                         onClick = {
                             if (candidates.isNotEmpty()) {
-                                onImport(candidates)
+                                showOverwriteWarning = true
                             }
                         },
-                        enabled = candidates.isNotEmpty() && !isProcessing
+                        enabled = candidates.isNotEmpty() && !isProcessing && !showConfirmation && !showOverwriteWarning
                     ) {
                         Text("Import")
                     }
                 }
             }
         }
+    }
+
+    if (showOverwriteWarning) {
+        AlertDialog(
+            onDismissRequest = { showOverwriteWarning = false },
+            title = { Text("Overwrite Existing Roster?") },
+            text = {
+                Text(
+                    "Importing this roster will overwrite existing roster data for $teamName. Continue?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        importedCandidates = candidates.toList()
+                        importedCount = importedCandidates.size
+                        showOverwriteWarning = false
+                        showConfirmation = true
+                    }
+                ) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOverwriteWarning = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showConfirmation) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Import Complete") },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "✅",
+                        style = MaterialTheme.typography.displaySmall
+                    )
+                    Text(
+                        "Successfully imported $importedCount players",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        "to team $teamName",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Closing...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {}
+        )
     }
 
     if (showTablePicker) {

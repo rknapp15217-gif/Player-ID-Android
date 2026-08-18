@@ -6,8 +6,18 @@ import androidx.room.RoomDatabase
 import android.content.Context
 
 @Database(
-    entities = [Player::class, Team::class, UserTeamSubscription::class, VideoDetectionResultEntity::class], 
-    version = 10,
+    entities = [
+        Player::class,
+        Team::class,
+        UserTeamSubscription::class,
+        VideoDetectionResultEntity::class,
+        ChildProfile::class,
+        SportSeason::class,
+        GameSchedule::class,
+        MemoryItem::class,
+        MediaIngestionState::class
+    ],
+    version = 11,
     exportSchema = false
 )
 abstract class PlayerDatabase : RoomDatabase() {
@@ -15,6 +25,7 @@ abstract class PlayerDatabase : RoomDatabase() {
     abstract fun teamDao(): TeamDao
     abstract fun userTeamSubscriptionDao(): UserTeamSubscriptionDao
     abstract fun videoDetectionResultDao(): VideoDetectionResultDao
+    abstract fun memoryOrganizationDao(): MemoryOrganizationDao
     
     companion object {
         @Volatile

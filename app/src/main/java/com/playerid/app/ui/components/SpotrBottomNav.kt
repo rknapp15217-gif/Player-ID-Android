@@ -12,11 +12,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.playerid.app.ui.theme.*
+
+private val CompactNavHeight = 64.dp
 
 @Composable
 fun SpotrBottomNavigationBar(
@@ -26,37 +26,21 @@ fun SpotrBottomNavigationBar(
 ) {
     NavigationBar(
         containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 3.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                        MaterialTheme.colorScheme.surface
-                    )
-                )
-            )
+            .height(CompactNavHeight)
     ) {
         items.forEachIndexed { index, item ->
             val isSelected = selectedIndex == index
             val scale by animateFloatAsState(
                 targetValue = if (isSelected) 1.1f else 1f,
-                animationSpec = tween(300),
+                animationSpec = tween(260),
                 label = "scale"
             )
             val iconColor by animateColorAsState(
-                targetValue = if (isSelected) {
-                    when (index) {
-                        0 -> SpotrPrimaryBlue
-                        1 -> SpotrSuccessGreen
-                        2 -> SpotrHighlightOrange
-                        3 -> SpotrPrimaryBlue
-                        else -> MaterialTheme.colorScheme.primary
-                    }
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                animationSpec = tween(300),
+                targetValue = if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                animationSpec = tween(260),
                 label = "iconColor"
             )
 
@@ -67,13 +51,12 @@ fun SpotrBottomNavigationBar(
                         contentAlignment = Alignment.Center
                     ) {
                         if (isSelected) {
-                            // Animated background for selected item
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(CircleShape)
                                     .background(
-                                        iconColor.copy(alpha = 0.15f)
+                                        iconColor.copy(alpha = 0.16f)
                                     )
                             )
                         }
@@ -81,17 +64,12 @@ fun SpotrBottomNavigationBar(
                             imageVector = item.icon,
                             contentDescription = item.label,
                             tint = iconColor,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(if (isSelected) 26.dp else 23.dp)
                         )
                     }
                 },
-                label = {
-                    Text(
-                        text = item.label,
-                        color = if (isSelected) iconColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                },
+                alwaysShowLabel = false,
+                label = null,
                 selected = isSelected,
                 onClick = { onItemSelected(index) },
                 colors = NavigationBarItemDefaults.colors(

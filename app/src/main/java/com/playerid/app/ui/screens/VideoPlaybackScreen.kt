@@ -4,8 +4,11 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.content.Intent
+import androidx.compose.ui.text.style.TextOverflow
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.MediaPlayer
+import android.media.MediaRecorder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -14,16 +17,21 @@ import android.provider.Telephony
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.widget.Toast
+import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.activity.compose.BackHandler
+import kotlin.math.abs
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -38,8 +46,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
@@ -65,6 +75,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
@@ -176,15 +187,40 @@ fun VideoPlaybackScreen(
     detectedPlayers: List<Player>,
     onNavigateBack: () -> Unit,
     playlistUris: List<Uri> = emptyList(), // For highlight reel mode
+    initialIndex: Int = 0,
     startInShareFlow: Boolean = false,
-    showPlaybackUi: Boolean = true
+    showPlaybackUi: Boolean = true,
+    isReviewMode: Boolean = false,
+    reelTitle: String? = null,
+    reelTeamName: String? = null,
+    reelSeasonLabel: String? = null,
+    reelOpponents: List<String> = emptyList(),
+    reelScenario: String? = null,
+    activeReelId: String? = null,
+    onSaveAsGoatReel: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var showSaveReelDialog by remember { mutableStateOf(false) }
+    var reelNameInput by remember(reelTitle) { mutableStateOf(reelTitle ?: "My Reel") }
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var videoDuration by remember { mutableLongStateOf(0L) }
-    var currentVideoIndex by remember { mutableIntStateOf(0) }
+    var currentVideoIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, maxOf(0, playlistUris.size - 1))) }
+    var transitionPulse by remember { mutableIntStateOf(0) }
+    var showClipTransitionOverlay by remember { mutableStateOf(false) }
+    var isTransitioning by remember { mutableStateOf(false) }
+    var showReplayOverlay by remember { mutableStateOf(false) }
+    val clipTransitionAlpha by animateFloatAsState(
+        targetValue = if (playlistUris.isNotEmpty() && showClipTransitionOverlay) 1f else 0f,
+        animationSpec = tween(durationMillis = 200, easing = LinearEasing),
+        label = "clipTransitionAlpha"
+    )
+    val clipTransitionScale by animateFloatAsState(
+        targetValue = if (playlistUris.isNotEmpty() && showClipTransitionOverlay) 0.97f else 1f,
+        animationSpec = tween(durationMillis = 150, easing = LinearEasing),
+        label = "clipTransitionScale"
+    )
     var playbackZoom by remember(videoUri, currentVideoIndex) { mutableFloatStateOf(1f) }
     var isSeeking by remember { mutableStateOf(false) }
     var seekFraction by remember { mutableFloatStateOf(0f) }
@@ -194,6 +230,7 @@ fun VideoPlaybackScreen(
     } else {
         videoUri
     }
+    val activeVoiceMemoryKey = activeScrubUri.toString()
     var scrubRetriever by remember { mutableStateOf<MediaMetadataRetriever?>(null) }
     var scrubPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var scrubPreviewRequestMs by remember { mutableLongStateOf(-1L) }
@@ -218,8 +255,155 @@ fun VideoPlaybackScreen(
         currentPosition
     }
     
-    val isPlaylistMode = playlistUris.isNotEmpty()
+    var composedReelPlaybackUri by remember(
+        playlistUris,
+        reelTitle,
+        reelTeamName,
+        reelOpponents,
+        reelScenario
+    ) {
+        mutableStateOf<Uri?>(null)
+    }
+    var isBuildingComposedReel by remember(playlistUris, reelTitle, reelTeamName, reelOpponents, reelScenario) {
+        mutableStateOf(false)
+    }
+    val isPlaylistMode = playlistUris.isNotEmpty() && composedReelPlaybackUri == null
     val totalVideos = if (isPlaylistMode) playlistUris.size else 1
+    val reelClipCountLabel = if (totalVideos == 1) "1 clip" else "$totalVideos clips"
+    var showReelIntroOverlay by remember(isPlaylistMode, reelTitle, reelSeasonLabel, reelOpponents, totalVideos) {
+        mutableStateOf(isPlaylistMode)
+    }
+    val reelIntroAlpha by animateFloatAsState(
+        targetValue = if (showReelIntroOverlay && isPlaylistMode) 1f else 0f,
+        animationSpec = tween(durationMillis = 320, easing = LinearEasing),
+        label = "reelIntroAlpha"
+    )
+    val reelOpponentsLabel = remember(reelOpponents) {
+        when {
+            reelOpponents.isEmpty() -> "Opponents unavailable"
+            reelOpponents.size <= 3 -> reelOpponents.joinToString("  •  ")
+            else -> reelOpponents.take(3).joinToString("  •  ") + "  +${reelOpponents.size - 3}"
+        }
+    }
+    val resolvedReelScenario = remember(reelScenario, reelTitle, reelOpponents) {
+        when {
+            reelScenario == "top_plays" -> "top_plays"
+            reelScenario == "opponent" -> "opponent"
+            reelScenario == "season" -> "season"
+            reelTitle?.contains("top play", ignoreCase = true) == true -> "top_plays"
+            reelTitle?.contains(" vs ", ignoreCase = true) == true || reelOpponents.size == 1 -> "opponent"
+            else -> "season"
+        }
+    }
+    val reelScenarioHeader = when (resolvedReelScenario) {
+        "top_plays" -> "2. TOP PLAYS REEL"
+        "opponent" -> "3. OPPONENT REEL"
+        else -> "1. SEASON REEL"
+    }
+    val reelScenarioSubheader = when (resolvedReelScenario) {
+        "top_plays" -> "Highlights the best moments"
+        "opponent" -> ""
+        else -> "Overview of the full season"
+    }
+    val primaryOpponent = reelOpponents.firstOrNull()?.trim().orEmpty()
+    val reelHeroLine = when (resolvedReelScenario) {
+        "top_plays" -> "TOP PLAYS"
+        "opponent" -> {
+            val firstOpponent = primaryOpponent.uppercase()
+            if (firstOpponent.isBlank()) "VS OPPONENT" else "VS $firstOpponent"
+        }
+        else -> {
+            val seasonLine = reelSeasonLabel?.trim().orEmpty()
+            if (seasonLine.isBlank()) "SEASON" else "$seasonLine  SEASON"
+        }
+    }
+    val reelOverlayGradient = when (resolvedReelScenario) {
+        "top_plays" -> listOf(Color(0xF00B0A07), Color(0xDDA67C08), Color(0xB312110F))
+        "opponent" -> listOf(Color(0xF006120A), Color(0xDD1E3A28), Color(0xAA08120E))
+        else -> listOf(Color(0xF0121418), Color(0xCC6F5B2B), Color(0xAA13161A))
+    }
+    val reelAccentColor = when (resolvedReelScenario) {
+        "top_plays" -> Color(0xFFFFC447)
+        "opponent" -> Color(0xFF80D38A)
+        else -> Color(0xFFFFD97A)
+    }
+    var preparedReelShareUri by remember(
+        playlistUris,
+        reelTitle,
+        reelTeamName,
+        reelOpponents,
+        reelScenario
+    ) {
+        mutableStateOf<Uri?>(null)
+    }
+
+    fun resolveShareUri(onResolved: (Uri) -> Unit) {
+        composedReelPlaybackUri?.let {
+            onResolved(it)
+            return
+        }
+
+        if (!isPlaylistMode) {
+            onResolved(videoUri)
+            return
+        }
+
+        preparedReelShareUri?.let {
+            onResolved(it)
+            return
+        }
+
+        scope.launch {
+            try {
+                Toast.makeText(context, "Preparing reel for sharing...", Toast.LENGTH_SHORT).show()
+                val scenario = when {
+                    reelScenario == "top_plays" -> "top_plays"
+                    reelScenario == "opponent" -> "opponent"
+                    reelScenario == "season" -> "season"
+                    reelTitle?.contains("top play", ignoreCase = true) == true -> "top_plays"
+                    reelTitle?.contains(" vs ", ignoreCase = true) == true || reelOpponents.size == 1 -> "opponent"
+                    else -> "season"
+                }
+
+                val sharedReelUri = buildShareableReelWithIntro(
+                    context = context,
+                    clipUris = playlistUris,
+                    reelTitle = reelTitle ?: "My Reel",
+                    teamName = reelTeamName,
+                    opponentName = reelOpponents.firstOrNull(),
+                    scenario = scenario
+                )
+
+                if (sharedReelUri != null) {
+                    preparedReelShareUri = sharedReelUri
+                    onResolved(sharedReelUri)
+                } else {
+                    Toast.makeText(
+                        context,
+                        "Unable to build reel video. Please try again.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } catch (e: Exception) {
+                Log.e("VideoPlaybackScreen", "Failed to prepare reel share URI", e)
+                Toast.makeText(
+                    context,
+                    "Unable to prepare sharing right now.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    LaunchedEffect(isPlaylistMode, isPlaying) {
+        if (!isPlaylistMode) {
+            showReelIntroOverlay = false
+            return@LaunchedEffect
+        }
+        if (isPlaying) {
+            showReelIntroOverlay = false
+        }
+    }
     
     var isAnalyzingPlayers by remember { mutableStateOf(false) }
     var analysisProgress by remember { mutableFloatStateOf(0f) }
@@ -244,9 +428,157 @@ fun VideoPlaybackScreen(
     var selectedHighlightTag by remember { mutableStateOf<String?>(null) }
     var teamShareMessage by remember { mutableStateOf("") }
     var showHighlightTags by remember { mutableStateOf(false) }
-    val detectionModeLabel = if (detectionMode == VideoProcessingManager.DetectionMode.FAST) "Fast" else "Slow"
+    var showPreviewActionsMenu by remember { mutableStateOf(false) }
+    var shareDialogUri by remember { mutableStateOf<Uri?>(null) }
+    var showSharePlayerList by remember { mutableStateOf(false) }
+    var suggestedSharePlayerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var isLoadingSuggestedPlayers by remember { mutableStateOf(false) }
+    var scanShareSuggestionsDone by remember { mutableStateOf(false) }
+    var showVoiceMemoryDialog by remember { mutableStateOf(false) }
+    var isRecordingVoiceMemory by remember { mutableStateOf(false) }
+    var isPlayingVoiceMemory by remember { mutableStateOf(false) }
+    var voiceMemoryStatus by remember { mutableStateOf<String?>(null) }
+    var activeVoiceMemoryPath by remember(activeVoiceMemoryKey) {
+        mutableStateOf(loadClipVoiceMemoryPath(context, activeVoiceMemoryKey))
+    }
+    val voiceMemoryActionLabel = if (activeVoiceMemoryPath.isNullOrBlank()) {
+        "Add Memory"
+    } else {
+        "Edit Memory"
+    }
+    var voiceMemoryRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var voiceMemoryPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     val selectedPlayersForShare = remember(detectedSharePlayers, selectedSharePlayerIds) {
         detectedSharePlayers.filter { selectedSharePlayerIds.contains(it.id) }
+    }
+    val voiceMemoryPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            showVoiceMemoryDialog = true
+            voiceMemoryStatus = null
+        } else {
+            voiceMemoryStatus = "Microphone permission is required to attach a voice memory."
+        }
+    }
+
+    LaunchedEffect(activeVoiceMemoryKey) {
+        if (consumeVoiceMemoryOpenRequest(context, activeVoiceMemoryKey)) {
+            val permissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (!permissionGranted) {
+                voiceMemoryPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            } else {
+                showVoiceMemoryDialog = true
+                voiceMemoryStatus = null
+            }
+        }
+    }
+
+    fun stopVoiceMemoryPlayback() {
+        voiceMemoryPlayer?.runCatching {
+            if (isPlaying) stop()
+            reset()
+            release()
+        }
+        voiceMemoryPlayer = null
+        isPlayingVoiceMemory = false
+    }
+
+    fun refreshVoiceMemoryPath() {
+        activeVoiceMemoryPath = loadClipVoiceMemoryPath(context, activeVoiceMemoryKey)
+    }
+
+    fun openVideoEditor(targetUri: Uri) {
+        val intent = Intent(Intent.ACTION_EDIT).apply {
+            setDataAndType(targetUri, "video/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "No video editor found", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun deleteVoiceMemory(path: String?) {
+        val existingPath = path ?: return
+        runCatching { File(existingPath).delete() }
+        clearClipVoiceMemoryPath(context, activeVoiceMemoryKey)
+        activeVoiceMemoryPath = null
+    }
+
+    fun stopVoiceMemoryRecording(saveRecording: Boolean) {
+        val recorder = voiceMemoryRecorder ?: return
+        val recordedPath = activeVoiceMemoryPath
+        runCatching { recorder.stop() }
+        runCatching { recorder.reset() }
+        runCatching { recorder.release() }
+        voiceMemoryRecorder = null
+        isRecordingVoiceMemory = false
+        if (!saveRecording) {
+            deleteVoiceMemory(recordedPath)
+            activeVoiceMemoryPath = null
+            voiceMemoryStatus = "Voice memory discarded"
+        } else if (!recordedPath.isNullOrBlank()) {
+            saveClipVoiceMemoryPath(context, activeVoiceMemoryKey, recordedPath)
+            activeVoiceMemoryPath = recordedPath
+            voiceMemoryStatus = "Voice memory attached"
+        }
+    }
+
+    fun startVoiceMemoryRecording() {
+        val permissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (!permissionGranted) {
+            voiceMemoryPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+
+        stopVoiceMemoryPlayback()
+        deleteVoiceMemory(activeVoiceMemoryPath)
+        val outputFile = createVoiceMemoryFile(context, activeVoiceMemoryKey)
+        val recorder = buildVoiceMemoryRecorder(context, outputFile)
+        try {
+            recorder.prepare()
+            recorder.start()
+            voiceMemoryRecorder = recorder
+            activeVoiceMemoryPath = outputFile.absolutePath
+            isRecordingVoiceMemory = true
+            voiceMemoryStatus = "Recording voice memory..."
+        } catch (e: Exception) {
+            runCatching { recorder.reset() }
+            runCatching { recorder.release() }
+            activeVoiceMemoryPath = null
+            voiceMemoryStatus = "Could not start voice memory recording"
+        }
+    }
+
+    fun playVoiceMemory() {
+        val path = activeVoiceMemoryPath ?: return
+        stopVoiceMemoryPlayback()
+        try {
+            voiceMemoryPlayer = MediaPlayer().apply {
+                setDataSource(path)
+                setOnCompletionListener {
+                    stopVoiceMemoryPlayback()
+                }
+                prepare()
+                start()
+            }
+            isPlayingVoiceMemory = true
+            voiceMemoryStatus = "Playing voice memory"
+        } catch (e: Exception) {
+            stopVoiceMemoryPlayback()
+            voiceMemoryStatus = "Could not play voice memory"
+        }
+    }
+    val shareRosterPlayers = remember(detectedPlayers) {
+        detectedPlayers.sortedWith(
+            compareBy<Player>(
+                { it.number.toIntOrNull() ?: Int.MAX_VALUE },
+                { it.number },
+                { it.name }
+            )
+        )
     }
     val teamShareRecipients = remember(selectedPlayersForShare) {
         buildTeamShareRecipients(selectedPlayersForShare)
@@ -265,16 +597,33 @@ fun VideoPlaybackScreen(
                 email = null
             )
 
-        shareVideoToPhoneContact(
-            context = context,
-            videoUri = videoUri,
-            players = pendingPhoneSharePlayers.ifEmpty { selectedPlayersForShare },
-            contact = selectedContact
-        )
+        resolveShareUri { uri ->
+            shareVideoToPhoneContact(
+                context = context,
+                videoUri = uri,
+                players = pendingPhoneSharePlayers.ifEmpty { selectedPlayersForShare },
+                contact = selectedContact
+            )
+        }
         if (parsedContact != null) {
             favoritePhoneContacts = addFavoritePhoneContact(context, parsedContact)
         }
         pendingPhoneSharePlayers = emptyList()
+    }
+
+    val shareContactPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickContact()
+    ) { contactUri ->
+        if (contactUri != null) {
+            val savedUri = shareDialogUri
+            if (savedUri != null) {
+                val contact = readSelectedContact(context, contactUri)
+                if (contact != null) {
+                    shareVideoToPhoneContact(context, savedUri, emptyList(), contact)
+                    shareDialogUri = null
+                }
+            }
+        }
     }
 
     val videoProcessingManager = remember {
@@ -336,7 +685,7 @@ fun VideoPlaybackScreen(
                     showQuickSharePicker = true
                 }
             } else {
-                Toast.makeText(context, "No roster matches found in this clip", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "No roster matches found in this play", Toast.LENGTH_SHORT).show()
             }
         } else {
             detectedOverlays = normalizedOverlays
@@ -439,6 +788,11 @@ fun VideoPlaybackScreen(
                 )
                 detectionMode = VideoProcessingManager.DetectionMode.FAST
                 applyAnalysisResult(analysisResult, false)
+                com.playerid.app.video.DeferredDeepScanScheduler.schedule(
+                    context = context,
+                    videoUri = videoUri,
+                    roster = detectedPlayers
+                )
             } catch (e: Exception) {
                 android.util.Log.d("VideoPlaybackScreen", "Background share detection skipped: ${e.message}")
             } finally {
@@ -483,6 +837,66 @@ fun VideoPlaybackScreen(
         }
     }
 
+    LaunchedEffect(activeVoiceMemoryKey) {
+        refreshVoiceMemoryPath()
+        voiceMemoryStatus = null
+        stopVoiceMemoryPlayback()
+        if (isRecordingVoiceMemory) {
+            stopVoiceMemoryRecording(saveRecording = false)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (isRecordingVoiceMemory) {
+                stopVoiceMemoryRecording(saveRecording = false)
+            }
+            stopVoiceMemoryPlayback()
+        }
+    }
+
+    LaunchedEffect(shareDialogUri) {
+        if (shareDialogUri != null && detectedPlayers.isNotEmpty()) {
+            selectedSharePlayerIds = emptySet()
+            suggestedSharePlayerIds = emptySet()
+            showSharePlayerList = false
+            scanShareSuggestionsDone = false
+            
+            // Trigger quick player detection with FAST mode
+            isLoadingSuggestedPlayers = true
+            scope.launch(Dispatchers.Default) {
+                try {
+                    val detectionResult = videoProcessingManager.autoDetectPlayersWithTracksInVideo(
+                        videoUri = shareDialogUri!!,
+                        roster = detectedPlayers,
+                        mode = VideoProcessingManager.DetectionMode.FAST
+                    )
+                    
+                    // Match detected jersey numbers with roster players
+                    val detected = detectionResult.bubbles.mapNotNull { bubble ->
+                        detectedPlayers.find { it.number == bubble.jerseyNumber }?.id
+                    }.toSet()
+                    
+                    // Pre-select suggested players
+                    suggestedSharePlayerIds = detected
+                    if (detected.isNotEmpty()) {
+                        selectedSharePlayerIds = detected
+                    }
+                    com.playerid.app.video.DeferredDeepScanScheduler.schedule(
+                        context = context,
+                        videoUri = shareDialogUri!!,
+                        roster = detectedPlayers
+                    )
+                } catch (e: Exception) {
+                    Log.d("VideoPlaybackScreen", "Player detection failed: ${e.message}")
+                } finally {
+                    isLoadingSuggestedPlayers = false
+                          scanShareSuggestionsDone = true
+                }
+            }
+        }
+    }
+
     val applyManualLockTap: (Float, Float) -> Unit = { tapXFraction, tapYFraction ->
         val selectedId = selectedOverlayIds.firstOrNull()
         if (selectedId != null) {
@@ -500,21 +914,24 @@ fun VideoPlaybackScreen(
         }
     }
 
-    val exoPlayer = remember(showPlaybackUi, playlistUris, videoUri, isPlaylistMode) {
+    val exoPlayer = remember(showPlaybackUi, playlistUris, videoUri, isPlaylistMode, composedReelPlaybackUri) {
         if (!showPlaybackUi) {
             null
         } else {
             ExoPlayer.Builder(context).build().apply {
                 setSeekParameters(SeekParameters.EXACT)
                 if (isPlaylistMode) {
-                    // Add all videos to playlist
                     playlistUris.forEach { uri ->
                         addMediaItem(MediaItem.fromUri(uri))
                     }
                     repeatMode = Media3Player.REPEAT_MODE_OFF // Don't repeat in playlist mode
                 } else {
-                    setMediaItem(MediaItem.fromUri(videoUri))
-                    repeatMode = Media3Player.REPEAT_MODE_ONE
+                    setMediaItem(MediaItem.fromUri(composedReelPlaybackUri ?: videoUri))
+                    repeatMode = if (composedReelPlaybackUri != null) {
+                        Media3Player.REPEAT_MODE_OFF
+                    } else {
+                        Media3Player.REPEAT_MODE_ONE
+                    }
                 }
                 prepare()
             }
@@ -618,7 +1035,7 @@ fun VideoPlaybackScreen(
         val player = exoPlayer ?: return@LaunchedEffect
         if (isPlaying) {
             player.play()
-        } else {
+        } else if (!isTransitioning) {
             player.pause()
         }
     }
@@ -628,8 +1045,9 @@ fun VideoPlaybackScreen(
     LaunchedEffect(exoPlayer) {
         val player = exoPlayer ?: return@LaunchedEffect
         while (true) {
-            if (videoDuration <= 0L && player.duration > 0L) {
-                videoDuration = player.duration
+            val latestDuration = player.duration
+            if (latestDuration > 0L && latestDuration != videoDuration) {
+                videoDuration = latestDuration
             }
             if (!isSeeking) {
                 currentPosition = player.currentPosition
@@ -640,9 +1058,25 @@ fun VideoPlaybackScreen(
                 }
             }
             if (isPlaylistMode) {
-                currentVideoIndex = player.currentMediaItemIndex
+                currentVideoIndex = player.currentMediaItemIndex.coerceIn(0, maxOf(0, playlistUris.size - 1))
             }
             delay(if (isPlaying) 16 else 100)
+        }
+    }
+
+    LaunchedEffect(transitionPulse) {
+        if (transitionPulse == 0) return@LaunchedEffect
+        showClipTransitionOverlay = true
+        delay(300)
+        showClipTransitionOverlay = false
+    }
+
+    LaunchedEffect(isPlaylistMode, isPlaying, currentPosition, videoDuration) {
+        if (!isPlaylistMode || !isPlaying || videoDuration <= 0L || showClipTransitionOverlay) return@LaunchedEffect
+
+        val remainingMs = videoDuration - currentPosition
+        if (remainingMs in 1..300L) {
+            showClipTransitionOverlay = true
         }
     }
 
@@ -662,15 +1096,37 @@ fun VideoPlaybackScreen(
                                 0f
                             }
                         }
+                    } else if (state == Media3Player.STATE_ENDED) {
+                        // Only show replay overlay if on last clip of playlist
+                        if (isPlaylistMode && player.currentMediaItemIndex == totalVideos - 1) {
+                            showReplayOverlay = true
+                        }
+                        // Keep UI pinned to clip end so the final reel clip doesn't appear truncated.
+                        if (videoDuration > 0L) {
+                            currentPosition = videoDuration
+                            seekFraction = 1f
+                        }
                     }
-                }
-                override fun onIsPlayingChanged(isPlayingChanged: Boolean) {
-                    isPlaying = isPlayingChanged
                 }
                 override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                     if (isPlaylistMode) {
-                        currentVideoIndex = player.currentMediaItemIndex
+                        isTransitioning = true
+                        currentVideoIndex = player.currentMediaItemIndex.coerceIn(0, maxOf(0, totalVideos - 1))
+                        currentPosition = 0L
+                        transitionPulse += 1
+                        val newDuration = player.duration
+                        if (newDuration > 0L) {
+                            videoDuration = newDuration
+                        }
+                        isPlaying = true
+                        player.play()
                     }
+                }
+                override fun onIsPlayingChanged(isPlayingNow: Boolean) {
+                    if (isTransitioning && isPlayingNow) {
+                        isTransitioning = false
+                    }
+                    isPlaying = isPlayingNow
                 }
             }
         } else {
@@ -691,20 +1147,84 @@ fun VideoPlaybackScreen(
     }
 
     if (showPlaybackUi) {
+    // System back button and swipe-left-on-first-clip closes the screen
+    BackHandler(enabled = true) {
+        onNavigateBack()
+    }
+
         Scaffold(
         topBar = {
             if (!isPlaylistMode) {
                 TopAppBar(
-                    title = {
-                        Text(
-                            "Video Playback",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    },
+                    title = {},
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
                             Icon(Icons.Default.ArrowBack, "Back")
+                        }
+                    },
+                    actions = {
+                        Surface(
+                            onClick = {
+                                val editUri = if (isPlaylistMode && currentVideoIndex in playlistUris.indices) {
+                                    playlistUris[currentVideoIndex]
+                                } else {
+                                    videoUri
+                                }
+                                openVideoEditor(editUri)
+                            },
+                            color = Color.Transparent,
+                            modifier = Modifier.padding(end = 6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = "Edit Clip",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    "Edit Clip",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                        Surface(
+                            onClick = {
+                                val permissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                                if (!permissionGranted) {
+                                    voiceMemoryPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                } else {
+                                    showVoiceMemoryDialog = true
+                                    voiceMemoryStatus = null
+                                }
+                            },
+                            color = Color.Transparent,
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Mic,
+                                    contentDescription = voiceMemoryActionLabel,
+                                    tint = if (!activeVoiceMemoryPath.isNullOrBlank()) Color(0xFFFFD54F) else Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    voiceMemoryActionLabel,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -745,9 +1265,36 @@ fun VideoPlaybackScreen(
                                 playbackZoom = (playbackZoom * zoomChange).coerceIn(1f, 4f)
                             }
                         }
+                            .pointerInput(isPlaylistMode, exoPlayer) {
+                                if (!isPlaylistMode) return@pointerInput
+                                val swipeThreshold = 80.dp.toPx()
+                                var totalDragX = 0f
+                                awaitEachGesture {
+                                    totalDragX = 0f
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    var dragging = true
+                                    while (dragging) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id }
+                                        if (change == null || !change.pressed) {
+                                            dragging = false
+                                        } else {
+                                            totalDragX += (change.position.x - change.previousPosition.x)
+                                        }
+                                    }
+                                    if (abs(totalDragX) > swipeThreshold) {
+                                        if (totalDragX < 0) {
+                                            exoPlayer?.seekToNextMediaItem()
+                                        } else {
+                                            exoPlayer?.seekToPreviousMediaItem()
+                                        }
+                                    }
+                                }
+                            }
                         .graphicsLayer {
-                            scaleX = playbackZoom
-                            scaleY = playbackZoom
+                                alpha = if (showClipTransitionOverlay) 0.96f else 1f
+                                scaleX = playbackZoom * clipTransitionScale
+                                scaleY = playbackZoom * clipTransitionScale
                         }
                 ) {
                     AndroidView(
@@ -755,10 +1302,177 @@ fun VideoPlaybackScreen(
                             PlayerView(ctx).apply {
                                 player = exoPlayer
                                 useController = false
+                                runCatching {
+                                    javaClass.getMethod("setSurfaceType", Int::class.javaPrimitiveType)
+                                        .invoke(this, 2)
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+
+                    // Only show transition overlay if not on last clip
+                    if (clipTransitionAlpha > 0f && !(isPlaylistMode && currentVideoIndex == totalVideos - 1)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = clipTransitionAlpha))
+                        )
+                    }
+                    // Centered replay overlay when playlist ends
+                    if (showReplayOverlay) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .clickable {
+                                    // Hide overlay and restart playback
+                                    showReplayOverlay = false
+                                    isTransitioning = true
+                                    exoPlayer?.seekToDefaultPosition(0)
+                                    currentVideoIndex = 0
+                                    currentPosition = 0L
+                                    seekFraction = 0f
+                                    isPlaying = true
+                                    exoPlayer?.play()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.7f),
+                                shadowElevation = 8.dp,
+                                modifier = Modifier.size(96.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = "Replay",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(64.dp).padding(16.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (reelIntroAlpha > 0.01f && isPlaylistMode) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .alpha(reelIntroAlpha)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = reelOverlayGradient
+                                    )
+                                )
+                                .clickable(enabled = false) {},
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(28.dp),
+                                color = Color(0xD0121A1F),
+                                tonalElevation = 0.dp,
+                                shadowElevation = 16.dp,
+                                modifier = Modifier
+                                    .padding(horizontal = 20.dp)
+                                    .border(
+                                        width = 1.6.dp,
+                                        color = reelAccentColor.copy(alpha = 0.58f),
+                                        shape = RoundedCornerShape(28.dp)
+                                    )
+                                    .fillMaxWidth()
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 22.dp)
+                                ) {
+                                    if (resolvedReelScenario != "opponent") {
+                                        if (reelScenarioSubheader.isNotBlank()) {
+                                            Text(
+                                                text = reelScenarioSubheader,
+                                                color = Color.White.copy(alpha = 0.82f),
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    }
+                                    if (resolvedReelScenario == "opponent") {
+                                        val opponentTeamName = reelTeamName?.trim().orEmpty()
+                                        Text(
+                                            text = opponentTeamName.uppercase(),
+                                            color = Color.White.copy(alpha = 0.93f),
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "VS",
+                                            color = reelAccentColor,
+                                            style = MaterialTheme.typography.headlineLarge,
+                                            letterSpacing = 1.2.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                        Text(
+                                            text = if (primaryOpponent.isBlank()) "OPPONENT" else primaryOpponent.uppercase(),
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.displaySmall,
+                                            fontWeight = FontWeight.Black,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    } else {
+                                        Text(
+                                            text = reelTitle ?: "Reel",
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 2
+                                        )
+                                        Text(
+                                            text = reelHeroLine,
+                                            color = reelAccentColor,
+                                            style = MaterialTheme.typography.headlineLarge,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    HorizontalDivider(
+                                        color = reelAccentColor.copy(alpha = 0.45f),
+                                        thickness = 1.2.dp,
+                                        modifier = Modifier
+                                            .fillMaxWidth(0.72f)
+                                            .padding(top = 2.dp, bottom = 2.dp)
+                                    )
+                                    Text(
+                                        text = reelClipCountLabel,
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (!reelSeasonLabel.isNullOrBlank() && resolvedReelScenario != "season") {
+                                        Text(
+                                            text = reelSeasonLabel,
+                                            color = Color.White.copy(alpha = 0.82f),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                    if (resolvedReelScenario != "opponent") {
+                                        Text(
+                                            text = reelOpponentsLabel,
+                                            color = Color.White.copy(alpha = 0.8f),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     val previewBitmap = scrubPreviewBitmap
                     if (isSeeking && previewBitmap != null) {
@@ -837,7 +1551,7 @@ fun VideoPlaybackScreen(
                             .align(Alignment.TopStart)
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         IconButton(onClick = onNavigateBack) {
                             Icon(
@@ -847,32 +1561,44 @@ fun VideoPlaybackScreen(
                             )
                         }
 
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        if (onSaveAsGoatReel != null && activeReelId == null) {
                             FilledTonalButton(
                                 onClick = {
-                                    detectionMode = if (detectionMode == VideoProcessingManager.DetectionMode.FAST) {
-                                        VideoProcessingManager.DetectionMode.ACCURATE
-                                    } else {
-                                        VideoProcessingManager.DetectionMode.FAST
+                                    reelNameInput = reelTitle ?: "My Reel"
+                                    showSaveReelDialog = true
+                                },
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = Color(0xFFFFD54F),
+                                    contentColor = Color.Black
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.VideoLibrary,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Create", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        if (!isReviewMode && activeReelId != null) {
+                            FilledTonalButton(
+                                onClick = {
+                                    selectedSharePlayerIds = emptySet()
+                                    showSharePlayerList = false
+                                    resolveShareUri { uri ->
+                                        shareDialogUri = uri
                                     }
                                 },
-                                enabled = !isAnalyzingPlayers,
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text("Mode: $detectionModeLabel", fontSize = 10.sp)
-                            }
-                            Text(
-                                "${currentVideoIndex + 1} / $totalVideos",
-                                color = Color.White,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            FilledTonalButton(
-                                onClick = { startTeamParentShareFlow() },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = Color(0xFF4FC3F7),
+                                    contentColor = Color.Black
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                             ) {
                                 Icon(
                                     Icons.Default.Share,
@@ -880,30 +1606,120 @@ fun VideoPlaybackScreen(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Team Parents", fontSize = 11.sp)
+                                Text("Share", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
-                            if (detectedOverlays.isNotEmpty()) {
-                                FilledTonalButton(
-                                    onClick = { showOverlaySelectionDialog = true },
-                                    enabled = !isAnalyzingPlayers,
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Names (${selectedOverlayIds.size})", fontSize = 11.sp)
-                                }
-                                FilledTonalButton(
-                                    onClick = {
-                                        if (selectedOverlayIds.isEmpty()) {
-                                            Toast.makeText(context, "Select a player name first", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            isLockAssistMode = !isLockAssistMode
+                        }
+
+                        Box {
+                            IconButton(onClick = { showPreviewActionsMenu = true }) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "More actions",
+                                    tint = Color.White
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showPreviewActionsMenu,
+                                onDismissRequest = { showPreviewActionsMenu = false }
+                            ) {
+                                if (!isReviewMode) {
+                                    DropdownMenuItem(
+                                        text = { Text("Edit") },
+                                        onClick = {
+                                            showPreviewActionsMenu = false
+                                            val editUri = if (currentVideoIndex in playlistUris.indices) {
+                                                playlistUris[currentVideoIndex]
+                                            } else {
+                                                videoUri
+                                            }
+                                            openVideoEditor(editUri)
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Edit, contentDescription = null)
                                         }
-                                    },
-                                    enabled = !isAnalyzingPlayers,
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Text(if (isLockAssistMode) "Cancel Lock" else "Lock Here", fontSize = 11.sp)
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(voiceMemoryActionLabel) },
+                                        onClick = {
+                                            showPreviewActionsMenu = false
+                                            val permissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                                            if (!permissionGranted) {
+                                                voiceMemoryPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            } else {
+                                                showVoiceMemoryDialog = true
+                                                voiceMemoryStatus = null
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Mic, contentDescription = null)
+                                        }
+                                    )
+                                }
+
+                                if (detectedOverlays.isNotEmpty()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Names (${selectedOverlayIds.size})") },
+                                        onClick = {
+                                            showPreviewActionsMenu = false
+                                            if (!isAnalyzingPlayers) {
+                                                showOverlaySelectionDialog = true
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Badge, contentDescription = null)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(if (isLockAssistMode) "Cancel Lock" else "Lock Here") },
+                                        onClick = {
+                                            showPreviewActionsMenu = false
+                                            if (selectedOverlayIds.isEmpty()) {
+                                                Toast.makeText(context, "Select a player name first", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                isLockAssistMode = !isLockAssistMode
+                                            }
+                                        },
+                                        enabled = !isAnalyzingPlayers,
+                                        leadingIcon = {
+                                            Icon(Icons.Default.CenterFocusStrong, contentDescription = null)
+                                        }
+                                    )
                                 }
                             }
+                        }
+                    }
+
+                    // Prev / Next clip navigation arrows (Box scope overlay)
+                    if (currentVideoIndex > 0) {
+                        IconButton(
+                            onClick = { exoPlayer?.seekToPreviousMediaItem() },
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(start = 12.dp)
+                                .background(Color.Black.copy(alpha = 0.40f), CircleShape)
+                        ) {
+                            Icon(
+                                Icons.Default.KeyboardArrowLeft,
+                                contentDescription = "Previous clip",
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+                    if (currentVideoIndex < totalVideos - 1) {
+                        IconButton(
+                            onClick = { exoPlayer?.seekToNextMediaItem() },
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 12.dp)
+                                .background(Color.Black.copy(alpha = 0.40f), CircleShape)
+                        ) {
+                            Icon(
+                                Icons.Default.KeyboardArrowRight,
+                                contentDescription = "Next clip",
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
                         }
                     }
 
@@ -959,6 +1775,157 @@ fun VideoPlaybackScreen(
                                 tint = Color.White,
                                 modifier = Modifier.size(36.dp)
                             )
+                        }
+                    }
+                }
+            }
+
+            if (showSaveReelDialog && onSaveAsGoatReel != null) {
+                AlertDialog(
+                    onDismissRequest = { showSaveReelDialog = false },
+                    title = { Text("Create Reel") },
+                    text = {
+                        OutlinedTextField(
+                            value = reelNameInput,
+                            onValueChange = { reelNameInput = it },
+                            label = { Text("Reel name") },
+                            singleLine = true
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                val name = reelNameInput.trim()
+                                if (name.isNotBlank()) {
+                                    onSaveAsGoatReel(name)
+                                    showSaveReelDialog = false
+                                }
+                            }
+                        ) { Text("Create") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showSaveReelDialog = false }) { Text("Cancel") }
+                    }
+                )
+            }
+
+            if (showVoiceMemoryDialog) {
+                Dialog(
+                    onDismissRequest = {
+                        if (!isRecordingVoiceMemory) {
+                            stopVoiceMemoryPlayback()
+                            showVoiceMemoryDialog = false
+                        }
+                    },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth(0.88f)
+                            .wrapContentHeight(),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 6.dp
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(20.dp)
+                        ) {
+                            // Title
+                            Text(
+                                "Voice Memory",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            // Big mic / status button
+                            Box(contentAlignment = Alignment.Center) {
+                                Surface(
+                                    onClick = {
+                                        when {
+                                            isRecordingVoiceMemory -> stopVoiceMemoryRecording(saveRecording = true)
+                                            isPlayingVoiceMemory -> stopVoiceMemoryPlayback()
+                                            !activeVoiceMemoryPath.isNullOrBlank() -> playVoiceMemory()
+                                            else -> startVoiceMemoryRecording()
+                                        }
+                                    },
+                                    shape = CircleShape,
+                                    color = when {
+                                        isRecordingVoiceMemory -> Color(0xFFD32F2F)
+                                        isPlayingVoiceMemory -> MaterialTheme.colorScheme.primaryContainer
+                                        !activeVoiceMemoryPath.isNullOrBlank() -> MaterialTheme.colorScheme.secondaryContainer
+                                        else -> MaterialTheme.colorScheme.primaryContainer
+                                    },
+                                    modifier = Modifier.size(80.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                        Icon(
+                                            imageVector = when {
+                                                isRecordingVoiceMemory -> Icons.Default.Stop
+                                                isPlayingVoiceMemory -> Icons.Default.Stop
+                                                !activeVoiceMemoryPath.isNullOrBlank() -> Icons.Default.PlayArrow
+                                                else -> Icons.Default.Mic
+                                            },
+                                            contentDescription = null,
+                                            tint = when {
+                                                isRecordingVoiceMemory -> Color.White
+                                                else -> MaterialTheme.colorScheme.onSecondaryContainer
+                                            },
+                                            modifier = Modifier.size(36.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Single-line status label
+                            Text(
+                                text = when {
+                                    isRecordingVoiceMemory -> "Recording — tap to save"
+                                    isPlayingVoiceMemory -> "Playing — tap to stop"
+                                    !activeVoiceMemoryPath.isNullOrBlank() -> "Tap to play"
+                                    else -> "Tap to record"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            // Secondary actions row
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (!isRecordingVoiceMemory && !activeVoiceMemoryPath.isNullOrBlank()) {
+                                    OutlinedButton(
+                                        onClick = { startVoiceMemoryRecording() },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Re-record", fontSize = 13.sp)
+                                    }
+                                }
+                                if (isRecordingVoiceMemory) {
+                                    OutlinedButton(
+                                        onClick = { stopVoiceMemoryRecording(saveRecording = false) },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Discard", fontSize = 13.sp)
+                                    }
+                                }
+                                TextButton(
+                                    onClick = {
+                                        if (!isRecordingVoiceMemory) {
+                                            stopVoiceMemoryPlayback()
+                                            showVoiceMemoryDialog = false
+                                        }
+                                    },
+                                    enabled = !isRecordingVoiceMemory,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Done", fontSize = 13.sp)
+                                }
+                            }
                         }
                     }
                 }
@@ -1068,7 +2035,6 @@ fun VideoPlaybackScreen(
         AlertDialog(
             onDismissRequest = {
                 showInitialShareDestinationDialog = false
-                onNavigateBack()
             },
             text = {
                 Column(
@@ -1093,13 +2059,14 @@ fun VideoPlaybackScreen(
                     }
                     OutlinedButton(
                         onClick = {
-                            launchPersonalShareChooser(
-                                context = context,
-                                videoUri = videoUri,
-                                shareTitle = "Share to My Contacts"
-                            )
-                            showInitialShareDestinationDialog = false
-                            onNavigateBack()
+                            resolveShareUri { uri ->
+                                launchPersonalShareChooser(
+                                    context = context,
+                                    videoUri = uri,
+                                    shareTitle = "Share to My Contacts"
+                                )
+                                showInitialShareDestinationDialog = false
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1109,6 +2076,270 @@ fun VideoPlaybackScreen(
             },
             confirmButton = {}
         )
+    }
+
+    shareDialogUri?.let { savedUri ->
+        Dialog(
+            onDismissRequest = { shareDialogUri = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(0.95f),
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 6.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        "Share this moment",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    // ── Suggested Players ────────────────────────────────
+                    if (isLoadingSuggestedPlayers) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                "Scanning for players...",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    } else if (suggestedSharePlayerIds.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Star,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "Suggested Players",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                suggestedSharePlayerIds.forEach { playerId ->
+                                    detectedPlayers.find { it.id == playerId }?.let { player ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    selectedSharePlayerIds = if (selectedSharePlayerIds.contains(player.id)) {
+                                                        selectedSharePlayerIds - player.id
+                                                    } else {
+                                                        selectedSharePlayerIds + player.id
+                                                    }
+                                                },
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Checkbox(
+                                                checked = selectedSharePlayerIds.contains(player.id),
+                                                onCheckedChange = { checked ->
+                                                    selectedSharePlayerIds = if (checked) {
+                                                        selectedSharePlayerIds + player.id
+                                                    } else {
+                                                        selectedSharePlayerIds - player.id
+                                                    }
+                                                }
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    "#${player.number} ${player.name}",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    } else if (scanShareSuggestionsDone) {
+                        Text(
+                            "No players detected in this clip",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    Text(
+                        "Team Parents",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    if (detectedPlayers.isEmpty()) {
+                        Text(
+                            "No players on roster yet",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showSharePlayerList = !showSharePlayerList },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                if (selectedSharePlayerIds.isEmpty()) "Choose players"
+                                else "${selectedSharePlayerIds.size} player${if (selectedSharePlayerIds.size == 1) "" else "s"} selected",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Icon(
+                                if (showSharePlayerList) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = null
+                            )
+                        }
+                        if (showSharePlayerList) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TextButton(onClick = {
+                                    selectedSharePlayerIds = shareRosterPlayers
+                                        .filter { it.addedBy.any(Char::isDigit) && it.addedBy.filter(Char::isDigit).length >= 10 }
+                                        .map { it.id }
+                                        .toSet()
+                                }) {
+                                    Text("Select all")
+                                }
+                                if (selectedSharePlayerIds.isNotEmpty()) {
+                                    TextButton(onClick = { selectedSharePlayerIds = emptySet() }) {
+                                        Text("Clear")
+                                    }
+                                }
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                shareRosterPlayers.forEach { player ->
+                                    val hasParentContact = player.addedBy.any(Char::isDigit) &&
+                                        player.addedBy.filter(Char::isDigit).length >= 10
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .alpha(if (hasParentContact) 1f else 0.4f)
+                                            .clickable(enabled = hasParentContact) {
+                                                selectedSharePlayerIds = if (selectedSharePlayerIds.contains(player.id)) {
+                                                    selectedSharePlayerIds - player.id
+                                                } else {
+                                                    selectedSharePlayerIds + player.id
+                                                }
+                                            },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (hasParentContact) {
+                                            Checkbox(
+                                                checked = selectedSharePlayerIds.contains(player.id),
+                                                onCheckedChange = { checked ->
+                                                    selectedSharePlayerIds = if (checked) {
+                                                        selectedSharePlayerIds + player.id
+                                                    } else {
+                                                        selectedSharePlayerIds - player.id
+                                                    }
+                                                }
+                                            )
+                                        } else {
+                                            Spacer(modifier = Modifier.width(48.dp))
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                "#${player.number} ${player.name}",
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        val selectedPlayers = shareRosterPlayers.filter { selectedSharePlayerIds.contains(it.id) }
+                        if (selectedSharePlayerIds.isNotEmpty()) {
+                            Button(
+                                onClick = {
+                                    val recipients = buildTeamShareRecipients(selectedPlayers)
+                                    if (recipients.isEmpty()) {
+                                        launchPersonalShareChooser(context, savedUri, "Share this moment")
+                                    } else {
+                                        shareVideoToTeamRecipients(
+                                            context = context,
+                                            videoUri = savedUri,
+                                            recipients = recipients,
+                                            players = selectedPlayers,
+                                            highlightTag = null,
+                                            customMessage = ""
+                                        )
+                                    }
+                                    shareDialogUri = null
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    "Send to ${selectedSharePlayerIds.size} parent${if (selectedSharePlayerIds.size == 1) "" else "s"}"
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    Text(
+                        "My Contacts",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    OutlinedButton(
+                        onClick = { shareContactPickerLauncher.launch(null) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Pick contact from phone")
+                    }
+
+                    TextButton(
+                        onClick = { shareDialogUri = null },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        }
     }
 
     if (showTeamShareAboutDialog) {
@@ -1161,16 +2392,18 @@ fun VideoPlaybackScreen(
                                 if (recipients.isEmpty()) {
                                     Toast.makeText(context, "No recipients available", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    shareVideoToTeamRecipients(
-                                        context = context,
-                                        videoUri = videoUri,
-                                        recipients = recipients,
-                                        players = selectedPlayersForShare,
-                                        highlightTag = selectedHighlightTag,
-                                        customMessage = teamShareMessage
-                                    )
-                                    showTeamShareAboutDialog = false
-                                    onNavigateBack()
+                                    resolveShareUri { uri ->
+                                        shareVideoToTeamRecipients(
+                                            context = context,
+                                            videoUri = uri,
+                                            recipients = recipients,
+                                            players = selectedPlayersForShare,
+                                            highlightTag = selectedHighlightTag,
+                                            customMessage = teamShareMessage
+                                        )
+                                        showTeamShareAboutDialog = false
+                                        onNavigateBack()
+                                    }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1313,17 +2546,19 @@ fun VideoPlaybackScreen(
                         if (recipients.isEmpty()) {
                             Toast.makeText(context, "No recipients available", Toast.LENGTH_SHORT).show()
                         } else {
-                            shareVideoToTeamRecipients(
-                                context = context,
-                                videoUri = videoUri,
-                                recipients = recipients,
-                                players = detectedSharePlayers,
-                                highlightTag = selectedHighlightTag,
-                                customMessage = teamShareMessage
-                            )
-                            showShareSuggestions = false
-                            showTeamShareAboutDialog = false
-                            onNavigateBack()
+                            resolveShareUri { uri ->
+                                shareVideoToTeamRecipients(
+                                    context = context,
+                                    videoUri = uri,
+                                    recipients = recipients,
+                                    players = detectedSharePlayers,
+                                    highlightTag = selectedHighlightTag,
+                                    customMessage = teamShareMessage
+                                )
+                                showShareSuggestions = false
+                                showTeamShareAboutDialog = false
+                                onNavigateBack()
+                            }
                         }
                     }
                 ) {
@@ -1339,14 +2574,14 @@ fun VideoPlaybackScreen(
     if (showQuickSharePicker) {
         AlertDialog(
             onDismissRequest = { showQuickSharePicker = false },
-            title = { Text("Share with") },
+            title = { Text("Share this moment with") },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        "Sending clip with ${detectedSharePlayers.size} identified player${if (detectedSharePlayers.size != 1) "s" else ""}",
+                        "Sending this moment with ${detectedSharePlayers.size} identified player${if (detectedSharePlayers.size != 1) "s" else ""}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1368,13 +2603,15 @@ fun VideoPlaybackScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            shareVideoToPhoneContact(
-                                                context = context,
-                                                videoUri = videoUri,
-                                                players = selectedPlayersForShare,
-                                                contact = contact
-                                            )
-                                            showQuickSharePicker = false
+                                            resolveShareUri { uri ->
+                                                shareVideoToPhoneContact(
+                                                    context = context,
+                                                    videoUri = uri,
+                                                    players = selectedPlayersForShare,
+                                                    contact = contact
+                                                )
+                                                showQuickSharePicker = false
+                                            }
                                         }
                                         .padding(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
@@ -1407,14 +2644,16 @@ fun VideoPlaybackScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        shareVideoToPhoneContact(
-                                            context = context,
-                                            videoUri = videoUri,
-                                            players = selectedPlayersForShare,
-                                            contact = contact
-                                        )
-                                        showQuickSharePicker = false
-                                        favoritePhoneContacts = addFavoritePhoneContact(context, contact)
+                                        resolveShareUri { uri ->
+                                            shareVideoToPhoneContact(
+                                                context = context,
+                                                videoUri = uri,
+                                                players = selectedPlayersForShare,
+                                                contact = contact
+                                            )
+                                            showQuickSharePicker = false
+                                            favoritePhoneContacts = addFavoritePhoneContact(context, contact)
+                                        }
                                     }
                                     .padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -1502,6 +2741,50 @@ fun VideoPlaybackScreen(
             }
         )
     }
+}
+
+private fun voiceMemoryPrefs(context: Context) =
+    context.getSharedPreferences("clip_voice_memories", Context.MODE_PRIVATE)
+
+private fun loadClipVoiceMemoryPath(context: Context, clipKey: String): String? =
+    voiceMemoryPrefs(context).getString(clipKey, null)?.takeIf { it.isNotBlank() }
+
+private fun saveClipVoiceMemoryPath(context: Context, clipKey: String, filePath: String) {
+    voiceMemoryPrefs(context).edit().putString(clipKey, filePath).apply()
+}
+
+private fun clearClipVoiceMemoryPath(context: Context, clipKey: String) {
+    voiceMemoryPrefs(context).edit().remove(clipKey).apply()
+}
+
+private fun consumeVoiceMemoryOpenRequest(context: Context, clipKey: String): Boolean {
+    val prefs = context.getSharedPreferences("clip_voice_memory_open_requests", Context.MODE_PRIVATE)
+    val shouldOpen = prefs.getBoolean(clipKey, false)
+    if (shouldOpen) {
+        prefs.edit().remove(clipKey).apply()
+    }
+    return shouldOpen
+}
+
+private fun createVoiceMemoryFile(context: Context, clipKey: String): File {
+    val directory = File(context.filesDir, "voice_memories").apply { mkdirs() }
+    return File(directory, "voice_${clipKey.hashCode()}_${System.currentTimeMillis()}.m4a")
+}
+
+private fun buildVoiceMemoryRecorder(context: Context, outputFile: File): MediaRecorder {
+    val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        MediaRecorder(context)
+    } else {
+        @Suppress("DEPRECATION")
+        MediaRecorder()
+    }
+    recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+    recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+    recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+    recorder.setAudioEncodingBitRate(128000)
+    recorder.setAudioSamplingRate(44100)
+    recorder.setOutputFile(outputFile.absolutePath)
+    return recorder
 }
 
 private data class IdentifiedOverlayPlayer(
@@ -1826,11 +3109,11 @@ private fun shareVideoToSpotrContact(context: android.content.Context, videoUri:
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         putExtra(
             Intent.EXTRA_TEXT,
-            "Spotr share for ${player.addedBy}: original clip featuring #${player.number} ${player.name}."
+            "Spotr share for ${player.addedBy}: original play featuring #${player.number} ${player.name}."
         )
         putExtra(Intent.EXTRA_SUBJECT, "Spotr original highlight for ${player.name} (${player.addedBy})")
     }
-    launchHighQualityShareChooser(context, shareIntent, "Share original clip")
+    launchHighQualityShareChooser(context, shareIntent, "Share original play")
 }
 
 private fun shareVideoForPlayers(context: android.content.Context, videoUri: Uri, players: List<Player>) {
@@ -1841,10 +3124,10 @@ private fun shareVideoForPlayers(context: android.content.Context, videoUri: Uri
         type = "video/mp4"
         putExtra(Intent.EXTRA_STREAM, videoUri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        putExtra(Intent.EXTRA_TEXT, "Spotr original clip share for contacts [$spotrContacts]. Clip featuring: $names")
+        putExtra(Intent.EXTRA_TEXT, "Spotr original play share for contacts [$spotrContacts]. Play featuring: $names")
         putExtra(Intent.EXTRA_SUBJECT, "Spotr original highlight")
     }
-    launchHighQualityShareChooser(context, shareIntent, "Share original clip")
+    launchHighQualityShareChooser(context, shareIntent, "Share original play")
 }
 
 data class TeamShareRecipient(
@@ -1856,7 +3139,7 @@ data class TeamShareRecipient(
     val email: String?
 )
 
-fun launchPersonalShareChooser(context: Context, videoUri: Uri, shareTitle: String = "Share clip") {
+fun launchPersonalShareChooser(context: Context, videoUri: Uri, shareTitle: String = "Share this moment") {
     val shareIntent = Intent().apply {
         action = Intent.ACTION_SEND
         type = "video/mp4"
@@ -1864,7 +3147,15 @@ fun launchPersonalShareChooser(context: Context, videoUri: Uri, shareTitle: Stri
         putExtra(Intent.EXTRA_TEXT, "Created with Spotr")
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(shareIntent, shareTitle))
+    try {
+        context.startActivity(Intent.createChooser(shareIntent, shareTitle))
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "No compatible app found to share this moment.", Toast.LENGTH_SHORT).show()
+    } catch (_: SecurityException) {
+        Toast.makeText(context, "Unable to open share dialog.", Toast.LENGTH_SHORT).show()
+    } catch (_: Exception) {
+        Toast.makeText(context, "Unable to open share dialog.", Toast.LENGTH_SHORT).show()
+    }
 }
 
 internal fun buildTeamShareRecipients(players: List<Player>): List<TeamShareRecipient> {
@@ -1927,10 +3218,10 @@ internal fun shareVideoToTeamRecipients(
         type = "video/mp4"
         putExtra(Intent.EXTRA_STREAM, videoUri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        putExtra(Intent.EXTRA_SUBJECT, "Spotr clip for $recipientNames")
+        putExtra(Intent.EXTRA_SUBJECT, "Spotr play for $recipientNames")
         putExtra(Intent.EXTRA_TEXT, "$message\n\nFor: $recipientNames")
     }
-    launchHighQualityShareChooser(context, shareIntent, "Share with team parents")
+    launchHighQualityShareChooser(context, shareIntent, "Share")
 }
 
 private fun playerHasDirectContactInfo(player: Player): Boolean {
@@ -2134,9 +3425,9 @@ internal fun shareVideoToPhoneContact(
 ) {
     val names = players.joinToString(", ") { "#${it.number} ${it.name}" }
     val message = if (players.isEmpty()) {
-        "Hi ${contact.displayName}, sharing the original Spotr clip"
+        "Hi ${contact.displayName}, sharing the original Spotr play"
     } else {
-        "Hi ${contact.displayName}, sharing the original clip featuring: $names"
+        "Hi ${contact.displayName}, sharing the original play featuring: $names"
     }
     val phoneTarget = contact.phoneNumber
         ?.filter { it.isDigit() || it == '+' }
@@ -2166,7 +3457,7 @@ internal fun shareVideoToPhoneContact(
         message = message
     )
     if (!openedSms) {
-        launchStandardShareChooser(context, shareIntent, "Share with ${contact.displayName}")
+        launchStandardShareChooser(context, shareIntent, "Share this moment with ${contact.displayName}")
     }
 }
 
@@ -2220,10 +3511,18 @@ private fun launchStandardShareChooser(context: Context, baseIntent: Intent, tit
     val pm = context.packageManager
     val resolved = pm.queryIntentActivities(baseIntent, 0)
     if (resolved.isEmpty()) {
-        Toast.makeText(context, "No compatible apps found to share this clip.", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "No compatible apps found to share this moment.", Toast.LENGTH_LONG).show()
         return
     }
-    context.startActivity(Intent.createChooser(baseIntent, title))
+    try {
+        context.startActivity(Intent.createChooser(baseIntent, title))
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "No compatible app found to share this moment.", Toast.LENGTH_SHORT).show()
+    } catch (_: SecurityException) {
+        Toast.makeText(context, "Unable to open share dialog.", Toast.LENGTH_SHORT).show()
+    } catch (_: Exception) {
+        Toast.makeText(context, "Unable to open share dialog.", Toast.LENGTH_SHORT).show()
+    }
 }
 
 private val HIGH_QUALITY_SHARE_PACKAGE_HINTS = listOf(
@@ -2238,36 +3537,11 @@ private val HIGH_QUALITY_SHARE_PACKAGE_HINTS = listOf(
 )
 
 internal fun launchHighQualityShareChooser(context: Context, baseIntent: Intent, title: String) {
-    val pm = context.packageManager
-    val resolved = pm.queryIntentActivities(baseIntent, 0)
-    val highQualityTargets = resolved.filter { resolveInfo ->
-        val pkg = resolveInfo.activityInfo?.packageName.orEmpty()
-        HIGH_QUALITY_SHARE_PACKAGE_HINTS.any { hint -> pkg.contains(hint, ignoreCase = true) }
+    try {
+        context.startActivity(Intent.createChooser(baseIntent, title))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Unable to open share dialog.", Toast.LENGTH_SHORT).show()
     }
-
-    if (highQualityTargets.isEmpty()) {
-        Toast.makeText(
-            context,
-            "No high-quality phone transfer option found. Enable Quick Share or Bluetooth.",
-            Toast.LENGTH_LONG
-        ).show()
-        return
-    }
-
-    val targetedIntents = highQualityTargets.map { resolveInfo ->
-        Intent(baseIntent).apply {
-            setPackage(resolveInfo.activityInfo.packageName)
-            setClassName(resolveInfo.activityInfo.packageName, resolveInfo.activityInfo.name)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-    }
-
-    val primaryIntent = targetedIntents.first()
-    val extraIntents = targetedIntents.drop(1).toTypedArray()
-    val chooser = Intent.createChooser(primaryIntent, title).apply {
-        putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents)
-    }
-    context.startActivity(chooser)
 }
 
 /**

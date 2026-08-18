@@ -35,8 +35,16 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
         tools:ignore="ScopedStorage" />
 
+    <!-- Android 13+ granular media permissions -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
     <!-- Contacts permission for phone share feature -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- NFC for team invite sharing -->
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
 
     <queries>
         <package android:name="com.teamsnap.teamsnap" />
@@ -59,6 +67,7 @@
     </queries>
 
     <application
+        android:name=".PlayerIDApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"

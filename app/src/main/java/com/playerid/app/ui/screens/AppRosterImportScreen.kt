@@ -7,6 +7,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.provider.Settings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -86,7 +87,9 @@ fun AppRosterImportScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isWaiting by remember { mutableStateOf(false) }
     var showConfirmation by remember { mutableStateOf(false) }
+    var showOverwriteWarning by remember { mutableStateOf(false) }
     var importedCount by remember { mutableStateOf(0) }
+    var importedCandidates by remember { mutableStateOf<List<RosterCandidate>>(emptyList()) }
     val autoRemind = false
     var installedRosterApps by remember { mutableStateOf(emptyList<com.playerid.app.capture.RosterApp>()) }
     var isLoadingRosterApps by remember { mutableStateOf(true) }
@@ -136,6 +139,16 @@ fun AppRosterImportScreen(
             RosterAppDetector.getInstalledRosterApps(context)
         }
         isLoadingRosterApps = false
+    }
+
+    LaunchedEffect(showConfirmation, importedCandidates) {
+        if (showConfirmation && importedCandidates.isNotEmpty()) {
+            delay(1400)
+            onImport(importedCandidates)
+            AppRosterCaptureRepository.clear()
+            showConfirmation = false
+            onBack()
+        }
     }
 
 
@@ -351,8 +364,7 @@ fun AppRosterImportScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
-                            importedCount = candidates.size
-                            showConfirmation = true
+                            showOverwriteWarning = true
                         }
                     ) {
                         Text("Import")
@@ -361,6 +373,41 @@ fun AppRosterImportScreen(
                         onClick = { AppRosterCaptureRepository.clear() }
                     ) {
                         Text("Clear")
+
+                if (showOverwriteWarning) {
+                    AlertDialog(
+                        onDismissRequest = { showOverwriteWarning = false },
+                        title = {
+                            Text(
+                                "Overwrite Existing Roster?",
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                        },
+                        text = {
+                            Text(
+                                "Importing this roster will overwrite existing roster data for $teamName. Continue?",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    importedCandidates = candidates.toList()
+                                    importedCount = importedCandidates.size
+                                    showOverwriteWarning = false
+                                    showConfirmation = true
+                                }
+                            ) {
+                                Text("Continue")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showOverwriteWarning = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
                     }
                 }
             }
@@ -397,20 +444,15 @@ fun AppRosterImportScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Text(
+                        "Closing...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onImport(candidates)
-                        AppRosterCaptureRepository.clear()
-                        showConfirmation = false
-                        onBack()
-                    }
-                ) {
-                    Text("Done")
-                }
-            }
+            confirmButton = {},
+            dismissButton = {}
         )
     }
 }

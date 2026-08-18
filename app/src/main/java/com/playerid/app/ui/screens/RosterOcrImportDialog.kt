@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.playerid.app.roster.RosterCandidate
 import com.playerid.app.roster.extractRosterCandidates
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -51,7 +52,9 @@ fun RosterOcrImportDialog(
     var candidates by remember { mutableStateOf<List<RosterCandidate>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showConfirmation by remember { mutableStateOf(false) }
+    var showOverwriteWarning by remember { mutableStateOf(false) }
     var importedCount by remember { mutableStateOf(0) }
+    var importedCandidates by remember { mutableStateOf<List<RosterCandidate>>(emptyList()) }
 
     LaunchedEffect(imageUri) {
         isProcessing = true
@@ -67,6 +70,14 @@ fun RosterOcrImportDialog(
             errorMessage = e.message ?: "Failed to read roster"
         } finally {
             isProcessing = false
+        }
+    }
+
+    LaunchedEffect(showConfirmation, importedCandidates) {
+        if (showConfirmation && importedCandidates.isNotEmpty()) {
+            delay(1400)
+            onImport(importedCandidates)
+            onDismiss()
         }
     }
 
@@ -104,6 +115,11 @@ fun RosterOcrImportDialog(
                         Text(
                             "to team $teamName",
                             style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "Closing...",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -183,20 +199,10 @@ fun RosterOcrImportDialog(
             }
         },
         confirmButton = {
-            if (showConfirmation) {
+            if (!showConfirmation) {
                 Button(
                     onClick = {
-                        onImport(candidates)
-                        onDismiss()
-                    }
-                ) {
-                    Text("Done")
-                }
-            } else {
-                Button(
-                    onClick = {
-                        importedCount = candidates.size
-                        showConfirmation = true
+                        showOverwriteWarning = true
                     },
                     enabled = candidates.isNotEmpty() && !isProcessing
                 ) {
@@ -212,4 +218,34 @@ fun RosterOcrImportDialog(
             }
         }
     )
+
+    if (showOverwriteWarning) {
+        AlertDialog(
+            onDismissRequest = { showOverwriteWarning = false },
+            title = { Text("Overwrite Existing Roster?") },
+            text = {
+                Text(
+                    "Importing this roster will overwrite existing roster data for $teamName. Continue?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        importedCandidates = candidates.toList()
+                        importedCount = importedCandidates.size
+                        showOverwriteWarning = false
+                        showConfirmation = true
+                    }
+                ) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOverwriteWarning = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }

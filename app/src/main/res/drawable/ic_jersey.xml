@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!--
+        Jersey / sports shirt silhouette:
+        Sleeves angled out from shoulders, crew neck cutout at top center.
+    -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+M8.5,2
+C8.5,2 7,4.5 4,5.5
+L2,8
+L5,9.5
+L5,21
+L19,21
+L19,9.5
+L22,8
+L20,5.5
+C17,4.5 15.5,2 15.5,2
+C15,3.5 13.5,4.5 12,4.5
+C10.5,4.5 9,3.5 8.5,2
+Z" />
+</vector>

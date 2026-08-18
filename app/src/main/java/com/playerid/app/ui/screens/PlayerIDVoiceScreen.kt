@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.shadow
@@ -438,20 +439,12 @@ fun PlayerIDVoiceScreen(
                     .padding(horizontal = horizontalPadding, vertical = verticalPadding),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(4.dp))
-
                 Box(modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(
                         onClick = { expanded = true },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(teamPrimary, CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Team: ${selectedTeam.ifBlank { "Select" }}")
                         }
                     }
@@ -479,20 +472,29 @@ fun PlayerIDVoiceScreen(
             ) {
                 Surface(
                     shape = RoundedCornerShape(24.dp),
-                    color = Color.White,
+                    color = Color.Transparent,
                     tonalElevation = 4.dp,
                     shadowElevation = 6.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(listOf(Color(0xFF0D47A1), Color(0xFF006064))),
+                                RoundedCornerShape(24.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
                     Column(
-                        modifier = Modifier.padding(vertical = 24.dp),
+                        modifier = Modifier.padding(vertical = 28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = if (isListening) teamPrimary.copy(alpha = 0.7f) else teamPrimary,
+                            color = if (isListening) Color(0xFFFF6F00).copy(alpha = 0.85f) else Color(0xFFFF6F00),
                             tonalElevation = 10.dp,
-                            shadowElevation = 10.dp,
+                            shadowElevation = 14.dp,
                             modifier = Modifier
                                 .size(micButtonSize)
                                 .clickable(enabled = !isListening) {
@@ -527,13 +529,23 @@ fun PlayerIDVoiceScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
                         Text(
-                            text = if (isListening) "Listening..." else "Tap to Speak",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium
+                            text = if (isListening) "Listening..." else "Tap to ID Player",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
                         )
+                        if (!isListening) {
+                            Text(
+                                text = "Try: \"Number 12\" or \"Who is 7?\"",
+                                color = Color.White.copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
                     }
                 }
             }

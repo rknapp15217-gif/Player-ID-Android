@@ -43,6 +43,7 @@
     
     <!-- Navigation -->
     <string name="camera_tab">Camera</string>
+    <string name="clips_tab">Plays</string>
     <string name="players_tab">Players</string>
     <string name="team_tab">My Team</string>
     <string name="admin_tab">Admin</string>
@@ -52,6 +53,10 @@
     <string name="search_players">Search players...</string>
     <string name="no_players_found">No players found</string>
     <string name="try_adjusting_search">Try adjusting your search</string>
+    <string name="no_roster_loaded">No roster loaded</string>
+    <string name="load_roster_prefix">Go to</string>
+    <string name="load_roster_link">Teams</string>
+    <string name="load_roster_suffix">to upload a roster for this team.</string>
     
     <!-- Team Management -->
     <string name="select_team">Select Your Team</string>
@@ -78,4 +83,88 @@
     <string name="ok">OK</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>
+
+    <!-- Clips upload dialog -->
+    <string name="tag_uploaded_clip">Tag uploaded play</string>
+    <string name="select_existing_opponent">Select an existing opponent:</string>
+    <string name="create_new_opponent">Create a new opponent:</string>
+    <string name="opponent">Opponent</string>
+    <string name="pick_from_list">Pick from list</string>
+    <string name="new_opponent_name">New opponent name</string>
+    <string name="new_opponent_placeholder">e.g. North Gate High</string>
+    <string name="or_label">OR</string>
+    <string name="unspecified">Unspecified</string>
+    <string name="clip_added_vs">Play added vs %1$s</string>
+    <string name="clip_added_unspecified">Play added (opponent unspecified)</string>
+    <string name="upload_clip">Upload play</string>
+
+    <!-- Camera -->
+    <string name="capture_past">Never Miss</string>
+    <string name="capture_past_recording_hint">Recording the last moments... Tap to wake UI</string>
+    <string name="capture_past_icon">Capture past mode</string>
+
+    <!-- TeamSnap -->
+    <string name="teamsnap_import_success">Imported %1$d players from TeamSnap (%2$d skipped)</string>
+
+    <!-- Accessibility -->
+    <string name="open_destination">Open destination</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_built_with_android">Built with Android</string>
+    <string name="settings_stack_summary">Using ARCore, ML Kit, CameraX, and Jetpack Compose</string>
+    <string name="open">Open</string>
+
+    <!-- App shell / More sheet -->
+    <string name="more">More</string>
+    <string name="teams">Teams</string>
+    <string name="manage_teams_and_rosters">Manage teams and rosters</string>
+    <string name="account_referrals_and_settings">Account, referrals, and app settings</string>
+
+    <!-- Clips screen -->
+    <string name="select_team_to_view_clips">Select a team to view plays</string>
+    <string name="go_to_teams">Go to Teams</string>
+    <string name="switch_team">Switch team</string>
+    <string name="all_games">All games</string>
+    <string name="choose_players">Choose players</string>
+    <string name="select_all">Select all</string>
+    <string name="clear">Clear</string>
+    <string name="my_contacts">My Contacts</string>
+    <string name="pick_contact_from_phone">Pick contact from phone</string>
+    <string name="delete_team_clips_title">Delete team plays?</string>
+    <string name="delete_team_clips_message">This removes plays associated with %1$s from your phone and clears saved mappings.</string>
+    <string name="delete_clip_title">Delete play?</string>
+    <string name="delete_clip_message">This will permanently delete %1$s from your phone.</string>
+    <string name="share_clip">Share play</string>
+
+    <!-- Team screen -->
+    <string name="join_team">Join Team</string>
+    <string name="create_team">Create Team</string>
+    <string name="selected_team">Selected team</string>
+    <string name="create_new_team">Create New Team</string>
+    <string name="import_from_teamsnap">Import from TeamSnap</string>
+    <string name="join_a_team">Join a Team</string>
+    <string name="close">Close</string>
+    <string name="search_teams">Search teams</string>
+    <string name="no_other_teams_available">No other teams available</string>
+    <string name="no_teams_match">No teams match "%1$s"</string>
+    <string name="join">Join</string>
+    <string name="import_roster">Import roster</string>
+    <string name="import_roster_help">Import your roster so Spotr can identify players and help you share the moments that matter.</string>
+    <string name="from_screenshot">From screenshot</string>
+    <string name="from_app">From app</string>
+    <string name="from_website">From website</string>
+    <string name="collapse_team">Collapse team</string>
+    <string name="back">Back</string>
+    <string name="import_team_roster">Import Team Roster</string>
+    <string name="edit_roster">Edit roster</string>
+    <string name="show_roster">Edit Current Roster (%1$d)</string>
+    <string name="hide_roster">Hide Edit Current Roster (%1$d)</string>
+    <string name="add_player_to_team">Add Team Player</string>
+    <string name="no_players">No players</string>
+    <string name="no_players_in_team">No players in %1$s yet</string>
+    <string name="add_players_prompt">Add players to start collaborating!</string>
+
+    <!-- Camera permission -->
+    <string name="grant_permissions">Grant Permissions</string>
 </resources>

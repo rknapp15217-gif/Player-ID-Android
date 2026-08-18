@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -17,6 +19,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -581,11 +584,24 @@ fun EditTeamColorsDialog(
     onDismiss: () -> Unit,
     onSave: (String, String, String, String) -> Unit
 ) {
+    val context = LocalContext.current
     var selectedHomeColorHex by remember { mutableStateOf(initialHomeColor) }
     var selectedAwayColorHex by remember { mutableStateOf(initialAwayColor) }
-    var selectedHomeJerseyColorHex by remember { mutableStateOf(initialHomeJerseyColor) }
-    var selectedAwayJerseyColorHex by remember { mutableStateOf(initialAwayJerseyColor) }
-    var activeColorTarget by remember { mutableStateOf("Theme 1") }
+    val jerseyColors = remember(teamName) {
+        val prefs = context.getSharedPreferences("team_jersey_colors", android.content.Context.MODE_PRIVATE)
+        val saved = prefs.getString(teamName, null)
+            ?.split("|")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
+        mutableStateListOf(*(
+            listOf(initialHomeJerseyColor, initialAwayJerseyColor)
+                .plus(saved)
+                .distinct()
+                .toTypedArray()
+        ))
+    }
+    var activeColorTarget by remember { mutableStateOf("Team 1") }
 
     val presetColors = listOf(
         "Navy" to "#0B3D91",
@@ -606,91 +622,150 @@ fun EditTeamColorsDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit Team Colors") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Text(
                     text = teamName,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = "Colors",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 val currentSelectedColor = when (activeColorTarget) {
-                    "Theme 1" -> selectedHomeColorHex
-                    "Theme 2" -> selectedAwayColorHex
-                    "Home Jersey" -> selectedHomeJerseyColorHex
-                    else -> selectedAwayJerseyColorHex
+                    "Team 1" -> selectedHomeColorHex
+                    "Team 2" -> selectedAwayColorHex
+                    else -> {
+                        val index = activeColorTarget.removePrefix("Jersey ").toIntOrNull()?.minus(1) ?: 0
+                        jerseyColors.getOrElse(index) { jerseyColors.firstOrNull() ?: "#FFFFFF" }
+                    }
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        "Theme 1" to selectedHomeColorHex,
-                        "Theme 2" to selectedAwayColorHex,
-                        "Home Jersey" to selectedHomeJerseyColorHex,
-                        "Away Jersey" to selectedAwayJerseyColorHex
-                    ).forEach { (label, colorHex) ->
-                        val swatchColor = Color(android.graphics.Color.parseColor(colorHex))
-                        OutlinedButton(
-                            onClick = { activeColorTarget = label },
+                Text("Team Colors", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
+                listOf(
+                    "Team 1" to selectedHomeColorHex,
+                    "Team 2" to selectedAwayColorHex
+                ).forEach { (label, colorHex) ->
+                    val swatchColor = Color(android.graphics.Color.parseColor(colorHex))
+                    OutlinedButton(
+                        onClick = { activeColorTarget = label },
+                        modifier = Modifier.fillMaxWidth(),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (activeColorTarget == label) 2.dp else 1.dp,
+                            color = if (activeColorTarget == label) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        )
+                    ) {
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = if (activeColorTarget == label) 2.dp else 1.dp,
-                                color = if (activeColorTarget == label) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                            )
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(label)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .background(swatchColor, CircleShape)
-                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                                    )
-                                    Text(colorHex, style = MaterialTheme.typography.labelSmall)
+                            Text(label)
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .background(swatchColor, CircleShape)
+                                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                            )
+                        }
+                    }
+                }
+
+                Text("Jersey Colors", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
+                jerseyColors.forEachIndexed { index, colorHex ->
+                    val label = "Jersey ${index + 1}"
+                    val swatchColor = Color(android.graphics.Color.parseColor(colorHex))
+                    OutlinedButton(
+                        onClick = { activeColorTarget = label },
+                        modifier = Modifier.fillMaxWidth(),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (activeColorTarget == label) 2.dp else 1.dp,
+                            color = if (activeColorTarget == label) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(label)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .background(swatchColor, CircleShape)
+                                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                                )
+                                if (jerseyColors.size > 1) {
+                                    TextButton(onClick = {
+                                        jerseyColors.removeAt(index)
+                                        if (activeColorTarget == label) {
+                                            activeColorTarget = "Team 1"
+                                        }
+                                    }) {
+                                        Text("Remove")
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = {
+                        if (jerseyColors.size < 4) {
+                            jerseyColors.add("#FFFFFF")
+                            activeColorTarget = "Jersey ${jerseyColors.size}"
+                        }
+                    },
+                    enabled = jerseyColors.size < 4
+                ) {
+                    Text("Add Jersey Color")
+                }
+                if (jerseyColors.size >= 4) {
+                    Text(
+                        text = "Maximum 4 jersey colors",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 TeamColorPickerField(
-                    label = "Select Color For $activeColorTarget",
+                    label = "Select Color for $activeColorTarget",
                     selectedColorHex = currentSelectedColor,
                     onColorSelected = { selectedHex ->
                         when (activeColorTarget) {
-                            "Theme 1" -> selectedHomeColorHex = selectedHex
-                            "Theme 2" -> selectedAwayColorHex = selectedHex
-                            "Home Jersey" -> selectedHomeJerseyColorHex = selectedHex
-                            "Away Jersey" -> selectedAwayJerseyColorHex = selectedHex
+                            "Team 1" -> selectedHomeColorHex = selectedHex
+                            "Team 2" -> selectedAwayColorHex = selectedHex
+                            else -> {
+                                val index = activeColorTarget.removePrefix("Jersey ").toIntOrNull()?.minus(1) ?: -1
+                                if (index in jerseyColors.indices) {
+                                    jerseyColors[index] = selectedHex
+                                }
+                            }
                         }
                     },
-                    presetColors = presetColors
+                    presetColors = presetColors,
+                    showHexValue = false
                 )
             }
         },
         confirmButton = {
             Button(
                 onClick = {
+                    val normalizedJersey = if (jerseyColors.isEmpty()) listOf("#FFFFFF") else jerseyColors.toList()
+                    context.getSharedPreferences("team_jersey_colors", android.content.Context.MODE_PRIVATE)
+                        .edit()
+                        .putString(teamName, normalizedJersey.joinToString("|"))
+                        .apply()
+
                     onSave(
                         selectedHomeColorHex,
                         selectedAwayColorHex,
-                        selectedHomeJerseyColorHex,
-                        selectedAwayJerseyColorHex
+                        normalizedJersey.getOrElse(0) { "#FFFFFF" },
+                        normalizedJersey.getOrElse(1) { normalizedJersey.firstOrNull() ?: "#FFFFFF" }
                     )
                 }
             ) {
@@ -810,7 +885,8 @@ private fun TeamColorPickerField(
     label: String,
     selectedColorHex: String,
     onColorSelected: (String) -> Unit,
-    presetColors: List<Pair<String, String>>
+    presetColors: List<Pair<String, String>>,
+    showHexValue: Boolean = true
 ) {
     var showCustom by remember { mutableStateOf(false) }
 
@@ -867,11 +943,13 @@ private fun TeamColorPickerField(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            Text(
-                text = selectedColorHex,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (showHexValue) {
+                Text(
+                    text = selectedColorHex,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
