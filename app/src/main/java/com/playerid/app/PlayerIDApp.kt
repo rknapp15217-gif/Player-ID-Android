@@ -556,7 +556,13 @@ fun PlayerIDApp() {
                     composable("settings") {
                         SettingsScreen(
                             teamViewModel = teamViewModel,
-                            playerViewModel = playerViewModel
+                            playerViewModel = playerViewModel,
+                            onNavigateToDesignExplorer = { navController.navigate("design_explorer") }
+                        )
+                    }
+                    composable("design_explorer") {
+                        DesignSystemExplorerScreen(
+                            onBack = { navController.popBackStack() }
                         )
                     }
                 }

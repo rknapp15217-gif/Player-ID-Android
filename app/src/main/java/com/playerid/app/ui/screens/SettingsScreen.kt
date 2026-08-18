@@ -15,7 +15,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SettingsScreen(
     teamViewModel: com.playerid.app.viewmodels.TeamViewModel? = null,
-    playerViewModel: com.playerid.app.viewmodels.PlayerViewModel? = null
+    playerViewModel: com.playerid.app.viewmodels.PlayerViewModel? = null,
+    onNavigateToDesignExplorer: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -141,6 +142,16 @@ fun SettingsScreen(
             )
         }
         
+        // App Info
+        SettingsSection(title = "Developer Tools") {
+            SettingsItem(
+                title = "AI UI Designer",
+                subtitle = "Generate Compose UI with ChatGPT",
+                icon = Icons.Default.AutoAwesome,
+                onClick = onNavigateToDesignExplorer
+            )
+        }
+
         // App Info
         SettingsSection(title = "About") {
             SettingsItem(
