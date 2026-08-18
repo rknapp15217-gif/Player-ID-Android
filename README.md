@@ -29,6 +29,29 @@ PlayerID is an Android application that uses **real-time augmented reality** and
 - **Room Database**: Local SQLite database with Kotlin coroutines
 - **Kotlin Coroutines & Flow**: Reactive programming for real-time data
 - **Material 3**: Google's latest design system
+- **OpenAI Chat Completions API**: AI-assisted Compose UI generation and design validation
+
+## AI UI Designer Integration
+
+The app now includes a ChatGPT-backed design module in `app/src/main/java/com/playerid/app/ui/ai/`:
+- `OpenAIClient.kt` - secure API client wrapper
+- `DesignSystemAnalyzer.kt` - extracts Spotr design tokens/components
+- `UIDesignGenerator.kt` - generates Compose screen code from requirements
+- `DesignValidator.kt` - checks generated code for design-system compliance
+- `DesignSystemPrompts.kt` - shared system + instruction prompts
+
+Use the **AI Design** route (`design_system`) to open `DesignSystemExplorer` and run:
+- design system analysis
+- AI screen generation requests
+- design consistency checks
+
+### OpenAI Key Setup (Local Development)
+
+1. Copy `.env.example` to `.env`
+2. Set `OPENAI_API_KEY`
+3. Expose the key to Gradle (environment variable or Gradle property)
+
+Do not commit real API keys.
 
 ## Requirements
 

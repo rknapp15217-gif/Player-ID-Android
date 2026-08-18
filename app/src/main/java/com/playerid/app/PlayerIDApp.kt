@@ -77,6 +77,7 @@ fun PlayerIDApp() {
     val subscriptionViewModel: SubscriptionViewModel = viewModel(
         factory = SubscriptionViewModelFactory(context)
     )
+    val authViewModel: AuthViewModel = viewModel()
     
     val database = PlayerDatabase.getDatabase(context)
     val teamSnapRepository = remember {
@@ -185,12 +186,15 @@ fun PlayerIDApp() {
         if (granted) startListening()
     }
 
-    val navItems = listOf(
-        BottomNavItem("Camera", Icons.Default.PhotoCamera, "camera"),
-        BottomNavItem("Validate", Icons.Default.CloudDownload, "validate"),
-        BottomNavItem("My Team", Icons.Default.Groups, "team"),
-        BottomNavItem("Settings", Icons.Default.Settings, "settings")
-    )
+    val navItems = buildList {
+        add(BottomNavItem("Camera", Icons.Default.PhotoCamera, "camera"))
+        add(BottomNavItem("Validate", Icons.Default.CloudDownload, "validate"))
+        add(BottomNavItem("My Team", Icons.Default.Groups, "team"))
+        add(BottomNavItem("Settings", Icons.Default.Settings, "settings"))
+        if (BuildConfig.DEBUG) {
+            add(BottomNavItem("AI Design", Icons.Default.AutoFixHigh, "design_system"))
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -556,8 +560,42 @@ fun PlayerIDApp() {
                     composable("settings") {
                         SettingsScreen(
                             teamViewModel = teamViewModel,
+                            playerViewModel = playerViewModel,
+                            onNavigateToPlayers = { navController.navigate("players") },
+                            onNavigateToAdmin = { navController.navigate("admin") },
+                            onNavigateToReferral = { navController.navigate("referral") },
+                            onNavigateToDesignSystem = { navController.navigate("design_system") }
+                        )
+                    }
+                    composable("players") {
+                        PlayersScreen(viewModel = playerViewModel)
+                    }
+                    composable("admin") {
+                        AdminScreen(
+                            authViewModel = authViewModel,
                             playerViewModel = playerViewModel
                         )
+                    }
+                    composable("referral") {
+                        ReferralScreen(
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("crowd_sourced_teams") {
+                        CrowdSourcedTeamsScreen(
+                            teamViewModel = teamViewModel,
+                            onTeamSelected = { teamName ->
+                                teamViewModel.selectTeam(teamName)
+                                playerViewModel.setSelectedTeam(teamName)
+                                navController.navigate("team") {
+                                    popUpTo("team") { inclusive = true }
+                                }
+                            },
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("design_system") {
+                        DesignSystemExplorer()
                     }
                 }
 
