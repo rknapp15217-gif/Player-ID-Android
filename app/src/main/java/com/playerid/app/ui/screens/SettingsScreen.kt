@@ -142,7 +142,7 @@ fun SettingsScreen(
             )
         }
         
-        // App Info
+        // Developer Tools
         SettingsSection(title = "Developer Tools") {
             SettingsItem(
                 title = "AI UI Designer",

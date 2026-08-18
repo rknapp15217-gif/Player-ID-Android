@@ -58,7 +58,7 @@ object DesignSystemAnalyzer {
         appendLine("- Single-activity architecture with Compose Navigation")
         appendLine("- State via ViewModel + StateFlow / collectAsState()")
         appendLine("- Kotlin coroutines for async work")
-        appendLine("- minSdk 26, targetSdk 35, Kotlin 17")
+        appendLine("- minSdk 26, targetSdk 35, Kotlin 2.1")
         appendLine()
         appendLine("=== END OF DESIGN REFERENCE ===")
     }
