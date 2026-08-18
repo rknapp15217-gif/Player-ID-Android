@@ -19,6 +19,7 @@ build/
 # Gradle files
 .gradle/
 /local.properties
+.env
 
 # Android Studio
 *.iml

@@ -77,6 +77,7 @@ fun PlayerIDApp() {
     val subscriptionViewModel: SubscriptionViewModel = viewModel(
         factory = SubscriptionViewModelFactory(context)
     )
+    val authViewModel: AuthViewModel = viewModel()
     
     val database = PlayerDatabase.getDatabase(context)
     val teamSnapRepository = remember {
@@ -189,7 +190,11 @@ fun PlayerIDApp() {
         BottomNavItem("Camera", Icons.Default.PhotoCamera, "camera"),
         BottomNavItem("Validate", Icons.Default.CloudDownload, "validate"),
         BottomNavItem("My Team", Icons.Default.Groups, "team"),
-        BottomNavItem("Settings", Icons.Default.Settings, "settings")
+        BottomNavItem("Settings", Icons.Default.Settings, "settings"),
+        BottomNavItem("Players", Icons.Default.People, "players"),
+        BottomNavItem("Admin", Icons.Default.AdminPanelSettings, "admin"),
+        BottomNavItem("Referral", Icons.Default.CardGiftcard, "referral"),
+        BottomNavItem("AI Design", Icons.Default.AutoFixHigh, "design_system")
     )
 
     ModalNavigationDrawer(
@@ -558,6 +563,36 @@ fun PlayerIDApp() {
                             teamViewModel = teamViewModel,
                             playerViewModel = playerViewModel
                         )
+                    }
+                    composable("players") {
+                        PlayersScreen(viewModel = playerViewModel)
+                    }
+                    composable("admin") {
+                        AdminScreen(
+                            authViewModel = authViewModel,
+                            playerViewModel = playerViewModel
+                        )
+                    }
+                    composable("referral") {
+                        ReferralScreen(
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("crowd_sourced_teams") {
+                        CrowdSourcedTeamsScreen(
+                            teamViewModel = teamViewModel,
+                            onTeamSelected = { teamName ->
+                                teamViewModel.selectTeam(teamName)
+                                playerViewModel.setSelectedTeam(teamName)
+                                navController.navigate("team") {
+                                    popUpTo("team") { inclusive = true }
+                                }
+                            },
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("design_system") {
+                        DesignSystemExplorer()
                     }
                 }
 

@@ -10,10 +10,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.playerid.app.data.AcademicYear
 import com.playerid.app.data.Player
+import com.playerid.app.ui.theme.FreshmanGreen
+import com.playerid.app.ui.theme.JuniorOrange
+import com.playerid.app.ui.theme.SeniorRed
+import com.playerid.app.ui.theme.SophomoreBlue
 import com.playerid.app.viewmodels.PlayerViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -136,10 +139,10 @@ fun PlayerCard(
                 
                 // Academic year with color coding
                 val yearColor = when (player.academicYear) {
-                    AcademicYear.FRESHMAN.displayName -> Color(0xFF4CAF50) // Green
-                    AcademicYear.SOPHOMORE.displayName -> Color(0xFF2196F3) // Blue
-                    AcademicYear.JUNIOR.displayName -> Color(0xFFFF9800) // Orange
-                    AcademicYear.SENIOR.displayName -> Color(0xFFf44336) // Red
+                    AcademicYear.FRESHMAN.displayName -> FreshmanGreen
+                    AcademicYear.SOPHOMORE.displayName -> SophomoreBlue
+                    AcademicYear.JUNIOR.displayName -> JuniorOrange
+                    AcademicYear.SENIOR.displayName -> SeniorRed
                     else -> MaterialTheme.colorScheme.primary
                 }
                 
