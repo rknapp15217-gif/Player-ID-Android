@@ -21,6 +21,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.playerid.app.R
+import com.playerid.app.ui.theme.SpotrPrimaryBlue
+import com.playerid.app.ui.theme.SpotrSurfaceAlpha
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,7 +40,7 @@ fun SettingsScreen(
     val selectedTeam = remember(subscribedTeams, selectedTeamName) {
         subscribedTeams.firstOrNull { it.name == selectedTeamName }
     }
-    val teamPrimary = parseSettingsColor(selectedTeam?.color, Color(0xFF1976D2))
+    val teamPrimary = parseSettingsColor(selectedTeam?.color, SpotrPrimaryBlue)
     val teamSecondary = parseSettingsColor(selectedTeam?.awayColor, Color(0xFFE3F2FD))
     val onTeamPrimary = if (teamPrimary.luminance() > 0.55f) Color.Black else Color.White
 
@@ -281,7 +283,7 @@ fun SettingsSection(
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
-                containerColor = teamSecondary.copy(alpha = 0.16f)
+                containerColor = teamSecondary.copy(alpha = SpotrSurfaceAlpha)
             )
         ) {
             Column {

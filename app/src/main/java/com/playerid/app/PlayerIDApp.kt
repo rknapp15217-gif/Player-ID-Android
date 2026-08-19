@@ -62,7 +62,6 @@ import com.playerid.app.ui.screens.WebRosterImportScreen
 import com.playerid.app.ui.screens.AppRosterImportScreen
 import com.playerid.app.ui.screens.ClipsScreenRefactored
 import com.playerid.app.ui.screens.ScheduleImportScreen
-import com.playerid.app.ui.screens.MemoryBrowsingScreen
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.playerid.app.R
@@ -306,11 +305,6 @@ fun PlayerIDApp() {
                                             navController.popBackStack()
                                         }
                                     }
-                                )
-                            }
-                            composable("memoryBrowsing") {
-                                MemoryBrowsingScreen(
-                                    onBack = { navController.popBackStack() }
                                 )
                             }
                             composable("referral") {

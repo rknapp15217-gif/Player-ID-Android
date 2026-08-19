@@ -100,6 +100,7 @@ import com.playerid.app.R
 import com.playerid.app.ar.JerseyDetectionManager
 import com.playerid.app.ui.composables.PlayerBubblesOverlay
 import com.playerid.app.ui.theme.ErrorRed
+import com.playerid.app.ui.theme.SpotrPrimaryBlue
 import com.playerid.app.ui.theme.SpotrSuccessGreen
 import com.playerid.app.utils.performRecordButtonPressHaptic
 import com.playerid.app.utils.performRecordingCapturedDoubleHaptic
@@ -303,7 +304,7 @@ fun CameraScreen(
             )
         }
     }
-    val teamPrimary = parseCameraScreenColor(selectedTeamMeta?.color, Color(0xFF1976D2))
+    val teamPrimary = parseCameraScreenColor(selectedTeamMeta?.color, SpotrPrimaryBlue)
     val teamJerseyColor = parseCameraScreenColor(
         selectedJerseyColor ?: teamJerseyOptions.firstOrNull()?.second,
         jerseyColorFromString(selectedJerseyColor)

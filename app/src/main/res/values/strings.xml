@@ -44,6 +44,7 @@
     <!-- Navigation -->
     <string name="camera_tab">Camera</string>
     <string name="clips_tab">Plays</string>
+    <string name="memories_tab">Memories</string>
     <string name="players_tab">Players</string>
     <string name="team_tab">My Team</string>
     <string name="admin_tab">Admin</string>

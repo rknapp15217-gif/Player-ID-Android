@@ -15,6 +15,7 @@ val SpotrSurfaceLight = Color(0xFFFFFFFF)
 val SpotrSurfaceDark = Color(0xFF12243A)
 val SpotrOutline = Color(0xFFD9E2EC)
 val SpotrOutlineDark = Color(0xFF29445F)
+const val SpotrSurfaceAlpha = 0.12f
 
 // Action colors
 val SuccessGreen = SpotrSuccessGreen
