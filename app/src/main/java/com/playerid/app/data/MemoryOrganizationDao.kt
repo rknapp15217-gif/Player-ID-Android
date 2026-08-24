@@ -40,6 +40,14 @@ interface MemoryOrganizationDao {
     @Query("SELECT * FROM game_schedules WHERE sportSeasonId = :sportSeasonId ORDER BY scheduledStartMs DESC")
     fun getGamesForSeason(sportSeasonId: String): Flow<List<GameSchedule>>
 
+    @Query("""
+        SELECT game_schedules.* FROM game_schedules
+        INNER JOIN sport_seasons ON sport_seasons.id = game_schedules.sportSeasonId
+        WHERE sport_seasons.teamName = :teamName AND sport_seasons.isActive = 1
+        ORDER BY game_schedules.scheduledStartMs ASC
+    """)
+    fun getGamesForTeam(teamName: String): Flow<List<GameSchedule>>
+
     @Query("SELECT * FROM game_schedules WHERE sportSeasonId = :sportSeasonId ORDER BY scheduledStartMs DESC")
     suspend fun getGamesForSeasonSnapshot(sportSeasonId: String): List<GameSchedule>
 

@@ -4,87 +4,71 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
-import com.playerid.app.R
 
-private val googleFontProvider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage = "com.google.android.gms",
-    certificates = R.array.com_google_android_gms_fonts_certs
-)
-
-private val InterFont = GoogleFont("Inter")
-private val OswaldFont = GoogleFont("Oswald")
-
-private val InterFamily = FontFamily(
-    Font(googleFont = InterFont, fontProvider = googleFontProvider, weight = FontWeight.Normal),
-    Font(googleFont = InterFont, fontProvider = googleFontProvider, weight = FontWeight.Medium),
-    Font(googleFont = InterFont, fontProvider = googleFontProvider, weight = FontWeight.SemiBold),
-    Font(googleFont = InterFont, fontProvider = googleFontProvider, weight = FontWeight.Bold)
-)
-
-private val OswaldFamily = FontFamily(
-    Font(googleFont = OswaldFont, fontProvider = googleFontProvider, weight = FontWeight.Bold)
-)
-
-// Set of Material typography styles to start with
+// Native Android typography keeps the interface familiar and respects system font scaling.
 val Typography = Typography(
     displayLarge = TextStyle(
-        fontFamily = OswaldFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 40.sp,
-        lineHeight = 46.sp
-    ),
-    headlineLarge = TextStyle(
-        fontFamily = OswaldFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 32.sp,
-        lineHeight = 38.sp
-    ),
-    headlineMedium = TextStyle(
-        fontFamily = OswaldFamily,
+        fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Bold,
         fontSize = 28.sp,
-        lineHeight = 34.sp
+        lineHeight = 34.sp,
+        letterSpacing = 0.sp
+    ),
+    headlineLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 28.sp,
+        lineHeight = 34.sp,
+        letterSpacing = 0.sp
+    ),
+    headlineMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
+        letterSpacing = 0.sp
     ),
     titleLarge = TextStyle(
-        fontFamily = InterFamily,
+        fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 28.sp
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
+        letterSpacing = 0.sp
     ),
     titleMedium = TextStyle(
-        fontFamily = InterFamily,
+        fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
         fontSize = 18.sp,
-        lineHeight = 24.sp
+        lineHeight = 24.sp,
+        letterSpacing = 0.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily = InterFamily,
+        fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 24.sp,
-        letterSpacing = 0.2.sp
+        letterSpacing = 0.sp
     ),
     bodyMedium = TextStyle(
-        fontFamily = InterFamily,
+        fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 20.sp
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
+        letterSpacing = 0.sp
     ),
     labelLarge = TextStyle(
-        fontFamily = InterFamily,
-        fontWeight = FontWeight.Medium,
-        fontSize = 13.sp,
-        lineHeight = 18.sp
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
+        letterSpacing = 0.sp
     ),
     labelSmall = TextStyle(
-        fontFamily = InterFamily,
+        fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.4.sp
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
+        letterSpacing = 0.sp
     )
 )

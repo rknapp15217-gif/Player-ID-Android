@@ -197,7 +197,8 @@ fun VideoPlaybackScreen(
     reelOpponents: List<String> = emptyList(),
     reelScenario: String? = null,
     activeReelId: String? = null,
-    onSaveAsGoatReel: ((String) -> Unit)? = null
+    onSaveAsGoatReel: ((String) -> Unit)? = null,
+    onEditReel: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1165,12 +1166,16 @@ fun VideoPlaybackScreen(
                     actions = {
                         Surface(
                             onClick = {
-                                val editUri = if (isPlaylistMode && currentVideoIndex in playlistUris.indices) {
-                                    playlistUris[currentVideoIndex]
+                                if (onEditReel != null) {
+                                    onEditReel()
                                 } else {
-                                    videoUri
+                                    val editUri = if (isPlaylistMode && currentVideoIndex in playlistUris.indices) {
+                                        playlistUris[currentVideoIndex]
+                                    } else {
+                                        videoUri
+                                    }
+                                    openVideoEditor(editUri)
                                 }
-                                openVideoEditor(editUri)
                             },
                             color = Color.Transparent,
                             modifier = Modifier.padding(end = 6.dp)
@@ -1182,12 +1187,12 @@ fun VideoPlaybackScreen(
                             ) {
                                 Icon(
                                     Icons.Default.Edit,
-                                    contentDescription = "Edit Clip",
+                                    contentDescription = if (onEditReel != null) "Edit Reel" else "Edit Clip",
                                     tint = Color.White,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
-                                    "Edit Clip",
+                                    if (onEditReel != null) "Edit Reel" else "Edit Clip",
                                     color = Color.White,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium
@@ -1623,21 +1628,6 @@ fun VideoPlaybackScreen(
                                 onDismissRequest = { showPreviewActionsMenu = false }
                             ) {
                                 if (!isReviewMode) {
-                                    DropdownMenuItem(
-                                        text = { Text("Edit") },
-                                        onClick = {
-                                            showPreviewActionsMenu = false
-                                            val editUri = if (currentVideoIndex in playlistUris.indices) {
-                                                playlistUris[currentVideoIndex]
-                                            } else {
-                                                videoUri
-                                            }
-                                            openVideoEditor(editUri)
-                                        },
-                                        leadingIcon = {
-                                            Icon(Icons.Default.Edit, contentDescription = null)
-                                        }
-                                    )
                                     DropdownMenuItem(
                                         text = { Text(voiceMemoryActionLabel) },
                                         onClick = {

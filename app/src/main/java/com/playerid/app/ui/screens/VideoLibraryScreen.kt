@@ -414,11 +414,27 @@ fun VideoLibraryScreen(
                                 .mapNotNull { id -> goatSourceVideos.firstOrNull { it.id == id } }
                                 .firstOrNull()
                             val isReelInTopPlay = reel.clipIds.isNotEmpty() && reel.clipIds.all { id -> hallOfFameClipIds.contains(id) }
+                            val reelClipDatesLabel = remember(reel.clipIds, goatSourceVideos) {
+                                reel.clipIds
+                                    .mapNotNull { id -> goatSourceVideos.firstOrNull { it.id == id }?.gameDate }
+                                    .filter { it.isNotBlank() }
+                                    .distinct()
+                                    .sorted()
+                                    .map { formatDate(it) }
+                                    .let { dates ->
+                                        when {
+                                            dates.isEmpty() -> null
+                                            dates.size <= 3 -> dates.joinToString(", ")
+                                            else -> dates.take(3).joinToString(", ") + " +${dates.size - 3}"
+                                        }
+                                    }
+                            }
                             SavedReelCard(
                                 reel = reel,
                                 thumbnailPath = reelPreviewVideo?.filePath,
                                 durationMillis = reelPreviewVideo?.duration,
                                 isInTopPlay = isReelInTopPlay,
+                                clipDatesLabel = reelClipDatesLabel,
                                 onPlayClick = { onPlaySavedReel(reel) },
                                 onShareClick = { onShareSavedReel(reel) },
                                 onToggleTopPlay = { onToggleSavedReelTopPlay(reel) },
@@ -1383,6 +1399,7 @@ private fun SavedReelCard(
     thumbnailPath: String?,
     durationMillis: Long?,
     isInTopPlay: Boolean,
+    clipDatesLabel: String?,
     onPlayClick: () -> Unit,
     onShareClick: () -> Unit,
     onToggleTopPlay: () -> Unit,
@@ -1816,79 +1833,6 @@ private fun SavedReelCard(
                             .size(28.dp)
                     )
                 }
-
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.50f))
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
-                            .clip(RoundedCornerShape(999.dp))
-                            .clickable {
-                                if (hasVoiceMemoryAttachment) {
-                                    toggleVoiceMemoryPlayback()
-                                } else {
-                                    val permissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                                    if (!permissionGranted) {
-                                        voiceMemoryPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                    } else {
-                                        showVoiceMemoryDialog = true
-                                    }
-                                }
-                            }
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                                Icons.Default.Mic,
-                                contentDescription = "Add or edit memory",
-                                tint = if (hasVoiceMemoryAttachment) Color(0xFF2E7D32) else Color.White,
-                                modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                                text = if (hasVoiceMemoryAttachment) "Memory" else "Add Memory",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            maxLines = 1,
-                            fontSize = 11.sp
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
-                            .clip(RoundedCornerShape(999.dp))
-                            .clickable { onToggleTopPlay() }
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            if (isInTopPlay) Icons.Default.Star else Icons.Outlined.StarBorder,
-                            contentDescription = if (isInTopPlay) "In top plays" else "Add to top plays",
-                            tint = if (isInTopPlay) Color(0xFFE0B13F) else Color.White,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = "Top Play",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            maxLines = 1,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
             }
 
             Column(
@@ -1910,8 +1854,82 @@ private fun SavedReelCard(
                     }
                 )
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(999.dp))
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable {
+                                if (hasVoiceMemoryAttachment) {
+                                    toggleVoiceMemoryPlayback()
+                                } else {
+                                    val permissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                                    if (!permissionGranted) {
+                                        voiceMemoryPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    } else {
+                                        showVoiceMemoryDialog = true
+                                    }
+                                }
+                            }
+                            .padding(horizontal = 8.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Mic,
+                            contentDescription = "Add or edit memory",
+                            tint = if (hasVoiceMemoryAttachment) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (hasVoiceMemoryAttachment) "Memory" else "Add Memory",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(999.dp))
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable { onToggleTopPlay() }
+                            .padding(horizontal = 8.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            if (isInTopPlay) Icons.Default.Star else Icons.Outlined.StarBorder,
+                            contentDescription = if (isInTopPlay) "In top plays" else "Add to top plays",
+                            tint = if (isInTopPlay) Color(0xFFE0B13F) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Top Play",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
                 Text(
-                    text = "${reel.clipIds.size} clip${if (reel.clipIds.size == 1) "" else "s"}",
+                    text = buildString {
+                        append("${reel.clipIds.size} clip${if (reel.clipIds.size == 1) "" else "s"}")
+                        if (!clipDatesLabel.isNullOrBlank()) {
+                            append(" • ")
+                            append(clipDatesLabel)
+                        }
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

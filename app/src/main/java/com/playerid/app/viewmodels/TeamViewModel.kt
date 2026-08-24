@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import com.playerid.app.data.*
 import java.util.UUID
@@ -18,6 +19,7 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     private val teamDao = database.teamDao()
     private val playerDao = database.playerDao()
     private val subscriptionDao = database.userTeamSubscriptionDao()
+    private val memoryOrganizationDao = database.memoryOrganizationDao()
     private val prefs = application.getSharedPreferences("team_selection", Context.MODE_PRIVATE)
 
     private val _kidOptions = MutableStateFlow(listOf("Tyson", "Brooklyn"))
@@ -56,6 +58,9 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     // All team names for duplicate detection
     private val _allTeamNames = MutableStateFlow<List<String>>(emptyList())
     val allTeamNames: StateFlow<List<String>> = _allTeamNames.asStateFlow()
+
+    fun getGamesForTeam(teamName: String): Flow<List<GameSchedule>> =
+        memoryOrganizationDao.getGamesForTeam(teamName)
 
     init {
         viewModelScope.launch {

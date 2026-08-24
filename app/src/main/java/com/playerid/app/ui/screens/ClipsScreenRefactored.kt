@@ -17,20 +17,24 @@ import android.provider.MediaStore
 import android.util.Log
 import android.util.Size
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
@@ -41,22 +45,39 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.ExpandLess
@@ -64,8 +85,14 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -77,13 +104,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -100,7 +132,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -111,9 +146,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
@@ -124,6 +163,9 @@ import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import com.playerid.app.data.VideoClip
 import com.playerid.app.reelVideoRelativePathsForRestoredClips
+import com.playerid.app.ui.icons.CrossedLacrosseSticksIcon
+import com.playerid.app.ui.icons.GroundBallIcon
+import com.playerid.app.ui.icons.StopSignIcon
 import com.playerid.app.viewmodels.TeamViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -141,7 +183,17 @@ import org.json.JSONObject
 
 private const val NO_OPPONENT_FILTER_RESTORED = "No opponent specified"
 private val PlaysAccentColor = com.playerid.app.ui.theme.SpotrHighlightOrange
+private val OpponentGroupColor = Color(0xFF3676B8)
 private val RestoredSwipeActionWidth = 118.dp
+private val PrimaryClipsControlHeight = 48.dp
+private val DefaultMomentTags = listOf(
+    "Score",
+    "Assist",
+    "Save",
+    "Defensive Stop",
+    "Faceoff Win",
+    "Ground Ball"
+)
 private const val CLIP_COMMENTARY_PREFS = "video_clip_commentary"
 private const val CLIP_CUSTOM_TAGS_PREFS = "video_clip_custom_tags"
 private const val REEL_BUILD_TIMEOUT_MS = 180_000L
@@ -165,6 +217,17 @@ private data class OpponentFilterOption(
     val label: String
 )
 
+private fun isReelTaggedClip(clip: VideoClip): Boolean {
+    return clip.momentTag?.startsWith("Reel:", ignoreCase = true) == true ||
+        clip.gameTitle.startsWith("Spotr-Reel", ignoreCase = true) ||
+        clip.gameTitle.startsWith("Reel:", ignoreCase = true)
+}
+
+private fun reelDisplayTitleForClip(clip: VideoClip): String {
+    val raw = (clip.momentTag?.takeIf { it.isNotBlank() } ?: clip.gameTitle).trim()
+    return if (raw.startsWith("Reel:", ignoreCase = true)) raw.substring(5).trim() else raw
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClipsScreenRefactored(
@@ -175,30 +238,28 @@ fun ClipsScreenRefactored(
     val context = androidx.compose.ui.platform.LocalContext.current
     val cameraTeam by teamViewModel.selectedTeam.collectAsState()
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
-    val kidOptions by teamViewModel.kidOptions.collectAsState()
     val scope = rememberCoroutineScope()
 
     var localTeamName by remember { mutableStateOf<String?>(null) }
     var clips by remember { mutableStateOf<List<VideoClip>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
-    var showFiltersMenu by remember { mutableStateOf(false) }
     var showAllTeams by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    val filterListState = rememberLazyListState()
-    var expandedKidSection by remember { mutableStateOf(false) }
-    var expandedSeasonSection by remember { mutableStateOf(false) }
-    var expandedTeamSection by remember { mutableStateOf(false) }
-    var expandedOpponentSection by remember { mutableStateOf(false) }
-    var pendingRevealSection by remember { mutableStateOf<String?>(null) }
-    val playerOptionsRequester = remember { BringIntoViewRequester() }
-    val seasonOptionsRequester = remember { BringIntoViewRequester() }
-    val teamOptionsRequester = remember { BringIntoViewRequester() }
-    val opponentOptionsRequester = remember { BringIntoViewRequester() }
+    var showTeamFilterMenu by remember { mutableStateOf(false) }
+    var showPlayerFilterMenu by remember { mutableStateOf(false) }
+    var showSeasonFilterMenu by remember { mutableStateOf(false) }
+    var showOpponentFilterMenu by remember { mutableStateOf(false) }
     var selectedKid by remember(localTeamName) { mutableStateOf<String?>(null) }
     var selectedSeasonKey by remember(localTeamName) { mutableStateOf<String?>(null) }
     var selectedOpponentKey by remember(localTeamName) { mutableStateOf<String?>(null) }
     var showReelsOnly by remember(localTeamName) { mutableStateOf(false) }
+    var useGridView by rememberSaveable { mutableStateOf(false) }
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
+    var editingClip by remember { mutableStateOf<VideoClip?>(null) }
+    var editingClipAllowsTrim by remember { mutableStateOf(true) }
+    var isTrimmingClip by remember { mutableStateOf(false) }
+    var editingReelClip by remember { mutableStateOf<VideoClip?>(null) }
+    var isRebuildingReel by remember { mutableStateOf(false) }
     var videoToDelete by remember { mutableStateOf<VideoClip?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var isBuildingReel by remember { mutableStateOf(false) }
@@ -206,6 +267,9 @@ fun ClipsScreenRefactored(
     var completedReelUri by remember { mutableStateOf<Uri?>(null) }
     var reelSelectionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var reelNameInput by remember { mutableStateOf("") }
+    var draftReelIds by remember { mutableStateOf<List<String>?>(null) }
+    var reelEditorSelectionIdsOverride by remember { mutableStateOf<List<String>?>(null) }
+    var reelSelectionEditTarget by remember { mutableStateOf<VideoClip?>(null) }
     val toggleReelClipSelection: (String) -> Unit = { clipId ->
         reelSelectionIds = if (reelSelectionIds.contains(clipId)) {
             reelSelectionIds - clipId
@@ -297,47 +361,66 @@ fun ClipsScreenRefactored(
     val kidLookup = remember(clips) {
         buildRestoredClipKidLookup(context, clips)
     }
-    val availableKidOptions = remember(kidOptions, clips, kidLookup) {
-        val lookupKids = clips
-            .mapNotNull { clip -> kidLookup[clip.id] }
-            .distinctBy { it.lowercase() }
-            .sortedBy { it.lowercase() }
-        if (kidOptions.isEmpty()) lookupKids else kidOptions
-    }
-    val kidFilter = selectedKid?.trim().orEmpty()
-    val kidScopedVideos = remember(clips, kidLookup, kidFilter) {
-        if (kidFilter.isEmpty()) {
-            clips
-        } else {
-            clips.filter { clip ->
-                kidLookup[clip.id]?.equals(kidFilter, ignoreCase = true) == true
-            }
+    val clipsById = remember(clips) { clips.associateBy { it.id } }
+    val reelIncludedClipIds = remember(clips) {
+        clips.filter(::isReelTaggedClip).associate { reelClip ->
+            val ids = resolveClipUriForReel(reelClip.filePath)?.let { uri -> loadReelClipIds(context, uri) }.orEmpty()
+            reelClip.id to ids
         }
     }
-    val availableSeasons = remember(kidScopedVideos) {
-        kidScopedVideos
-            .mapNotNull { clip -> parseRestoredSeasonKey(clip.gameDate) }
+    val kidFilter = selectedKid?.trim().orEmpty()
+    fun opponentKeyOfId(id: String): String =
+        opponentLookup[id]?.trim()?.takeIf(String::isNotEmpty)?.lowercase() ?: NO_OPPONENT_FILTER_RESTORED
+    fun opponentKeyOf(clip: VideoClip): String = opponentKeyOfId(clip.id)
+    // Reels don't carry their own kid/season/opponent tags, so a reel matches a facet if ANY of its
+    // included source clips does (e.g. selecting "Brooklyn" surfaces every reel containing her clips).
+    fun clipMatchesKid(clip: VideoClip): Boolean {
+        if (kidFilter.isEmpty()) return true
+        if (isReelTaggedClip(clip)) {
+            return reelIncludedClipIds[clip.id].orEmpty().any { id -> kidLookup[id]?.equals(kidFilter, ignoreCase = true) == true }
+        }
+        return kidLookup[clip.id]?.equals(kidFilter, ignoreCase = true) == true
+    }
+    fun clipMatchesSeason(clip: VideoClip): Boolean {
+        if (selectedSeasonKey == null) return true
+        if (isReelTaggedClip(clip)) {
+            return reelIncludedClipIds[clip.id].orEmpty().any { id ->
+                clipsById[id]?.gameDate?.let { parseRestoredSeasonKey(it)?.key == selectedSeasonKey } == true
+            }
+        }
+        return parseRestoredSeasonKey(clip.gameDate)?.key == selectedSeasonKey
+    }
+    fun clipMatchesOpponent(clip: VideoClip): Boolean {
+        if (selectedOpponentKey == null) return true
+        if (isReelTaggedClip(clip)) {
+            return reelIncludedClipIds[clip.id].orEmpty().any { id -> opponentKeyOfId(id) == selectedOpponentKey }
+        }
+        return opponentKeyOf(clip) == selectedOpponentKey
+    }
+
+    // Each facet's options only reflect clips that satisfy the OTHER active facets, so unavailable
+    // combinations (e.g. a player with no clips against the currently selected opponent) drop out.
+    val availableKidOptions = remember(clips, kidLookup, selectedSeasonKey, selectedOpponentKey, opponentLookup) {
+        clips
+            .filterNot(::isReelTaggedClip)
+            .filter { clipMatchesSeason(it) && clipMatchesOpponent(it) }
+            .mapNotNull { kidLookup[it.id]?.trim()?.takeIf(String::isNotEmpty) }
+            .distinctBy { it.lowercase() }
+            .sortedBy { it.lowercase() }
+    }
+    val availableSeasons = remember(clips, kidLookup, kidFilter, selectedOpponentKey, opponentLookup) {
+        clips
+            .filterNot(::isReelTaggedClip)
+            .filter { clipMatchesKid(it) && clipMatchesOpponent(it) }
+            .mapNotNull { parseRestoredSeasonKey(it.gameDate) }
             .distinctBy { it.key }
             .sortedByDescending { it.startYear }
     }
-    val seasonScopedVideos = remember(kidScopedVideos, selectedSeasonKey) {
-        if (selectedSeasonKey == null) {
-            kidScopedVideos
-        } else {
-            kidScopedVideos.filter { clip ->
-                parseRestoredSeasonKey(clip.gameDate)?.key == selectedSeasonKey
-            }
-        }
-    }
-    val availableOpponents = remember(seasonScopedVideos, opponentLookup) {
-        seasonScopedVideos
-            .groupBy { clip ->
-                opponentLookup[clip.id]
-                    ?.trim()
-                    ?.takeIf(String::isNotEmpty)
-                    ?.lowercase()
-                    ?: NO_OPPONENT_FILTER_RESTORED
-            }
+    val availableOpponents = remember(clips, kidLookup, kidFilter, selectedSeasonKey, opponentLookup) {
+        clips
+            .filterNot(::isReelTaggedClip)
+            .filter { clipMatchesKid(it) && clipMatchesSeason(it) }
+            .groupBy { clip -> opponentKeyOf(clip) }
             .map { (key, videosForOpponent) ->
                 val label = videosForOpponent
                     .firstNotNullOfOrNull { clip -> opponentLookup[clip.id]?.trim()?.takeIf(String::isNotEmpty) }
@@ -348,31 +431,13 @@ fun ClipsScreenRefactored(
             }
             .sortedBy { it.label.lowercase() }
     }
-    val opponentScopedVideos = remember(seasonScopedVideos, opponentLookup, selectedOpponentKey) {
-        if (selectedOpponentKey == null) {
-            seasonScopedVideos
-        } else {
-            seasonScopedVideos.filter { clip ->
-                val opponentKey = opponentLookup[clip.id]
-                    ?.trim()
-                    ?.takeIf(String::isNotEmpty)
-                    ?.lowercase()
-                    ?: NO_OPPONENT_FILTER_RESTORED
-                opponentKey == selectedOpponentKey
-            }
-        }
+    val opponentScopedVideos = remember(clips, kidLookup, kidFilter, selectedSeasonKey, selectedOpponentKey, opponentLookup, reelIncludedClipIds, clipsById) {
+        clips.filter { clipMatchesKid(it) && clipMatchesSeason(it) && clipMatchesOpponent(it) }
     }
     val reelScopedVideos = remember(clips, opponentScopedVideos, showReelsOnly, showReelPickerDialog) {
-        fun isReelClip(clip: VideoClip): Boolean {
-            return clip.momentTag?.startsWith("Reel:", ignoreCase = true) == true ||
-                clip.gameTitle.startsWith("Spotr-Reel", ignoreCase = true) ||
-                clip.gameTitle.startsWith("Reel:", ignoreCase = true)
-        }
-
         when {
-            showReelPickerDialog -> opponentScopedVideos.filterNot(::isReelClip)
-            !showReelsOnly -> opponentScopedVideos
-            else -> opponentScopedVideos.filter(::isReelClip)
+            showReelsOnly -> opponentScopedVideos.filter(::isReelTaggedClip)
+            else -> opponentScopedVideos.filterNot(::isReelTaggedClip)
         }
     }
     val searchedVideos = remember(reelScopedVideos, searchQuery, kidLookup, opponentLookup) {
@@ -383,8 +448,40 @@ fun ClipsScreenRefactored(
             opponentLookup = opponentLookup
         )
     }
-    val visibleSections = remember(searchedVideos, opponentLookup) {
-        buildRestoredClipListSectionsForAllGames(searchedVideos, opponentLookup)
+    // Fraction of a reel's included clips that satisfy the active filters, so a reel that's entirely
+    // one opponent/player/season ranks above one with only a single matching clip.
+    fun reelMatchScore(clip: VideoClip): Double {
+        val includedIds = reelIncludedClipIds[clip.id].orEmpty()
+        if (includedIds.isEmpty()) return 0.0
+        val matchingCount = includedIds.count { id ->
+            val matchesKid = kidFilter.isEmpty() || kidLookup[id]?.equals(kidFilter, ignoreCase = true) == true
+            val matchesSeason = selectedSeasonKey == null ||
+                clipsById[id]?.gameDate?.let { parseRestoredSeasonKey(it)?.key == selectedSeasonKey } == true
+            val matchesOpponent = selectedOpponentKey == null || opponentKeyOfId(id) == selectedOpponentKey
+            matchesKid && matchesSeason && matchesOpponent
+        }
+        return matchingCount.toDouble() / includedIds.size.toDouble()
+    }
+    val visibleSections = remember(
+        searchedVideos,
+        opponentLookup,
+        showReelsOnly,
+        kidFilter,
+        selectedSeasonKey,
+        selectedOpponentKey,
+        reelIncludedClipIds,
+        clipsById,
+        kidLookup
+    ) {
+        val reelFiltersActive = showReelsOnly && (kidFilter.isNotEmpty() || selectedSeasonKey != null || selectedOpponentKey != null)
+        buildRestoredClipListSectionsForAllGames(
+            searchedVideos,
+            opponentLookup,
+            groupByOpponent = !showReelsOnly,
+            reelSortOverride = if (reelFiltersActive) { videos ->
+                videos.sortedWith(compareByDescending<VideoClip> { reelMatchScore(it) }.thenByDescending { it.createdAt })
+            } else null
+        )
     }
     val visibleVideos = remember(visibleSections) {
         visibleSections.flatMap { it.videos }
@@ -405,23 +502,205 @@ fun ClipsScreenRefactored(
         }
     }
 
-    LaunchedEffect(pendingRevealSection) {
-        val sectionToReveal = pendingRevealSection ?: return@LaunchedEffect
-        pendingRevealSection = null
-        delay(150)
-        when (sectionToReveal) {
-            "player" -> playerOptionsRequester.bringIntoView()
-            "season" -> seasonOptionsRequester.bringIntoView()
-            "team" -> teamOptionsRequester.bringIntoView()
-            "opponent" -> opponentOptionsRequester.bringIntoView()
-        }
-    }
-
     selectedVideoUri?.let { videoUri ->
+        val matchingReelClip = clips.firstOrNull { clip ->
+            isReelTaggedClip(clip) && resolveClipUriForReel(clip.filePath) == videoUri
+        }
         VideoPlaybackScreen(
             videoUri = videoUri,
             detectedPlayers = emptyList(),
-            onNavigateBack = { selectedVideoUri = null }
+            onNavigateBack = { selectedVideoUri = null },
+            onEditReel = matchingReelClip?.let { reelClip ->
+                {
+                    selectedVideoUri = null
+                    editingReelClip = reelClip
+                }
+            }
+        )
+        return
+    }
+
+    val reloadClipsForCurrentScope: suspend () -> Unit = {
+        if (showAllTeams) {
+            clips = subscribedTeams
+                .flatMap { team -> loadRestoredClips(context, team.name) }
+                .distinctBy { it.id }
+                .sortedByDescending { it.createdAt }
+        } else {
+            localTeamName?.let { teamName -> clips = loadRestoredClips(context, teamName) }
+        }
+    }
+
+    editingClip?.let { pending ->
+        val target = clips.firstOrNull { it.id == pending.id } ?: pending
+        ClipEditorScreen(
+            clip = target,
+            isTrimming = isTrimmingClip,
+            allowTrim = editingClipAllowsTrim,
+            onClose = { editingClip = null },
+            onSaveTrim = { startMs, endMs ->
+                scope.launch {
+                    isTrimmingClip = true
+                    try {
+                        Toast.makeText(context, "Trimming clip...", Toast.LENGTH_SHORT).show()
+                        val trimmedUri = trimClipToNewVideo(context, target, startMs, endMs)
+                        if (trimmedUri != null) {
+                            copyClipMetadataForTrim(context, target, trimmedUri, localTeamName)
+                            reloadClipsForCurrentScope()
+                            Toast.makeText(context, "Trimmed clip saved", Toast.LENGTH_SHORT).show()
+                            editingClip = null
+                        } else {
+                            Toast.makeText(context, "Could not trim this clip", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (t: Throwable) {
+                        Log.e("ClipsScreenRefactored", "Saving trimmed clip failed", t)
+                        Toast.makeText(context, "Could not save trimmed clip", Toast.LENGTH_SHORT).show()
+                    } finally {
+                        isTrimmingClip = false
+                    }
+                }
+            }
+        )
+        return
+    }
+
+    draftReelIds?.let { selectedIds ->
+        val availableClipsForReel = clips.filterNot(::isReelTaggedClip)
+        val defaultTitle = reelNameInput.trim().ifBlank {
+            localTeamName?.let { "$it Highlight Reel" } ?: "Highlight Reel"
+        }
+        EditReelScreen(
+            reelClip = null,
+            initialSelectedIds = selectedIds,
+            initialTitle = defaultTitle,
+            availableClips = availableClipsForReel,
+            kidLookup = kidLookup,
+            opponentLookup = opponentLookup,
+            isSaving = isBuildingReel,
+            onAddClips = { orderedIds, title ->
+                reelEditorSelectionIdsOverride = orderedIds
+                reelSelectionIds = orderedIds.toSet()
+                reelNameInput = title
+                draftReelIds = null
+                showReelPickerDialog = true
+            },
+            onClose = {
+                draftReelIds = null
+                showReelPickerDialog = true
+            },
+            onSave = { orderedIds, newTitle ->
+                val selectedTeamName = localTeamName
+                if (selectedTeamName.isNullOrBlank()) {
+                    Toast.makeText(context, "Select a team first", Toast.LENGTH_SHORT).show()
+                } else {
+                    scope.launch {
+                        isBuildingReel = true
+                        try {
+                            val orderedClips = orderedIds.mapNotNull { id -> clips.firstOrNull { it.id == id } }
+                            val clipUris = orderedClips.mapNotNull { resolveClipUriForReel(it.filePath) }
+                            if (clipUris.size != orderedClips.size || clipUris.isEmpty()) {
+                                Toast.makeText(context, "Some selected clips are unavailable", Toast.LENGTH_SHORT).show()
+                                return@launch
+                            }
+                            val reelUri = buildShareableReelForRefactored(
+                                context = context,
+                                clipUris = clipUris,
+                                reelTitle = newTitle,
+                                teamName = selectedTeamName,
+                                opponentName = null,
+                                scenario = "top_plays"
+                            )
+                            if (reelUri != null) {
+                                persistReelClipSummary(context, reelUri, orderedClips)
+                                persistReelClipIds(context, reelUri, orderedIds)
+                                reloadClipsForCurrentScope()
+                                completedReelUri = reelUri
+                                draftReelIds = null
+                                reelSelectionIds = emptySet()
+                                Toast.makeText(context, "Reel saved to Movies/Spotr", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Unable to build reel video", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (t: Throwable) {
+                            Log.e("ClipsScreenRefactored", "Make Reel failed", t)
+                            Toast.makeText(context, "Reel creation failed", Toast.LENGTH_SHORT).show()
+                        } finally {
+                            isBuildingReel = false
+                        }
+                    }
+                }
+            }
+        )
+        return
+    }
+
+    editingReelClip?.let { reelTarget ->
+        val availableClipsForReel = clips.filterNot(::isReelTaggedClip)
+        val initialSelectedIds = remember(reelTarget.id, reelTarget.filePath) {
+            reelEditorSelectionIdsOverride
+                ?: resolveClipUriForReel(reelTarget.filePath)?.let { uri -> loadReelClipIds(context, uri) }
+                ?.takeIf { it.isNotEmpty() }
+                ?: listOf(reelTarget.id)
+        }
+        EditReelScreen(
+            reelClip = reelTarget,
+            initialSelectedIds = initialSelectedIds,
+            initialTitle = reelNameInput.takeIf { reelEditorSelectionIdsOverride != null && it.isNotBlank() }
+                ?: reelDisplayTitleForClip(reelTarget),
+            availableClips = availableClipsForReel,
+            kidLookup = kidLookup,
+            opponentLookup = opponentLookup,
+            isSaving = isRebuildingReel,
+            onAddClips = { orderedIds, title ->
+                reelEditorSelectionIdsOverride = orderedIds
+                reelSelectionIds = orderedIds.toSet()
+                reelNameInput = title
+                reelSelectionEditTarget = reelTarget
+                editingReelClip = null
+                showReelsOnly = false
+                showReelPickerDialog = true
+            },
+            onClose = { editingReelClip = null },
+            onSave = { orderedIds, newTitle ->
+                scope.launch {
+                    isRebuildingReel = true
+                    try {
+                        val orderedClips = orderedIds.mapNotNull { id -> clips.firstOrNull { it.id == id } }
+                        val clipUris = orderedClips.mapNotNull { resolveClipUriForReel(it.filePath) }
+                        if (clipUris.isEmpty()) {
+                            Toast.makeText(context, "Select at least one clip", Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+                        val newReelUri = buildShareableReelForRefactored(
+                            context = context,
+                            clipUris = clipUris,
+                            reelTitle = newTitle,
+                            teamName = localTeamName,
+                            opponentName = null,
+                            scenario = "top_plays"
+                        )
+                        if (newReelUri != null) {
+                            persistReelClipSummary(context, newReelUri, orderedClips)
+                            persistReelClipIds(context, newReelUri, orderedIds)
+                            resolveClipUriForReel(reelTarget.filePath)?.let { oldUri ->
+                                runCatching { context.contentResolver.delete(oldUri, null, null) }
+                                context.getSharedPreferences(CLIP_COMMENTARY_PREFS, android.content.Context.MODE_PRIVATE).edit().remove(oldUri.toString()).apply()
+                            }
+                            reloadClipsForCurrentScope()
+                            Toast.makeText(context, "Reel updated", Toast.LENGTH_SHORT).show()
+                            reelEditorSelectionIdsOverride = null
+                            editingReelClip = null
+                        } else {
+                            Toast.makeText(context, "Unable to update reel", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (t: Throwable) {
+                        Log.e("ClipsScreenRefactored", "Reel update failed", t)
+                        Toast.makeText(context, "Unable to update reel", Toast.LENGTH_SHORT).show()
+                    } finally {
+                        isRebuildingReel = false
+                    }
+                }
+            }
         )
         return
     }
@@ -457,44 +736,102 @@ fun ClipsScreenRefactored(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp),
+                    .padding(bottom = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = null)
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotBlank()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
-                            }
-                        }
-                    },
-                    placeholder = { Text("Search clips...", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    shape = RoundedCornerShape(14.dp)
-                )
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    onClick = { uploadLauncher.launch(arrayOf("video/*")) }
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(PrimaryClipsControlHeight),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                 ) {
-                    Box(
-                        modifier = Modifier.size(42.dp),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
-                            Icons.Default.FileDownload,
-                            contentDescription = "Import clip from phone",
+                            Icons.Default.Search,
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(15.dp)
                         )
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Find a memory",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+                            )
+                        }
+                        if (searchQuery.isNotBlank()) {
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = "Clear search",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable { searchQuery = "" }
+                            )
+                        }
+                    }
+                }
+                Surface(
+                    modifier = Modifier
+                        .width(PrimaryClipsControlHeight)
+                        .height(PrimaryClipsControlHeight),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    onClick = { useGridView = !useGridView }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (useGridView) {
+                                Icons.AutoMirrored.Filled.ViewList
+                            } else {
+                                Icons.Default.GridView
+                            },
+                            contentDescription = if (useGridView) "List view" else "Grid view",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                if (!showReelPickerDialog) {
+                    Surface(
+                        modifier = Modifier.height(PrimaryClipsControlHeight),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { uploadLauncher.launch(arrayOf("video/*")) }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(PrimaryClipsControlHeight)
+                                .fillMaxHeight(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.FileDownload,
+                                contentDescription = "Import clip from phone",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -502,386 +839,234 @@ fun ClipsScreenRefactored(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 2.dp),
+                    .horizontalScroll(rememberScrollState())
+                    .padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box {
+                    FilterMenuLabel(
+                        label = selectedKid ?: "Player",
+                        isActive = selectedKid != null,
+                        onClick = { showPlayerFilterMenu = true }
+                    )
+                    DropdownMenu(expanded = showPlayerFilterMenu, onDismissRequest = { showPlayerFilterMenu = false }) {
+                        DropdownMenuItem(text = { Text("All players") }, onClick = { selectedKid = null; showPlayerFilterMenu = false })
+                        availableKidOptions.forEach { kidName ->
+                            DropdownMenuItem(
+                                text = { Text(kidName) },
+                                onClick = {
+                                    selectedKid = kidName
+                                    localTeamName?.let { teamViewModel.selectKidForTeam(it, kidName) }
+                                    showPlayerFilterMenu = false
+                                }
+                            )
+                        }
+                    }
+                }
+                Box {
+                    FilterMenuLabel(
+                        label = availableSeasons.firstOrNull { it.key == selectedSeasonKey }?.label ?: "Season",
+                        isActive = selectedSeasonKey != null,
+                        onClick = { showSeasonFilterMenu = true }
+                    )
+                    DropdownMenu(expanded = showSeasonFilterMenu, onDismissRequest = { showSeasonFilterMenu = false }) {
+                        DropdownMenuItem(text = { Text("All seasons") }, onClick = { selectedSeasonKey = null; showSeasonFilterMenu = false })
+                        availableSeasons.forEach { season ->
+                            DropdownMenuItem(
+                                text = { Text(season.label) },
+                                onClick = { selectedSeasonKey = season.key; showSeasonFilterMenu = false }
+                            )
+                        }
+                    }
+                }
+                if (subscribedTeams.size > 1) {
+                    Box {
+                        FilterMenuLabel(
+                            label = if (showAllTeams) "All Clubs" else localTeamName ?: "Club",
+                            isActive = !showAllTeams,
+                            onClick = { showTeamFilterMenu = true }
+                        )
+                        DropdownMenu(expanded = showTeamFilterMenu, onDismissRequest = { showTeamFilterMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("All clubs") },
+                                onClick = {
+                                    showAllTeams = true
+                                    showTeamFilterMenu = false
+                                }
+                            )
+                            subscribedTeams.forEach { team ->
+                                DropdownMenuItem(
+                                    text = { Text(team.name) },
+                                    onClick = {
+                                        localTeamName = team.name
+                                        showAllTeams = false
+                                        selectedKid = teamViewModel.getSelectedKidForTeam(team.name)
+                                        showTeamFilterMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                Box {
+                    FilterMenuLabel(
+                        label = availableOpponents.firstOrNull { it.key == selectedOpponentKey }?.label ?: "Opponent",
+                        isActive = selectedOpponentKey != null,
+                        onClick = { showOpponentFilterMenu = true }
+                    )
+                    DropdownMenu(expanded = showOpponentFilterMenu, onDismissRequest = { showOpponentFilterMenu = false }) {
+                        DropdownMenuItem(text = { Text("All opponents") }, onClick = { selectedOpponentKey = null; showOpponentFilterMenu = false })
+                        availableOpponents.forEach { opponent ->
+                            DropdownMenuItem(
+                                text = { Text(opponent.label) },
+                                onClick = { selectedOpponentKey = opponent.key; showOpponentFilterMenu = false }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                        .padding(top = 0.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                FilterChip(
-                    selected = selectedSeasonKey != null || selectedOpponentKey != null || selectedKid != null,
-                    onClick = {
-                        if (showFiltersMenu) {
-                            showFiltersMenu = false
-                        } else {
-                            expandedKidSection = false
-                            expandedSeasonSection = false
-                            expandedTeamSection = false
-                            expandedOpponentSection = false
-                            showFiltersMenu = true
-                        }
-                    },
-                    label = {
-                        Text(
-                            "Filters",
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
-                    },
-                    trailingIcon = {
-                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp))
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        selectedLabelColor = MaterialTheme.colorScheme.primary,
-                        selectedLeadingIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTrailingIconColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                if (!showReelPickerDialog) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(3.dp),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            FilterChip(
-                                selected = !showReelsOnly,
-                                enabled = !isBuildingReel,
-                                onClick = {
-                                    showReelsOnly = false
-                                    showReelPickerDialog = false
-                                },
-                                label = { Text("Clips") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary
-                                )
-                            )
-                            FilterChip(
-                                selected = showReelsOnly,
-                                enabled = !isBuildingReel,
-                                onClick = {
-                                    showReelsOnly = true
-                                    showReelPickerDialog = false
-                                },
-                                label = { Text("Reels") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary
-                                )
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color.Transparent
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    if (showReelPickerDialog) {
-                                        showReelPickerDialog = false
-                                    } else if (visibleVideos.isEmpty()) {
-                                        Toast.makeText(context, "No clips available to build a reel", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        reelSelectionIds = emptySet()
-                                        reelNameInput = buildCollectionName(
-                                            selectedKid = selectedKid,
-                                            selectedSeasonKey = selectedSeasonKey,
-                                            selectedOpponentKey = selectedOpponentKey,
-                                            reelsOnly = false
-                                        )
-                                        showReelPickerDialog = true
-                                        showReelsOnly = false
-                                    }
-                                },
-                                enabled = !isBuildingReel
-                            ) {
-                                Icon(
-                                    Icons.Default.EmojiEvents,
-                                    contentDescription = if (showReelPickerDialog) "Close reel builder" else "Create reel",
-                                    tint = if (showReelPickerDialog) PlaysAccentColor else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        ClipsFileTab(
+                            label = "Clips",
+                            highlighted = !showReelsOnly,
+                            underlined = !showReelsOnly && !showReelPickerDialog,
+                            enabled = !isBuildingReel && !showReelPickerDialog,
+                            onClick = {
+                                showReelsOnly = false
+                                showReelPickerDialog = false
                             }
-                        }
-                    }
-                }
-            }
-
-            val activeFilterLabels = buildList<Pair<String, (() -> Unit)?>> {
-                if (!showAllTeams) {
-                    localTeamName?.takeIf { it.isNotBlank() }?.let { team ->
-                        add(
-                            "Team: $team" to {
-                                showAllTeams = true
-                                selectedKid = null
-                                selectedSeasonKey = null
-                                selectedOpponentKey = null
+                        )
+                        ClipsFileTab(
+                            label = "Reels",
+                            highlighted = showReelsOnly && !showReelPickerDialog,
+                            underlined = showReelsOnly && !showReelPickerDialog,
+                            enabled = !isBuildingReel && !showReelPickerDialog,
+                            onClick = {
+                                showReelsOnly = true
+                                showReelPickerDialog = false
                             }
                         )
                     }
                 }
-                selectedKid?.takeIf { it.isNotBlank() }?.let { kid ->
-                    add("Player: $kid" to { selectedKid = null })
-                }
-                availableSeasons.firstOrNull { it.key == selectedSeasonKey }?.let { season ->
-                    add("Season: ${season.label}" to { selectedSeasonKey = null })
-                }
-                availableOpponents.firstOrNull { it.key == selectedOpponentKey }?.let { opponent ->
-                    add("Opponent: ${opponent.label}" to { selectedOpponentKey = null })
-                }
-                searchQuery.trim().takeIf { it.isNotEmpty() }?.let { query ->
-                    add("Search: $query" to { searchQuery = "" })
-                }
-                if (showAllTeams && isEmpty()) {
-                    add("All clips" to null)
-                }
-            }
 
-            if (activeFilterLabels.isNotEmpty()) {
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(top = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .width(124.dp)
+                        .height(PrimaryClipsControlHeight)
+                        .clickable(enabled = !showReelPickerDialog) {
+                        when {
+                            opponentScopedVideos.none { !isReelTaggedClip(it) } -> Toast.makeText(
+                                context,
+                                "No clips available to build a reel",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            else -> {
+                                reelSelectionIds = emptySet()
+                                reelSelectionEditTarget = null
+                                reelEditorSelectionIdsOverride = null
+                                reelNameInput = buildCollectionName(
+                                    selectedKid = selectedKid,
+                                    selectedSeasonKey = selectedSeasonKey,
+                                    selectedOpponentKey = selectedOpponentKey,
+                                    reelsOnly = false
+                                )
+                                showReelsOnly = false
+                                useGridView = true
+                                showReelPickerDialog = true
+                            }
+                        }
+                    },
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Showing",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "+ Create Reel",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
                     )
-                    activeFilterLabels.forEach { (label, clear) ->
-                        Surface(
-                            onClick = { clear?.invoke() },
-                            enabled = clear != null,
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                                if (clear != null) {
-                                    Icon(
-                                        imageVector = Icons.Default.Clear,
-                                        contentDescription = "Clear $label",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
         }
 
         if (showReelPickerDialog) {
-            Surface(
+            val selectedClips = (visibleVideos + clips)
+                .distinctBy { it.id }
+                .filter { it.id in reelSelectionIds }
+            val selectedDurationMs = selectedClips.sumOf { it.duration }
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .padding(top = 6.dp, bottom = 8.dp),
-                shape = RoundedCornerShape(14.dp),
-                tonalElevation = 2.dp,
-                color = PlaysAccentColor.copy(alpha = 0.08f)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Build a highlight reel",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            text = "Select clips",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "${reelSelectionIds.size} clips",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = PlaysAccentColor
+                            text = "${selectedClips.size} clip${if (selectedClips.size == 1) "" else "s"} selected",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Total ${formatRestoredDuration(selectedDurationMs)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-
-                    OutlinedTextField(
-                        value = reelNameInput,
-                        onValueChange = { reelNameInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Reel name") },
-                        placeholder = { Text("Game highlights") },
-                        singleLine = true,
-                        enabled = !isBuildingReel
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    TextButton(
+                        onClick = {
+                            showReelPickerDialog = false
+                            reelSelectionIds = emptySet()
+                            reelSelectionEditTarget = null
+                            reelEditorSelectionIdsOverride = null
+                            draftReelIds = null
+                        }
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            TextButton(
-                                onClick = { reelSelectionIds = visibleVideos.map { it.id }.toSet() },
-                                enabled = !isBuildingReel
-                            ) {
-                                Text("All")
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = {
+                            if (selectedClips.isNotEmpty()) {
+                                val selectedIdSet = selectedClips.mapTo(linkedSetOf()) { it.id }
+                                val orderedSelectedIds = reelEditorSelectionIdsOverride
+                                    .orEmpty()
+                                    .filter { it in selectedIdSet } +
+                                    selectedClips.map { it.id }.filterNot { it in reelEditorSelectionIdsOverride.orEmpty() }
+                                reelEditorSelectionIdsOverride = orderedSelectedIds
+                                val editTarget = reelSelectionEditTarget
+                                if (editTarget != null) {
+                                    reelSelectionEditTarget = null
+                                    editingReelClip = editTarget
+                                } else {
+                                    draftReelIds = orderedSelectedIds
+                                }
+                                showReelPickerDialog = false
                             }
-                            TextButton(
-                                onClick = { reelSelectionIds = emptySet() },
-                                enabled = !isBuildingReel
-                            ) {
-                                Text("Clear")
-                            }
-                        }
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                        Button(
-                            onClick = {
-                                val selectedTeamName = localTeamName
-                                val selectedIds = reelSelectionIds
-                                if (selectedTeamName.isNullOrBlank()) {
-                                    Toast.makeText(context, "Select a team first", Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-                                if (selectedIds.isEmpty()) {
-                                    Toast.makeText(context, "Select at least one clip", Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-
-                                val reelName = reelNameInput.trim().ifBlank { "Highlight reel" }
-
-                                val selectedReelClips = visibleVideos.filter { it.id in selectedIds }
-                                if (selectedReelClips.isEmpty()) {
-                                    Toast.makeText(context, "Select at least one clip", Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-
-                                scope.launch {
-                                    isBuildingReel = true
-                                    try {
-                                        Log.d("ClipsScreenRefactored", "MAKE_REEL_START selected=${selectedReelClips.size}")
-                                        Toast.makeText(context, "Preparing reel for sharing...", Toast.LENGTH_SHORT).show()
-
-                                        val reelUris = selectedReelClips.mapNotNull { clip ->
-                                            resolveClipUriForReel(clip.filePath)
-                                        }
-                                        Log.d("ClipsScreenRefactored", "MAKE_REEL_URI_RESOLVED requested=${selectedReelClips.size} resolved=${reelUris.size}")
-                                        if (reelUris.size != selectedReelClips.size) {
-                                            Toast.makeText(
-                                                context,
-                                                "Some selected clips are unavailable. Re-select clips and try again.",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                            return@launch
-                                        }
-                                        val reelOpponents = selectedReelClips
-                                            .mapNotNull { clip -> opponentLookup[clip.id]?.trim()?.takeIf(String::isNotEmpty) }
-                                            .distinctBy { it.lowercase() }
-                                        val suggestedReelTitle = if (reelOpponents.size == 1) {
-                                            "$selectedTeamName vs ${reelOpponents.first()}"
-                                        } else {
-                                            "$selectedTeamName Custom Reel"
-                                        }
-                                        val reelTitle = if (reelName == "Highlight reel") suggestedReelTitle else reelName
-                                        val scenario = if (reelOpponents.size == 1) "opponent" else "top_plays"
-
-                                        var timedOut = false
-                                        val sharedReelUri = withTimeoutOrNull(REEL_BUILD_TIMEOUT_MS) {
-                                            buildShareableReelForRefactored(
-                                                context = context,
-                                                clipUris = reelUris,
-                                                reelTitle = reelTitle,
-                                                teamName = selectedTeamName,
-                                                opponentName = reelOpponents.firstOrNull(),
-                                                scenario = scenario
-                                            )
-                                        } ?: run {
-                                            timedOut = true
-                                            null
-                                        }
-                                        Log.d("ClipsScreenRefactored", "MAKE_REEL_BUILD_RESULT uri=$sharedReelUri")
-
-                                        if (sharedReelUri != null) {
-                                            persistReelClipSummary(
-                                                context = context,
-                                                reelUri = sharedReelUri,
-                                                includedClips = selectedReelClips,
-                                                opponentLookup = opponentLookup
-                                            )
-                                            localTeamName?.let { teamName ->
-                                                clips = loadRestoredClips(context, teamName)
-                                            }
-                                            completedReelUri = sharedReelUri
-                                            Toast.makeText(
-                                                context,
-                                                "Reel saved to Movies/Spotr",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                            Log.d("ClipsScreenRefactored", "MAKE_REEL_BUILT uri=$sharedReelUri")
-                                        } else if (timedOut) {
-                                            Toast.makeText(
-                                                context,
-                                                "Reel build timed out. Try fewer clips.",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        } else {
-                                            Toast.makeText(context, "Unable to build reel video. Please try again.", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } catch (ce: CancellationException) {
-                                        Log.w("ClipsScreenRefactored", "MAKE_REEL_CANCELLED", ce)
-                                        throw ce
-                                    } catch (t: Throwable) {
-                                        Log.e("ClipsScreenRefactored", "Make Reel failed", t)
-                                        Toast.makeText(
-                                            context,
-                                            "Reel creation failed. Please try again.",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    } finally {
-                                        isBuildingReel = false
-                                        showReelPickerDialog = false
-                                    }
-                                }
-                            },
-                            enabled = !isBuildingReel,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Text(if (isBuildingReel) "Building..." else "Create")
-                        }
-                        }
+                        },
+                        enabled = selectedClips.isNotEmpty()
+                    ) {
+                        Text("Next")
                     }
                 }
             }
@@ -919,286 +1104,19 @@ fun ClipsScreenRefactored(
             )
         }
 
-        if (showFiltersMenu) {
-            Surface(
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                tonalElevation = 1.dp,
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                LazyColumn(
-                    state = filterListState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp)
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                        item(key = "filters_title") {
-                            Text(
-                                "Filters",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(bottom = 16.dp)
-                            )
-                        }
-
-                        item(key = "header_player") {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp)),
-                                onClick = {
-                                    val willExpand = !expandedKidSection
-                                    expandedKidSection = willExpand
-                                    if (willExpand) {
-                                        pendingRevealSection = "player"
-                                    }
-                                }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Player", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = PlaysAccentColor)
-                                    Icon(
-                                        if (expandedKidSection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = null,
-                                        tint = PlaysAccentColor,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                        if (expandedKidSection) {
-                            item(key = "player_options") {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .bringIntoViewRequester(playerOptionsRequester)
-                                        .padding(start = 12.dp, end = 12.dp, bottom = 16.dp, top = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    RestoredFilterOption(
-                                        label = "All players",
-                                        selected = selectedKid == null,
-                                        onClick = { selectedKid = null }
-                                    )
-                                    if (availableKidOptions.isEmpty()) {
-                                        RestoredFilterOption(
-                                            label = "No players available",
-                                            selected = false,
-                                            onClick = {}
-                                        )
-                                    }
-                                    availableKidOptions.forEach { kidName ->
-                                        RestoredFilterOption(
-                                            label = kidName,
-                                            selected = selectedKid.equals(kidName, ignoreCase = true),
-                                            onClick = {
-                                                selectedKid = kidName
-                                                localTeamName?.let { teamViewModel.selectKidForTeam(it, kidName) }
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        item(key = "header_season") {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp)),
-                                onClick = {
-                                    val willExpand = !expandedSeasonSection
-                                    expandedSeasonSection = willExpand
-                                    if (willExpand) {
-                                        pendingRevealSection = "season"
-                                    }
-                                }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Season", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = PlaysAccentColor)
-                                    Icon(
-                                        if (expandedSeasonSection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = null,
-                                        tint = PlaysAccentColor,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                        if (expandedSeasonSection) {
-                            item(key = "season_options") {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .bringIntoViewRequester(seasonOptionsRequester)
-                                        .padding(start = 12.dp, end = 12.dp, bottom = 16.dp, top = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    RestoredFilterOption(
-                                        label = "All seasons",
-                                        selected = selectedSeasonKey == null,
-                                        onClick = { selectedSeasonKey = null }
-                                    )
-                                    if (availableSeasons.isEmpty()) {
-                                        RestoredFilterOption(
-                                            label = "No seasons available",
-                                            selected = false,
-                                            onClick = {}
-                                        )
-                                    }
-                                    availableSeasons.forEach { season ->
-                                        RestoredFilterOption(
-                                            label = season.label,
-                                            selected = selectedSeasonKey == season.key,
-                                            onClick = { selectedSeasonKey = season.key }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        item(key = "header_team") {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp)),
-                                onClick = {
-                                    val willExpand = !expandedTeamSection
-                                    expandedTeamSection = willExpand
-                                    if (willExpand) {
-                                        pendingRevealSection = "team"
-                                    }
-                                }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Team", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = PlaysAccentColor)
-                                    Icon(
-                                        if (expandedTeamSection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = null,
-                                        tint = PlaysAccentColor,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                        if (expandedTeamSection) {
-                            item(key = "team_options") {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .bringIntoViewRequester(teamOptionsRequester)
-                                        .padding(start = 12.dp, end = 12.dp, bottom = 16.dp, top = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    if (subscribedTeams.isEmpty()) {
-                                        RestoredFilterOption(
-                                            label = "No teams available",
-                                            selected = false,
-                                            onClick = {}
-                                        )
-                                    }
-                                    subscribedTeams.forEach { team ->
-                                        RestoredFilterOption(
-                                            label = team.name,
-                                            selected = !showAllTeams && team.name == localTeamName,
-                                            onClick = {
-                                                localTeamName = team.name
-                                                showAllTeams = false
-                                                selectedKid = teamViewModel.getSelectedKidForTeam(team.name)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        item(key = "header_opponent") {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp)),
-                                onClick = {
-                                    val willExpand = !expandedOpponentSection
-                                    expandedOpponentSection = willExpand
-                                    if (willExpand) {
-                                        pendingRevealSection = "opponent"
-                                    }
-                                }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Opponent", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = PlaysAccentColor)
-                                    Icon(
-                                        if (expandedOpponentSection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = null,
-                                        tint = PlaysAccentColor,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                        if (expandedOpponentSection) {
-                            item(key = "opponent_options") {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .bringIntoViewRequester(opponentOptionsRequester)
-                                        .padding(start = 12.dp, end = 12.dp, bottom = 16.dp, top = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    RestoredFilterOption(
-                                        label = "All opponents",
-                                        selected = selectedOpponentKey == null,
-                                        onClick = { selectedOpponentKey = null }
-                                    )
-                                    if (availableOpponents.isEmpty()) {
-                                        RestoredFilterOption(
-                                            label = "No opponents available",
-                                            selected = false,
-                                            onClick = {}
-                                        )
-                                    }
-                                    availableOpponents.forEach { opponent ->
-                                        RestoredFilterOption(
-                                            label = opponent.label,
-                                            selected = selectedOpponentKey == opponent.key,
-                                            onClick = { selectedOpponentKey = opponent.key }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        item(key = "filters_bottom_spacer") {
-                            Spacer(modifier = Modifier.height(40.dp))
-                        }
-                }
-            }
+                    .padding(vertical = 4.dp)
+                    .height(2.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.34f))
+            )
         }
 
         when {
@@ -1220,18 +1138,58 @@ fun ClipsScreenRefactored(
                     )
                 }
             }
+            useGridView -> {
+                val gridColumnCount = if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(gridColumnCount),
+                    modifier = Modifier
+                        .then(
+                            if (showReelPickerDialog) Modifier.weight(1f) else Modifier.fillMaxSize()
+                        )
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    gridItems(visibleVideos, key = { it.id }) { clip ->
+                        RestoredClipGridTile(
+                            clip = clip,
+                            reelMode = showReelPickerDialog,
+                            isSelectedForReel = reelSelectionIds.contains(clip.id),
+                            onToggleReelSelection = { toggleReelClipSelection(clip.id) },
+                            onPlay = { selectedVideoUri = Uri.parse(clip.filePath) },
+                            onToggleHighlight = {
+                                val newStatus = !clip.isHighlight
+                                context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean(clip.id, newStatus)
+                                    .apply()
+                                clips = clips.map { current ->
+                                    if (current.id == clip.id) current.copy(isHighlight = newStatus) else current
+                                }
+                            }
+                        )
+                    }
+                }
+            }
             else -> {
                 LazyColumn(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .then(
+                            if (showReelPickerDialog) Modifier.weight(1f) else Modifier.fillMaxSize()
+                        )
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     visibleSections.forEach { section ->
                         item(key = "header_${section.key}") {
                             if (section.title.isNotBlank() || section.subtitle.isNotBlank()) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 16.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(OpponentGroupColor.copy(alpha = 0.12f))
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
@@ -1239,7 +1197,7 @@ fun ClipsScreenRefactored(
                                             .width(4.dp)
                                             .height(30.dp)
                                             .clip(RoundedCornerShape(2.dp))
-                                            .background(PlaysAccentColor)
+                                            .background(OpponentGroupColor)
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
@@ -1248,16 +1206,23 @@ fun ClipsScreenRefactored(
                                                 text = "vs ${section.title}",
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.Bold,
-                                                color = PlaysAccentColor
+                                                color = MaterialTheme.colorScheme.onSurface
                                             )
                                         }
-                                        if (section.subtitle.isNotBlank()) {
-                                            Text(
-                                                text = section.subtitle,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                        val clipCountLabel = if (section.videos.size == 1) {
+                                            "1 clip"
+                                        } else {
+                                            "${section.videos.size} clips"
                                         }
+                                        Text(
+                                            text = if (section.subtitle.isNotBlank()) {
+                                                "${section.subtitle}  •  $clipCountLabel"
+                                            } else {
+                                                clipCountLabel
+                                            },
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
                                     }
                                 }
                             }
@@ -1268,13 +1233,10 @@ fun ClipsScreenRefactored(
                                 RestoredClipRow(
                                     clip = clip,
                                     reelMode = reelModeEnabled,
-                                    onOpen = {
-                                        if (reelModeEnabled) {
-                                            toggleReelClipSelection(clip.id)
-                                        } else {
-                                            selectedVideoUri = Uri.parse(clip.filePath)
-                                        }
-                                    },
+                                    isSelectedForReel = reelSelectionIds.contains(clip.id),
+                                    onToggleReelSelection = { toggleReelClipSelection(clip.id) },
+                                    onEdit = { editingClipAllowsTrim = true; editingClip = clip },
+                                    onExpand = { editingClipAllowsTrim = false; editingClip = clip },
                                     onShare = {
                                         launchPersonalShareChooser(
                                             context = context,
@@ -1310,37 +1272,9 @@ fun ClipsScreenRefactored(
                                         localTeamName?.let { teamName ->
                                             scope.launch { clips = loadRestoredClips(context, teamName) }
                                         }
-                                    }
+                                    },
+                                    onEditReel = { editingReelClip = clip }
                                 )
-
-                                if (showReelPickerDialog) {
-                                    val selected = reelSelectionIds.contains(clip.id)
-                                    Surface(
-                                        modifier = Modifier
-                                            .align(Alignment.TopStart)
-                                            .padding(10.dp),
-                                        shape = CircleShape,
-                                        color = Color.White.copy(alpha = 0.88f),
-                                        tonalElevation = 4.dp,
-                                        shadowElevation = 4.dp,
-                                        onClick = {
-                                            toggleReelClipSelection(clip.id)
-                                        }
-                                    ) {
-                                        Checkbox(
-                                            checked = selected,
-                                            onCheckedChange = { checked ->
-                                                reelSelectionIds = if (checked == selected) {
-                                                    reelSelectionIds
-                                                } else if (checked) {
-                                                    reelSelectionIds + clip.id
-                                                } else {
-                                                    reelSelectionIds - clip.id
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
@@ -1378,6 +1312,131 @@ fun ClipsScreenRefactored(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun RestoredClipGridTile(
+    clip: VideoClip,
+    reelMode: Boolean,
+    isSelectedForReel: Boolean,
+    onToggleReelSelection: () -> Unit,
+    onPlay: () -> Unit,
+    onToggleHighlight: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val previewBitmap by produceState<Bitmap?>(initialValue = null, clip.id, clip.filePath) {
+        value = withContext(Dispatchers.IO) {
+            loadRestoredClipThumbnail(context, clip.filePath)
+        }
+    }
+    val isReel = remember(clip.momentTag, clip.gameTitle) { isReelTaggedClip(clip) }
+    val label = if (isReel) {
+        reelDisplayTitleForClip(clip)
+    } else {
+        clip.momentTag?.takeIf { it.isNotBlank() } ?: "Clip"
+    }
+    val labelColor = if (isReel) {
+        Color(0xFF2B2F33)
+    } else {
+        momentTagConfig(clip.momentTag).second
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(124.dp)
+            .clickable(enabled = reelMode) { onToggleReelSelection() },
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Black)
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (previewBitmap != null) {
+                Image(
+                    bitmap = previewBitmap!!.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .widthIn(max = 96.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(labelColor.copy(alpha = 0.88f))
+                    .padding(horizontal = 6.dp, vertical = 3.dp)
+            )
+
+            IconButton(
+                onClick = onToggleHighlight,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(34.dp)
+            ) {
+                Icon(
+                    Icons.Default.Star,
+                    contentDescription = if (clip.isHighlight) "Remove favorite" else "Add favorite",
+                    tint = if (clip.isHighlight) PlaysAccentColor else Color.White.copy(alpha = 0.72f),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Surface(
+                onClick = onPlay,
+                modifier = Modifier.size(42.dp),
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.58f),
+                contentColor = Color.White
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = "Play full screen",
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
+
+            Text(
+                text = formatRestoredDuration(clip.duration),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(Color.Black.copy(alpha = 0.68f))
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            )
+
+            if (reelMode) {
+                Surface(
+                    onClick = onToggleReelSelection,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .size(28.dp),
+                    shape = CircleShape,
+                    color = if (isSelectedForReel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.9f),
+                    contentColor = if (isSelectedForReel) Color.White else MaterialTheme.colorScheme.outline
+                ) {
+                    if (isSelectedForReel) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = "Selected for reel",
+                            modifier = Modifier.padding(5.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1428,20 +1487,38 @@ private fun persistClipCustomTags(context: android.content.Context, clip: VideoC
 private fun persistReelClipSummary(
     context: android.content.Context,
     reelUri: Uri,
-    includedClips: List<VideoClip>,
-    opponentLookup: Map<String, String?>
+    includedClips: List<VideoClip>
 ) {
     if (includedClips.isEmpty()) return
     val lines = includedClips.joinToString("\n") { clip ->
         val moment = clip.momentTag?.trim()?.takeIf { it.isNotEmpty() } ?: "Clip"
-        val opponent = opponentLookup[clip.id]?.trim()?.takeIf { it.isNotEmpty() }
-        if (opponent != null) "• $moment vs $opponent" else "• $moment"
+        val date = clip.gameDate.takeIf { it.isNotBlank() }?.let { formatRestoredClipDate(it) }
+        if (date != null) "• $moment - $date" else "• $moment"
     }
-    val summary = "Includes ${includedClips.size} clips:\n$lines"
+    val summary = "Includes ${includedClips.size} memories:\n$lines"
     context.getSharedPreferences(CLIP_COMMENTARY_PREFS, android.content.Context.MODE_PRIVATE)
         .edit()
         .putString(reelUri.toString(), summary)
         .apply()
+}
+
+private const val REEL_CLIP_IDS_PREFS = "reel_clip_ids_v1"
+
+private fun persistReelClipIds(context: android.content.Context, reelUri: Uri, clipIds: List<String>) {
+    val payload = JSONArray().apply { clipIds.forEach { put(it) } }.toString()
+    context.getSharedPreferences(REEL_CLIP_IDS_PREFS, android.content.Context.MODE_PRIVATE)
+        .edit()
+        .putString(reelUri.toString(), payload)
+        .apply()
+}
+
+private fun loadReelClipIds(context: android.content.Context, reelUri: Uri): List<String> {
+    val raw = context.getSharedPreferences(REEL_CLIP_IDS_PREFS, android.content.Context.MODE_PRIVATE)
+        .getString(reelUri.toString(), null) ?: return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        (0 until array.length()).map { array.getString(it) }
+    }.getOrDefault(emptyList())
 }
 
 private fun updateReelTitle(context: android.content.Context, clip: VideoClip, newTitle: String) {
@@ -1549,36 +1626,1012 @@ private suspend fun deleteRestoredClip(context: android.content.Context, video: 
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun RestoredFilterOption(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    subtitle: String? = null
+private fun ClipEditorScreen(
+    clip: VideoClip,
+    isTrimming: Boolean,
+    allowTrim: Boolean,
+    onClose: () -> Unit,
+    onSaveTrim: (Long, Long) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val player = remember(clip.filePath) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.parse(clip.filePath)))
+            prepare()
+            playWhenReady = false
+        }
+    }
+    BackHandler(enabled = !isTrimming) {
+        onClose()
+    }
+
+    DisposableEffect(clip.filePath) {
+        onDispose { player.release() }
+    }
+
+    var durationMs by remember(clip.id) { mutableStateOf(clip.duration.coerceAtLeast(0L)) }
+    var startMs by remember(clip.id) { mutableStateOf(0L) }
+    var endMs by remember(clip.id) { mutableStateOf(clip.duration.coerceAtLeast(0L)) }
+    var playbackPositionMs by remember(clip.id) { mutableStateOf(0L) }
+
+    LaunchedEffect(clip.filePath) {
+        while (durationMs <= 0L) {
+            val reported = player.duration
+            if (reported > 0L) {
+                durationMs = reported
+                if (endMs <= 0L) endMs = reported
+            }
+            delay(200)
+        }
+    }
+
+    LaunchedEffect(player) {
+        while (true) {
+            playbackPositionMs = player.currentPosition.coerceAtLeast(0L)
+            delay(50)
+        }
+    }
+
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp)),
-        color = if (selected) PlaysAccentColor.copy(alpha = 0.12f) else Color.Transparent,
-        onClick = onClick
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (selected) PlaysAccentColor else MaterialTheme.colorScheme.onSurface
-            )
-            if (!subtitle.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose, enabled = !isTrimming) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
                 Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = if (allowTrim) "Trim clip" else "View clip",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
                 )
+                TextButton(onClick = onClose, enabled = !isTrimming) {
+                    Text("Done")
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(Color.Black)
+            ) {
+                AndroidView(
+                    factory = { viewContext ->
+                        PlayerView(viewContext).apply {
+                            this.player = player
+                            useController = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                IconButton(
+                    onClick = {
+                        if (player.isPlaying) {
+                            player.pause()
+                        } else {
+                            player.play()
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = if (player.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (player.isPlaying) "Pause" else "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                if (allowTrim) {
+                if (durationMs > 0L) {
+                    TrimTimelineBar(
+                        durationMs = durationMs,
+                        startMs = startMs,
+                        endMs = endMs,
+                        progressMs = playbackPositionMs,
+                        enabled = !isTrimming,
+                        onStartChanged = { value -> startMs = value.coerceIn(0L, durationMs) },
+                        onEndChanged = { value -> endMs = value.coerceIn(0L, durationMs) },
+                        onPreviewAtStart = { player.seekTo(startMs) }
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${formatRestoredDuration(startMs)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "${formatRestoredDuration((endMs - startMs).coerceAtLeast(0L))}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = PlaysAccentColor
+                        )
+                        Text(
+                            text = "${formatRestoredDuration(endMs)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "Loading clip...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (durationMs > 0L) {
+                        TextButton(
+                            onClick = {
+                                startMs = 0L
+                                endMs = durationMs
+                                player.seekTo(0L)
+                            },
+                            enabled = !isTrimming,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Full clip")
+                        }
+                    }
+
+                    Button(
+                        onClick = { onSaveTrim(startMs, endMs) },
+                        enabled = !isTrimming && durationMs > 0L && (endMs - startMs) >= 500L,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (isTrimming) "Saving..." else "Save")
+                    }
+                }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun EditReelScreen(
+    reelClip: VideoClip?,
+    initialSelectedIds: List<String>,
+    initialTitle: String,
+    availableClips: List<VideoClip>,
+    kidLookup: Map<String, String?>,
+    opponentLookup: Map<String, String?>,
+    isSaving: Boolean,
+    onAddClips: (List<String>, String) -> Unit,
+    onClose: () -> Unit,
+    onSave: (List<String>, String) -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var orderedIds by remember { mutableStateOf(initialSelectedIds) }
+    val clipsById = remember(availableClips, reelClip) {
+        (availableClips + listOfNotNull(reelClip)).associateBy { it.id }
+    }
+
+    val previewClip = orderedIds.firstNotNullOfOrNull { clipsById[it] }
+        ?: availableClips.firstOrNull()
+        ?: return
+    var editedTitle by remember(reelClip?.id, initialTitle) { mutableStateOf(initialTitle) }
+    val orderedClips = remember(orderedIds, clipsById) { orderedIds.mapNotNull { clipsById[it] } }
+    val totalDurationMs = remember(orderedClips) { orderedClips.sumOf { it.duration } }
+    var isPlayingPreview by remember(previewClip.filePath) { mutableStateOf(false) }
+    var showFullScreenPreview by remember { mutableStateOf(false) }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose, enabled = !isSaving) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Text(
+                    text = "Edit Reel",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = { onSave(orderedIds, editedTitle.trim().ifBlank { initialTitle }) },
+                    enabled = !isSaving && orderedIds.isNotEmpty(),
+                    modifier = Modifier.padding(end = 6.dp)
+                ) {
+                    Text(if (isSaving) "Saving..." else "Save")
+                }
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                item(key = "thumbnail") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(158.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.Black.copy(alpha = 0.15f))
+                            .clickable { isPlayingPreview = !isPlayingPreview },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isPlayingPreview) {
+                            val inlinePlayer = remember(previewClip.filePath) {
+                                ExoPlayer.Builder(context).build().apply {
+                                    setMediaItem(MediaItem.fromUri(Uri.parse(previewClip.filePath)))
+                                    prepare()
+                                    playWhenReady = true
+                                }
+                            }
+                            DisposableEffect(previewClip.filePath) {
+                                onDispose { inlinePlayer.release() }
+                            }
+                            AndroidView(
+                                factory = { viewContext ->
+                                    PlayerView(viewContext).apply {
+                                        player = inlinePlayer
+                                        useController = false
+                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            val previewThumbnail by produceState<Bitmap?>(initialValue = null, key1 = previewClip.filePath) {
+                                value = withContext(Dispatchers.IO) { loadRestoredClipThumbnail(context, previewClip.filePath) }
+                            }
+                            if (previewThumbnail != null) {
+                                Image(
+                                    bitmap = previewThumbnail!!.asImageBitmap(),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.Black.copy(alpha = 0.34f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                formatRestoredDuration(totalDurationMs),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                color = Color.White.copy(alpha = 0.95f)
+                            )
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .clickable { showFullScreenPreview = true },
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.45f),
+                            contentColor = Color.White
+                        ) {
+                            Icon(
+                                Icons.Default.Fullscreen,
+                                contentDescription = "View full screen",
+                                modifier = Modifier
+                                    .padding(5.dp)
+                                    .fillMaxSize()
+                            )
+                        }
+                    }
+                }
+
+                item(key = "title") {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = editedTitle,
+                        onValueChange = { editedTitle = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Reel title") },
+                        singleLine = true,
+                        enabled = !isSaving,
+                        textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                item(key = "clips_header") {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Clips in this reel (${orderedIds.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                itemsIndexed(orderedIds, key = { _, id -> id }) { index, id ->
+                    ReelOrderClipRow(
+                        clip = clipsById[id],
+                        canMoveUp = index > 0,
+                        canMoveDown = index < orderedIds.size - 1,
+                        onMoveUp = {
+                            orderedIds = orderedIds.toMutableList().apply { add(index - 1, removeAt(index)) }
+                        },
+                        onMoveDown = {
+                            orderedIds = orderedIds.toMutableList().apply { add(index + 1, removeAt(index)) }
+                        },
+                        onRemove = { orderedIds = orderedIds - id }
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                item(key = "add_clips_button") {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = {
+                            onAddClips(
+                                orderedIds,
+                                editedTitle.trim().ifBlank { initialTitle }
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Add Clips")
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+        }
+    }
+
+    if (showFullScreenPreview) {
+        Dialog(
+            onDismissRequest = { showFullScreenPreview = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                val fullScreenPlayer = remember(previewClip.filePath) {
+                    ExoPlayer.Builder(context).build().apply {
+                        setMediaItem(MediaItem.fromUri(Uri.parse(previewClip.filePath)))
+                        prepare()
+                        playWhenReady = true
+                    }
+                }
+                DisposableEffect(previewClip.filePath) {
+                    onDispose { fullScreenPlayer.release() }
+                }
+                AndroidView(
+                    factory = { viewContext ->
+                        PlayerView(viewContext).apply {
+                            player = fullScreenPlayer
+                            useController = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+                IconButton(
+                    onClick = { showFullScreenPreview = false },
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close", tint = Color.White)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReelOrderClipRow(
+    clip: VideoClip?,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onRemove: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbnail by produceState<Bitmap?>(initialValue = null, key1 = clip?.filePath) {
+        value = clip?.filePath?.let { path -> withContext(Dispatchers.IO) { loadRestoredClipThumbnail(context, path) } }
+    }
+    val currentTag = clip?.momentTag?.takeIf { it.isNotBlank() }
+    val tagConfig = momentTagConfig(currentTag)
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.15f))
+            ) {
+                if (thumbnail != null) {
+                    Image(
+                        bitmap = thumbnail!!.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(3.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(tagConfig.second.copy(alpha = 0.85f))
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = tagConfig.third,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 8.sp,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Text(
+                text = clip?.momentTag?.takeIf { it.isNotBlank() } ?: clip?.gameTitle ?: "Clip",
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+
+            Text(
+                text = formatRestoredDuration(clip?.duration ?: 0L),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Column {
+                IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up")
+                }
+                IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down")
+                }
+            }
+            IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.Close, contentDescription = "Remove from reel")
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddClipsToReelScreen(
+    availableClips: List<VideoClip>,
+    selectedIds: Set<String>,
+    kidLookup: Map<String, String?>,
+    opponentLookup: Map<String, String?>,
+    onBack: () -> Unit,
+    onAddClip: (String) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    var selectedKid by remember { mutableStateOf<String?>(null) }
+    var selectedSeasonKey by remember { mutableStateOf<String?>(null) }
+    var selectedOpponentKey by remember { mutableStateOf<String?>(null) }
+    var showKidMenu by remember { mutableStateOf(false) }
+    var showSeasonMenu by remember { mutableStateOf(false) }
+    var showOpponentMenu by remember { mutableStateOf(false) }
+
+    val kidOptions = remember(availableClips, kidLookup) {
+        availableClips.mapNotNull { kidLookup[it.id]?.trim()?.takeIf(String::isNotEmpty) }
+            .distinctBy { it.lowercase() }
+            .sortedBy { it.lowercase() }
+    }
+    val seasonOptions = remember(availableClips) {
+        availableClips.mapNotNull { parseRestoredSeasonKey(it.gameDate) }
+            .distinctBy { it.key }
+            .sortedByDescending { it.startYear }
+    }
+    val opponentOptions = remember(availableClips, opponentLookup) {
+        availableClips.mapNotNull { opponentLookup[it.id]?.trim()?.takeIf(String::isNotEmpty) }
+            .distinctBy { it.lowercase() }
+            .sortedBy { it.lowercase() }
+    }
+
+    val filteredClips = remember(availableClips, query, selectedKid, selectedSeasonKey, selectedOpponentKey, kidLookup, opponentLookup) {
+        availableClips.filter { clip ->
+            val matchesKid = selectedKid == null || kidLookup[clip.id]?.equals(selectedKid, ignoreCase = true) == true
+            val matchesSeason = selectedSeasonKey == null || parseRestoredSeasonKey(clip.gameDate)?.key == selectedSeasonKey
+            val matchesOpponent = selectedOpponentKey == null || opponentLookup[clip.id]?.equals(selectedOpponentKey, ignoreCase = true) == true
+            val matchesQuery = query.isBlank() ||
+                clip.momentTag.orEmpty().contains(query, ignoreCase = true) ||
+                clip.gameTitle.contains(query, ignoreCase = true)
+            matchesKid && matchesSeason && matchesOpponent && matchesQuery
+        }
+    }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Text(
+                    text = "Add Clips",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                placeholder = { Text("Search by tag or game") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (kidOptions.isNotEmpty()) {
+                    Box {
+                        FilterChip(
+                            selected = selectedKid != null,
+                            onClick = { showKidMenu = true },
+                            label = { Text(selectedKid ?: "Player") }
+                        )
+                        DropdownMenu(expanded = showKidMenu, onDismissRequest = { showKidMenu = false }) {
+                            DropdownMenuItem(text = { Text("All players") }, onClick = { selectedKid = null; showKidMenu = false })
+                            kidOptions.forEach { kid ->
+                                DropdownMenuItem(text = { Text(kid) }, onClick = { selectedKid = kid; showKidMenu = false })
+                            }
+                        }
+                    }
+                }
+                if (seasonOptions.isNotEmpty()) {
+                    Box {
+                        FilterChip(
+                            selected = selectedSeasonKey != null,
+                            onClick = { showSeasonMenu = true },
+                            label = { Text(seasonOptions.firstOrNull { it.key == selectedSeasonKey }?.label ?: "Season") }
+                        )
+                        DropdownMenu(expanded = showSeasonMenu, onDismissRequest = { showSeasonMenu = false }) {
+                            DropdownMenuItem(text = { Text("All seasons") }, onClick = { selectedSeasonKey = null; showSeasonMenu = false })
+                            seasonOptions.forEach { season ->
+                                DropdownMenuItem(text = { Text(season.label) }, onClick = { selectedSeasonKey = season.key; showSeasonMenu = false })
+                            }
+                        }
+                    }
+                }
+                if (opponentOptions.isNotEmpty()) {
+                    Box {
+                        FilterChip(
+                            selected = selectedOpponentKey != null,
+                            onClick = { showOpponentMenu = true },
+                            label = { Text(selectedOpponentKey ?: "Opponent") }
+                        )
+                        DropdownMenu(expanded = showOpponentMenu, onDismissRequest = { showOpponentMenu = false }) {
+                            DropdownMenuItem(text = { Text("All opponents") }, onClick = { selectedOpponentKey = null; showOpponentMenu = false })
+                            opponentOptions.forEach { opponent ->
+                                DropdownMenuItem(text = { Text(opponent) }, onClick = { selectedOpponentKey = opponent; showOpponentMenu = false })
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (filteredClips.isEmpty()) {
+                    item {
+                        Text(
+                            text = "No clips match your filters",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 24.dp)
+                        )
+                    }
+                }
+                items(filteredClips, key = { it.id }) { clip ->
+                    val included = selectedIds.contains(clip.id)
+                    AddClipToReelRow(
+                        clip = clip,
+                        included = included,
+                        onClick = { if (!included) onAddClip(clip.id) }
+                    )
+                }
+                item { Spacer(modifier = Modifier.height(16.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddClipToReelRow(
+    clip: VideoClip,
+    included: Boolean,
+    onClick: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbnail by produceState<Bitmap?>(initialValue = null, key1 = clip.filePath) {
+        value = withContext(Dispatchers.IO) { loadRestoredClipThumbnail(context, clip.filePath) }
+    }
+    val currentTag = clip.momentTag?.takeIf { it.isNotBlank() }
+    val tagConfig = momentTagConfig(currentTag)
+    val rowAlpha = if (included) 0.4f else 1f
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        onClick = onClick,
+        modifier = Modifier.alpha(rowAlpha)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.15f))
+            ) {
+                if (thumbnail != null) {
+                    Image(
+                        bitmap = thumbnail!!.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(3.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(tagConfig.second.copy(alpha = 0.85f))
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = tagConfig.third,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 8.sp,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = clip.momentTag?.takeIf { it.isNotBlank() } ?: clip.gameTitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (clip.gameDate.isNotBlank()) {
+                    Text(
+                        text = formatRestoredClipDate(clip.gameDate),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Text(
+                text = formatRestoredDuration(clip.duration),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Icon(
+                if (included) Icons.Default.Check else Icons.Default.Add,
+                contentDescription = if (included) "Already in reel" else "Add to reel",
+                tint = if (included) MaterialTheme.colorScheme.onSurfaceVariant else PlaysAccentColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrimTimelineBar(
+    durationMs: Long,
+    startMs: Long,
+    endMs: Long,
+    progressMs: Long,
+    enabled: Boolean,
+    onStartChanged: (Long) -> Unit,
+    onEndChanged: (Long) -> Unit,
+    onPreviewAtStart: () -> Unit
+) {
+    var activeHandle by remember(durationMs) { mutableStateOf<TrimHandle?>(null) }
+    var barWidthPx by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(42.dp)
+            .padding(vertical = 6.dp)
+            .pointerInput(enabled, durationMs, startMs, endMs) {
+                if (!enabled || durationMs <= 0L) return@pointerInput
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: continue
+                        val x = change.position.x.coerceIn(0f, barWidthPx.coerceAtLeast(1f))
+                        val msForX = ((x / barWidthPx.coerceAtLeast(1f)) * durationMs).toLong()
+                        val startDistance = kotlin.math.abs(x - ((startMs.toFloat() / durationMs.toFloat()) * barWidthPx))
+                        val endDistance = kotlin.math.abs(x - ((endMs.toFloat() / durationMs.toFloat()) * barWidthPx))
+
+                        if (change.pressed && activeHandle == null) {
+                            activeHandle = if (startDistance <= endDistance) TrimHandle.START else TrimHandle.END
+                        }
+
+                        if (change.pressed) {
+                            when (activeHandle) {
+                                TrimHandle.START -> {
+                                    val nextStart = msForX.coerceIn(0L, (endMs - 1L).coerceAtLeast(0L))
+                                    onStartChanged(nextStart)
+                                    onPreviewAtStart()
+                                }
+                                TrimHandle.END -> {
+                                    val nextEnd = msForX.coerceIn((startMs + 1L).coerceAtLeast(0L), durationMs)
+                                    onEndChanged(nextEnd)
+                                }
+                                null -> Unit
+                            }
+                        } else {
+                            activeHandle = null
+                        }
+                    }
+                }
+            }
+            .onSizeChanged { barWidthPx = it.width.toFloat() }
+    ) {
+        val handleRadius = 14f
+        val maxTrackWidth = (barWidthPx - (handleRadius * 2f)).coerceAtLeast(0f)
+        val selectionStartPx = if (durationMs <= 0L) 0f else (startMs.toFloat() / durationMs.toFloat()) * maxTrackWidth
+        val selectionEndPx = if (durationMs <= 0L) 0f else (endMs.toFloat() / durationMs.toFloat()) * maxTrackWidth
+        val progressPx = if (durationMs <= 0L) 0f else {
+            (progressMs.coerceIn(0L, durationMs).toFloat() / durationMs.toFloat()) * maxTrackWidth
+        }
+        val minimumSelectionWidth = minOf(12f, maxTrackWidth)
+        val clampedStart = selectionStartPx.coerceIn(
+            0f,
+            (maxTrackWidth - minimumSelectionWidth).coerceAtLeast(0f)
+        )
+        val clampedEnd = selectionEndPx.coerceIn(
+            clampedStart + minimumSelectionWidth,
+            maxTrackWidth
+        )
+
+        Surface(
+            modifier = Modifier
+                .fillMaxSize(),
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {}
+
+        Surface(
+            modifier = Modifier
+                .height(4.dp)
+                .width(with(density) { progressPx.toDp() })
+                .align(Alignment.CenterStart),
+            shape = RoundedCornerShape(2.dp),
+            color = PlaysAccentColor
+        ) {}
+
+        Surface(
+            modifier = Modifier
+                .height(32.dp)
+                .width(with(density) { (clampedEnd - clampedStart).toDp() })
+                .offset(x = with(density) { clampedStart.toDp() }),
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)
+        ) {}
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = with(density) { (clampedStart - handleRadius).toDp() })
+                .size(28.dp)
+                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                .border(3.dp, Color.White, CircleShape)
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = with(density) { (clampedEnd - handleRadius).toDp() })
+                .size(28.dp)
+                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                .border(3.dp, Color.White, CircleShape)
+        )
+    }
+}
+
+private enum class TrimHandle { START, END }
+
+@Composable
+private fun FilterMenuLabel(
+    label: String,
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowDown,
+            contentDescription = "Open $label filter",
+            tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp)
+        )
+    }
+}
+
+@Composable
+private fun ClipsFileTab(
+    label: String,
+    highlighted: Boolean,
+    underlined: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .width(72.dp)
+            .height(PrimaryClipsControlHeight)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Medium,
+            color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (underlined) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .width(48.dp)
+                    .height(3.dp)
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClipActionButton(
+    icon: ImageVector?,
+    label: String,
+    modifier: Modifier = Modifier,
+    labelFontSize: TextUnit = 14.sp,
+    maxLabelWidth: Dp = 96.dp,
+    tint: Color,
+    labelColor: Color = tint,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(20.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        icon?.let {
+            Icon(
+                imageVector = it,
+                contentDescription = label,
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = labelFontSize,
+            color = labelColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = maxLabelWidth)
+        )
     }
 }
 
@@ -1586,13 +2639,15 @@ private fun RestoredFilterOption(
 private fun momentTagConfig(tag: String?): Triple<ImageVector, Color, String> {
     val normalized = tag?.trim().orEmpty()
     return when {
-        normalized.equals("Goal", ignoreCase = true) -> Triple(Icons.Default.Favorite, Color(0xFF2E7D32), "Goal")
-        normalized.equals("Save", ignoreCase = true) -> Triple(Icons.Default.Shield, Color(0xFF6A1B9A), "Save")
-        normalized.equals("Faceoff Win", ignoreCase = true) -> Triple(Icons.Default.EmojiEvents, Color(0xFFF9A825), "Faceoff Win")
-        normalized.equals("Assist", ignoreCase = true) -> Triple(Icons.Default.Share, Color(0xFF1565C0), "Assist")
-        normalized.equals("Defensive Stop", ignoreCase = true) -> Triple(Icons.Default.Star, Color(0xFFE65100), "Defensive Stop")
-        normalized.equals("Win", ignoreCase = true) || normalized.equals("Winning Goal", ignoreCase = true) -> Triple(Icons.Default.EmojiEvents, Color(0xFFF9A825), "Faceoff Win")
-        normalized.equals("Big Play", ignoreCase = true) -> Triple(Icons.Default.Star, Color(0xFFE65100), "Defensive Stop")
+        normalized.equals("Score", ignoreCase = true) ||
+            normalized.equals("Goal", ignoreCase = true) ||
+            normalized.equals("Winning Goal", ignoreCase = true) -> Triple(Icons.Default.GpsFixed, Color(0xFFE87522), "Score")
+        normalized.equals("Assist", ignoreCase = true) -> Triple(Icons.Default.Hub, Color(0xFF168C8C), "Assist")
+        normalized.equals("Save", ignoreCase = true) -> Triple(Icons.Default.Shield, Color(0xFF7950BC), "Save")
+        normalized.equals("Defensive Stop", ignoreCase = true) -> Triple(StopSignIcon, Color(0xFFD9534F), "Defensive Stop")
+        normalized.equals("Faceoff Win", ignoreCase = true) || normalized.equals("Win", ignoreCase = true) -> Triple(CrossedLacrosseSticksIcon, Color(0xFF399875), "Faceoff Win")
+        normalized.equals("Ground Ball", ignoreCase = true) -> Triple(GroundBallIcon, Color(0xFF3676B8), "Ground Ball")
+        normalized.equals("Big Play", ignoreCase = true) -> Triple(StopSignIcon, Color(0xFFD9534F), "Defensive Stop")
         normalized.isNotEmpty() -> Triple(Icons.Default.PlayArrow, MaterialTheme.colorScheme.onSurfaceVariant, normalized)
         else -> Triple(Icons.Default.PlayArrow, MaterialTheme.colorScheme.onSurfaceVariant, "Tag")
     }
@@ -1603,12 +2658,16 @@ private fun momentTagConfig(tag: String?): Triple<ImageVector, Color, String> {
 private fun RestoredClipRow(
     clip: VideoClip,
     reelMode: Boolean,
-    onOpen: () -> Unit,
+    isSelectedForReel: Boolean,
+    onToggleReelSelection: () -> Unit,
+    onEdit: () -> Unit,
+    onExpand: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
     onToggleHighlight: () -> Unit,
     onTagChanged: (String?) -> Unit,
-    onTitleChanged: (String) -> Unit
+    onTitleChanged: (String) -> Unit,
+    onEditReel: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var commentary by remember(clip.id, clip.filePath) {
@@ -1640,13 +2699,7 @@ private fun RestoredClipRow(
     var customTags by remember(clip.id, clip.filePath) { mutableStateOf(loadClipCustomTags(context, clip)) }
     var showTitleEditor by remember(clip.id, clip.filePath) { mutableStateOf(false) }
     var isPlayingInline by remember(clip.id, clip.filePath) { mutableStateOf(false) }
-    val tagOptions = listOf(
-        "Goal",
-        "Save",
-        "Faceoff Win",
-        "Assist",
-        "Defensive Stop"
-    )
+    val tagOptions = DefaultMomentTags
     val isReel = remember(clip.momentTag, clip.gameTitle) {
         clip.momentTag?.startsWith("Reel:", ignoreCase = true) == true ||
             clip.gameTitle.startsWith("Reel:", ignoreCase = true) ||
@@ -1805,13 +2858,16 @@ private fun RestoredClipRow(
                             color = Color.White.copy(alpha = 0.95f)
                         )
                     }
+                    val tagStartPadding = 6.dp
                     if (isReel) {
                         Box(
                             modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(6.dp)
+                                .align(Alignment.TopStart)
+                                .padding(start = tagStartPadding, top = 6.dp)
+                                .widthIn(max = 190.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color.Black.copy(alpha = 0.42f))
+                                .background(Color(0xFF2B2F33).copy(alpha = 0.82f))
+                                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
                                 .clickable { showTitleEditor = true }
                                 .padding(horizontal = 12.dp, vertical = 7.dp),
                             contentAlignment = Alignment.Center
@@ -1820,38 +2876,70 @@ private fun RestoredClipRow(
                                 text = reelDisplayTitle,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color.White,
+                                color = Color(0xFFE8EAED),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                    } else {
-                        val currentTag = clip.momentTag?.takeIf { it.isNotBlank() }
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(6.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.Black.copy(alpha = 0.42f))
-                                .clickable { showTagPicker = true }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (currentTag != null) {
-                                val (tagIcon, tagColor, tagLabel) = momentTagConfig(currentTag)
+                        run {
+                            val clipCount = Regex("""Includes (\d+)""").find(commentary)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(start = tagStartPadding, top = 44.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                                    .clickable(enabled = commentary.isNotBlank()) { isCommentaryExpanded = true }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Text(
+                                        text = if (clipCount != null) "$clipCount clip${if (clipCount == 1) "" else "s"}" else "View clips",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                    Icon(
+                                        Icons.Default.KeyboardArrowDown,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        val currentTag = clip.momentTag?.takeIf { it.isNotBlank() }
+                        val tagConfig = if (currentTag != null) momentTagConfig(currentTag) else null
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(start = tagStartPadding, top = 6.dp)
+                                .widthIn(max = 168.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(tagConfig?.second ?: Color.Black.copy(alpha = 0.6f))
+                                .clickable(enabled = !reelMode) { showTagPicker = true }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (tagConfig != null) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
-                                        imageVector = tagIcon,
-                                        contentDescription = tagLabel,
-                                        tint = tagColor,
-                                        modifier = Modifier.size(18.dp)
+                                        imageVector = tagConfig.first,
+                                        contentDescription = tagConfig.third,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = tagLabel,
-                                        style = MaterialTheme.typography.labelLarge,
+                                        text = tagConfig.third,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = Color.White,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -1859,8 +2947,8 @@ private fun RestoredClipRow(
                                 }
                             } else {
                                 Text(
-                                    text = "+ Add tag",
-                                    style = MaterialTheme.typography.labelLarge,
+                                    text = "+Tag",
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = Color.White
                                 )
                             }
@@ -1874,100 +2962,239 @@ private fun RestoredClipRow(
                             modifier = Modifier.size(28.dp)
                         )
                     }
+                    if (!reelMode) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .clickable { onExpand() },
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.45f),
+                            contentColor = Color.White
+                        ) {
+                            Icon(
+                                Icons.Default.Fullscreen,
+                                contentDescription = "View full screen",
+                                modifier = Modifier
+                                    .padding(5.dp)
+                                    .fillMaxSize()
+                            )
+                        }
+                    }
+                    if (reelMode) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(8.dp)
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(if (isSelectedForReel) MaterialTheme.colorScheme.primary else Color.White)
+                                .border(
+                                    width = 2.dp,
+                                    color = if (isSelectedForReel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                    shape = CircleShape
+                                )
+                                .clickable { onToggleReelSelection() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelectedForReel) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected for reel",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    IconButton(
-                        onClick = { isCommentaryExpanded = !isCommentaryExpanded },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = if (isCommentaryExpanded) "Collapse commentary" else "Expand commentary",
-                            tint = if (isCommentaryExpanded || commentary.isNotBlank()) {
-                                MaterialTheme.colorScheme.primary
+                    if (!isReel && (!reelMode || commentary.isNotBlank())) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !reelMode) { isCommentaryExpanded = !isCommentaryExpanded }
+                                .padding(horizontal = 6.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (commentary.isBlank()) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Text(
+                                text = commentary.takeIf { it.isNotBlank() } ?: "What Happened",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                softWrap = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    if (!reelMode || clip.isHighlight) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                        if (!reelMode) {
+                            if (isReel) {
+                                ClipActionButton(
+                                    icon = Icons.Default.Edit,
+                                    label = "Edit Reel",
+                                    modifier = Modifier.weight(1f),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    onClick = onEditReel
+                                )
                             } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    if (!reelMode) {
-                        IconButton(onClick = onOpen, modifier = Modifier.size(30.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Open full player",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(onClick = onShare, modifier = Modifier.size(30.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "Share clip",
+                                ClipActionButton(
+                                    icon = Icons.Default.Edit,
+                                    label = "Trim",
+                                    modifier = Modifier.weight(1f),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    onClick = onEdit
+                                )
+                            }
+                            ClipActionButton(
+                                icon = Icons.Default.Share,
+                                label = "Share",
+                                modifier = Modifier.weight(1f),
                                 tint = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.size(18.dp)
+                                onClick = onShare
                             )
                         }
-                    }
 
-                    IconButton(onClick = onToggleHighlight, modifier = Modifier.size(30.dp)) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = "Toggle highlight",
-                            tint = if (clip.isHighlight) PlaysAccentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(18.dp)
+                        ClipActionButton(
+                            icon = Icons.Default.Star,
+                            label = "Favorite",
+                            modifier = Modifier.weight(1f),
+                            tint = if (clip.isHighlight) {
+                                PlaysAccentColor
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            },
+                            labelColor = MaterialTheme.colorScheme.onSurface,
+                            onClick = onToggleHighlight
                         )
+                        }
                     }
                 }
 
-                if (isCommentaryExpanded || commentary.isNotBlank()) {
-                    if (isCommentaryExpanded) {
-                        val keyboardController = LocalSoftwareKeyboardController.current
-                        OutlinedTextField(
-                            value = commentary,
-                            onValueChange = { updated ->
-                                commentary = updated
-                                persistClipCommentary(context, clip, updated)
-                            },
+                if (isReel && isCommentaryExpanded) {
+                    val summaryLines = commentary.split("\n")
+                    val headline = summaryLines.firstOrNull().orEmpty()
+                    val memoryLines = summaryLines.drop(1).filter { it.isNotBlank() }
+                    Dialog(onDismissRequest = { isCommentaryExpanded = false }) {
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            label = { Text("Commentary") },
-                            placeholder = { Text("Add notes about this clip") },
-                            minLines = 2,
-                            maxLines = 4,
-                            singleLine = false,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(
-                                onDone = {
-                                    keyboardController?.hide()
+                                .clip(RoundedCornerShape(18.dp))
+                                .border(
+                                    width = 1.4.dp,
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(PlaysAccentColor, Color(0xFF1C8CFF))
+                                    ),
+                                    shape = RoundedCornerShape(18.dp)
+                                ),
+                            shape = RoundedCornerShape(18.dp),
+                            color = Color(0xFF0A1118)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = null,
+                                        tint = PlaysAccentColor,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = headline.uppercase(),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 0.6.sp,
+                                        color = Color.White
+                                    )
+                                }
+                                memoryLines.forEach { line ->
+                                    Text(
+                                        text = line.removePrefix("•").trim(),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF9FC9FF)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                TextButton(
+                                    onClick = { isCommentaryExpanded = false },
+                                    modifier = Modifier.align(Alignment.End)
+                                ) {
+                                    Text("Close")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!isReel && isCommentaryExpanded) {
+                    val keyboardController = LocalSoftwareKeyboardController.current
+                    AlertDialog(
+                        onDismissRequest = { isCommentaryExpanded = false },
+                        title = {
+                            Text(if (commentary.isBlank()) "What Happened" else "Edit Comment")
+                        },
+                        text = {
+                            OutlinedTextField(
+                                value = commentary,
+                                onValueChange = { updated -> commentary = updated },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Add notes about this clip") },
+                                minLines = 2,
+                                maxLines = 4,
+                                singleLine = false,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(
+                                    onDone = { keyboardController?.hide() }
+                                )
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    persistClipCommentary(context, clip, commentary)
                                     isCommentaryExpanded = false
                                 }
-                            )
-                        )
-                    } else {
-                        Text(
-                            text = commentary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                        )
-                    }
+                            ) {
+                                Text(if (commentary.isBlank()) "Add" else "Save")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { isCommentaryExpanded = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -2360,15 +3587,31 @@ private fun filterRestoredClipsBySearchQuery(
 
     if (normalizedQuery.isBlank()) return videos
 
-    val wantsFirst = normalizedQuery.split(Regex("\\s+")).contains("first")
-    val wantsLast = normalizedQuery.split(Regex("\\s+")).contains("last")
-    val searchTerms = normalizedQuery
-        .split(Regex("\\s+"))
-        .filter { it.isNotBlank() && it !in setOf("the", "a", "an", "and", "of", "my", "first", "last") }
-
-    if (searchTerms.isEmpty()) return videos
+    val queryWords = normalizedQuery.split(Regex("\\s+")).filter(String::isNotBlank)
+    val hasSeasonIntent = "season" in queryWords
+    val currentSeasonStartYear = currentRestoredSeasonStartYear()
+    val requestedSeasonStartYear = when {
+        !hasSeasonIntent -> null
+        "last" in queryWords || "previous" in queryWords -> currentSeasonStartYear - 1
+        "this" in queryWords || "current" in queryWords -> currentSeasonStartYear
+        else -> null
+    }
+    val requestedTag = detectMomentTagIntent(queryWords)
+    val intentWords = buildSet {
+        if (hasSeasonIntent) addAll(setOf("season", "last", "previous", "this", "current"))
+        if (requestedTag != null) addAll(momentTagIntentWords(requestedTag))
+    }
+    val wantsFirst = !hasSeasonIntent && "first" in queryWords
+    val wantsLast = !hasSeasonIntent && "last" in queryWords
+    val searchTerms = queryWords
+        .filter { it !in setOf("the", "a", "an", "and", "of", "my", "first", "last") && it !in intentWords }
 
     val matches = videos.filter { video ->
+        val matchesSeason = requestedSeasonStartYear == null ||
+            parseRestoredSeasonKey(video.gameDate)?.startYear == requestedSeasonStartYear
+        val matchesTag = requestedTag == null || canonicalMomentTag(video.momentTag) == requestedTag
+        if (!matchesSeason || !matchesTag) return@filter false
+
         val bubbleNames = try {
             val bubbles = JSONArray(video.bubbleMetadata)
             (0 until bubbles.length()).flatMap { index ->
@@ -2396,7 +3639,10 @@ private fun filterRestoredClipsBySearchQuery(
             .replace("’s", " ")
             .replace("'s", " ")
 
-        searchTerms.all { term -> searchable.contains(term) }
+        searchTerms.all { term ->
+            searchable.contains(term) ||
+                (term.endsWith("s") && term.length > 3 && searchable.contains(term.dropLast(1)))
+        }
     }
 
     return when {
@@ -2404,6 +3650,43 @@ private fun filterRestoredClipsBySearchQuery(
         wantsLast -> matches.maxWithOrNull(compareBy<VideoClip> { it.gameDate }.thenBy { it.createdAt })?.let(::listOf).orEmpty()
         else -> matches
     }
+}
+
+private fun currentRestoredSeasonStartYear(): Int {
+    val calendar = java.util.Calendar.getInstance()
+    val year = calendar.get(java.util.Calendar.YEAR)
+    val month = calendar.get(java.util.Calendar.MONTH) + 1
+    return if (month >= 8) year else year - 1
+}
+
+private fun detectMomentTagIntent(words: List<String>): String? = when {
+    words.any { it in setOf("goal", "goals", "score", "scores", "scored", "scoring") } -> "Score"
+    words.any { it in setOf("assist", "assists") } -> "Assist"
+    words.any { it in setOf("save", "saves") } -> "Save"
+    words.containsAll(listOf("defensive", "stop")) || words.containsAll(listOf("defensive", "stops")) -> "Defensive Stop"
+    words.any { it in setOf("faceoff", "faceoffs") } && words.any { it in setOf("win", "wins", "won") } -> "Faceoff Win"
+    words.containsAll(listOf("ground", "ball")) || words.containsAll(listOf("ground", "balls")) -> "Ground Ball"
+    else -> null
+}
+
+private fun momentTagIntentWords(tag: String): Set<String> = when (tag) {
+    "Score" -> setOf("goal", "goals", "score", "scores", "scored", "scoring")
+    "Assist" -> setOf("assist", "assists")
+    "Save" -> setOf("save", "saves")
+    "Defensive Stop" -> setOf("defensive", "stop", "stops")
+    "Faceoff Win" -> setOf("faceoff", "faceoffs", "win", "wins", "won")
+    "Ground Ball" -> setOf("ground", "ball", "balls")
+    else -> emptySet()
+}
+
+private fun canonicalMomentTag(tag: String?): String? = when (tag?.trim()?.lowercase(Locale.getDefault())) {
+    "score", "goal", "winning goal" -> "Score"
+    "assist" -> "Assist"
+    "save" -> "Save"
+    "defensive stop", "big play" -> "Defensive Stop"
+    "faceoff win", "win" -> "Faceoff Win"
+    "ground ball" -> "Ground Ball"
+    else -> null
 }
 
 private fun buildRestoredClipKidLookup(
@@ -2477,8 +3760,20 @@ private fun buildRestoredClipDateSubSections(
 
 private fun buildRestoredClipListSectionsForAllGames(
     videos: List<VideoClip>,
-    opponentLookup: Map<String, String?>
+    opponentLookup: Map<String, String?>,
+    groupByOpponent: Boolean = true,
+    reelSortOverride: ((List<VideoClip>) -> List<VideoClip>)? = null
 ): List<VideoLibrarySection> {
+    if (!groupByOpponent) {
+        return listOf(
+            VideoLibrarySection(
+                key = "reels_flat",
+                title = "",
+                subtitle = "",
+                videos = reelSortOverride?.invoke(videos) ?: videos.sortedByDescending { it.createdAt }
+            )
+        )
+    }
     val groupedByOpponent = videos
         .groupBy { clip -> opponentLookup[clip.id]?.takeIf(String::isNotBlank)?.lowercase() ?: NO_OPPONENT_FILTER_RESTORED }
         .entries
@@ -2558,6 +3853,13 @@ private fun formatRestoredDuration(durationMs: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
+}
+
+private fun formatRestoredClipDate(gameDate: String): String {
+    return runCatching {
+        val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(gameDate) ?: return gameDate
+        SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(parsed)
+    }.getOrDefault(gameDate)
 }
 
 private fun resolveClipUriForReel(filePath: String): Uri? {
@@ -2674,7 +3976,9 @@ private suspend fun exportSimpleReelComposition(
 
             ffmpegArgs += listOf(
                 "-filter_complex", filterParts.joinToString(";"),
-                "-map", "[vout]",
+                "-map", "[vout]"
+            )
+            ffmpegArgs += listOf(
                 "-c:v", "mpeg4",
                 "-q:v", "10",
                 "-threads", "2",
@@ -2936,6 +4240,91 @@ private fun stageReelUriToLocalFile(
         } ?: return null
         staged
     }.getOrNull()
+}
+
+private suspend fun trimClipToNewVideo(
+    context: android.content.Context,
+    clip: VideoClip,
+    startMs: Long,
+    endMs: Long
+): Uri? {
+    if (endMs <= startMs) return null
+    return withContext(Dispatchers.IO) {
+        var staged: File? = null
+        var output: File? = null
+        try {
+            val workDir = File(context.cacheDir, "clip_trim_exports").apply { mkdirs() }
+            val sourceUri = resolveClipUriForReel(clip.filePath) ?: return@withContext null
+            staged = stageReelUriToLocalFile(context, sourceUri, workDir, 0) ?: return@withContext null
+            output = File(workDir, "Spotr-Trim-${System.currentTimeMillis()}.mp4")
+
+            val args = arrayOf(
+                "-y",
+                "-ss", String.format(Locale.US, "%.3f", startMs / 1000.0),
+                "-i", staged.absolutePath,
+                "-t", String.format(Locale.US, "%.3f", (endMs - startMs) / 1000.0),
+                "-c:v", "mpeg4",
+                "-q:v", "10",
+                "-threads", "2",
+                "-c:a", "aac",
+                "-movflags", "+faststart",
+                output.absolutePath
+            )
+            val session = FFmpegKit.executeWithArguments(args)
+            if (!ReturnCode.isSuccess(session.returnCode) || !output.exists()) {
+                Log.w(
+                    "ClipsScreenRefactored",
+                    "TRIM_FAILED rc=${session.returnCode}: ${session.allLogsAsString}"
+                )
+                return@withContext null
+            }
+            persistReelVideoToMediaStore(context, output)
+        } catch (t: Throwable) {
+            Log.e("ClipsScreenRefactored", "Trim failed", t)
+            null
+        } finally {
+            staged?.delete()
+            output?.delete()
+        }
+    }
+}
+
+private fun copyClipMetadataForTrim(
+    context: android.content.Context,
+    source: VideoClip,
+    trimmedUri: Uri,
+    fallbackTeamName: String?
+) {
+    val uriString = trimmedUri.toString()
+    fun prefs(name: String) = context.getSharedPreferences(name, android.content.Context.MODE_PRIVATE)
+
+    val teamPrefs = prefs("video_team_names")
+    val team = teamPrefs.getString(source.id, null)
+        ?: teamPrefs.getString(source.filePath, null)
+        ?: fallbackTeamName
+    if (!team.isNullOrBlank()) {
+        teamPrefs.edit().putString(uriString, team).apply()
+    }
+
+    val startPrefs = prefs("video_start_times")
+    val startedAt = startPrefs.getLong(source.id, 0L).takeIf { it > 0L }
+        ?: startPrefs.getLong(source.filePath, 0L).takeIf { it > 0L }
+        ?: source.createdAt
+    startPrefs.edit().putLong(uriString, startedAt).apply()
+
+    val kidPrefs = prefs("video_kid_names")
+    (kidPrefs.getString(source.id, null) ?: kidPrefs.getString(source.filePath, null))
+        ?.takeIf { it.isNotBlank() }
+        ?.let { kidPrefs.edit().putString(uriString, it).apply() }
+
+    val opponentPrefs = prefs("video_opponent_names")
+    (opponentPrefs.getString(source.id, null) ?: opponentPrefs.getString(source.filePath, null))
+        ?.takeIf { it.isNotBlank() }
+        ?.let { opponentPrefs.edit().putString(uriString, it).apply() }
+
+    source.momentTag?.takeIf { it.isNotBlank() && !it.startsWith("Reel:", ignoreCase = true) }?.let {
+        prefs("video_custom_names").edit().putString(uriString, it).apply()
+    }
 }
 
 private fun persistReelVideoToMediaStore(context: android.content.Context, file: File): Uri? {
