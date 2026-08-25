@@ -32,6 +32,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
@@ -44,14 +45,11 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PeopleAlt
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PeopleAlt
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.QrCode
@@ -133,15 +131,10 @@ fun TeamScreen(
     openRosterInitially: Boolean = false,
     startCreateTeamInitially: Boolean = false,
     openRosterAfterCreate: Boolean = false,
-    cameraHandoffToken: Int = 0,
     teamSnapRepository: TeamSnapRepository? = null,
-    onNavigateToCrowdSourced: () -> Unit = {},
     onNavigateToWebImport: (String) -> Unit = {},
     onNavigateToAppImport: (String, Boolean) -> Unit = { _, _ -> },
-    onNavigateToScheduleImport: (String, String) -> Unit = { _, _ -> },
-    onNavigateToVideoLibrary: (String) -> Unit = { },
-    onVideoSelected: (android.net.Uri, List<Player>) -> Unit = { _, _ -> },
-    onVideoEdit: (android.net.Uri) -> Unit = { }
+    onNavigateToScheduleImport: (String, String) -> Unit = { _, _ -> }
 ) {
     TeamSelectionView(
         teamViewModel = teamViewModel,
@@ -153,10 +146,7 @@ fun TeamScreen(
         teamSnapRepository = teamSnapRepository,
         onNavigateToWebImport = onNavigateToWebImport,
         onNavigateToAppImport = onNavigateToAppImport,
-        onNavigateToScheduleImport = onNavigateToScheduleImport,
-        onNavigateToVideoLibrary = onNavigateToVideoLibrary,
-        onVideoSelected = onVideoSelected,
-        onVideoEdit = onVideoEdit
+        onNavigateToScheduleImport = onNavigateToScheduleImport
     )
 }
 
@@ -172,10 +162,7 @@ fun TeamSelectionView(
     teamSnapRepository: TeamSnapRepository? = null,
     onNavigateToWebImport: (String) -> Unit,
     onNavigateToAppImport: (String, Boolean) -> Unit,
-    onNavigateToScheduleImport: (String, String) -> Unit,
-    onNavigateToVideoLibrary: (String) -> Unit,
-    onVideoSelected: (android.net.Uri, List<Player>) -> Unit,
-    onVideoEdit: (android.net.Uri) -> Unit
+    onNavigateToScheduleImport: (String, String) -> Unit
 ) {
     val context = LocalContext.current
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
@@ -199,11 +186,7 @@ fun TeamSelectionView(
             onNavigateToWebImport = onNavigateToWebImport,
             onNavigateToAppImport = onNavigateToAppImport,
             onNavigateToScheduleImport = onNavigateToScheduleImport,
-            onNavigateToVideoLibrary = onNavigateToVideoLibrary,
-            onVideoSelected = onVideoSelected,
-            onVideoEdit = onVideoEdit,
-            openRosterInitially = openRosterInitially || createdTeamName == selectedTeamName,
-            embedded = false
+            openRosterInitially = openRosterInitially || createdTeamName == selectedTeamName
         )
     } else Column(
         modifier = Modifier.fillMaxSize()
@@ -408,8 +391,9 @@ fun TeamSelectionView(
                 selectedTeamName = result.localTeamName
                 Toast.makeText(
                     context,
-                    context.getString(
-                        R.string.teamsnap_import_success,
+                    context.resources.getQuantityString(
+                        R.plurals.teamsnap_import_success,
+                        result.importedCount,
                         result.importedCount,
                         result.skippedCount
                     ),
@@ -530,18 +514,13 @@ fun TeamManagementView(
     onNavigateToWebImport: (String) -> Unit,
     onNavigateToAppImport: (String, Boolean) -> Unit,
     onNavigateToScheduleImport: (String, String) -> Unit,
-    onNavigateToVideoLibrary: (String) -> Unit = { },
-    onVideoSelected: (android.net.Uri, List<Player>) -> Unit = { _, _ -> },
-    onVideoEdit: (android.net.Uri) -> Unit = { },
-    openRosterInitially: Boolean = false,
-    embedded: Boolean = false
+    openRosterInitially: Boolean = false
 ) {
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
     val selectedTeamMeta = remember(subscribedTeams, teamName) {
         subscribedTeams.firstOrNull { it.name == teamName }
     }
     val homeColor = parseTeamColor(selectedTeamMeta?.color, fallback = Color(0xFF1976D2))
-    val awayColor = parseTeamColor(selectedTeamMeta?.awayColor, fallback = Color(0xFFFFFFFF))
 
     val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
     val teamPlayers = remember(allPlayers, teamName) {
@@ -1269,7 +1248,7 @@ fun InviteTeamDialog(
                             },
                             modifier = Modifier.fillMaxWidth().height(52.dp)
                         ) {
-                            Icon(Icons.Default.Message, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
                             Spacer(modifier = Modifier.width(10.dp))
                             Text("Send via Text", fontWeight = FontWeight.Medium)
                         }
@@ -1753,7 +1732,9 @@ private fun PlayerPhotoAvatar(
     LaunchedEffect(photoUri) {
         bitmap = if (photoUri == null) null else withContext(Dispatchers.IO) {
             runCatching {
-                context.contentResolver.openInputStream(android.net.Uri.parse(photoUri))?.use(BitmapFactory::decodeStream)
+                val input = context.contentResolver.openInputStream(android.net.Uri.parse(photoUri))
+                    ?: return@runCatching null
+                input.use { stream -> BitmapFactory.decodeStream(stream) }
             }.getOrNull()
         }
     }

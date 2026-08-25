@@ -1,5 +1,6 @@
 package com.playerid.app.ui.screens
 
+import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.webkit.WebView
@@ -54,8 +55,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -73,6 +74,7 @@ import kotlin.math.max
 import kotlin.coroutines.resume
 
 @OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun WebRosterImportScreen(
     teamName: String,
@@ -110,7 +112,7 @@ fun WebRosterImportScreen(
                 title = { Text("Import from Website") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -167,10 +169,10 @@ fun WebRosterImportScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { webViewRef?.goBack() }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                         IconButton(onClick = { webViewRef?.goForward() }) {
-                            Icon(Icons.Default.ArrowForward, contentDescription = "Forward")
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
                         }
                         IconButton(onClick = { webViewRef?.reload() }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh")
@@ -300,14 +302,14 @@ fun WebRosterImportScreen(
                                         )
                                         if (!candidate.position.isNullOrBlank()) {
                                             Text(
-                                                candidate.position!!,
+                                                candidate.position,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                         if (!candidate.academicYear.isNullOrBlank()) {
                                             Text(
-                                                candidate.academicYear!!,
+                                                candidate.academicYear,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -337,7 +339,7 @@ fun WebRosterImportScreen(
 
                             val width = webView.width
                             val viewportHeight = webView.height
-                            val contentHeightPx = (webView.contentHeight * webView.scale).toInt()
+                            val contentHeightPx = (webView.contentHeight * webView.resources.displayMetrics.density).toInt()
                             val totalHeight = max(contentHeightPx, viewportHeight)
                             if (width <= 0 || viewportHeight <= 0 || totalHeight <= 0) {
                                 errorMessage = "Web view not ready"
@@ -585,20 +587,20 @@ private suspend fun extractRosterTablesFromDom(webView: WebView): List<TableRost
         })();
     """.trimIndent()
 
-        return suspendCancellableCoroutine { continuation ->
-                webView.evaluateJavascript(js) { raw ->
-                        if (!continuation.isActive) return@evaluateJavascript
-                        try {
-                                if (raw == null || raw == "null") {
+    return suspendCancellableCoroutine { continuation ->
+        webView.evaluateJavascript(js) { raw ->
+            if (!continuation.isActive) return@evaluateJavascript
+            try {
+                if (raw == null || raw == "null") {
                     continuation.resume(emptyList())
-                                        return@evaluateJavascript
-                                }
-                                val token = JSONTokener(raw).nextValue()
-                                val array = when (token) {
-                                        is JSONArray -> token
-                                        is String -> JSONArray(token)
-                                        else -> JSONArray()
-                                }
+                    return@evaluateJavascript
+                }
+                val token = JSONTokener(raw).nextValue()
+                val array = when (token) {
+                    is JSONArray -> token
+                    is String -> JSONArray(token)
+                    else -> JSONArray()
+                }
                 val results = mutableListOf<TableRoster>()
                 for (index in 0 until array.length()) {
                     val obj = array.getJSONObject(index)
@@ -629,11 +631,11 @@ private suspend fun extractRosterTablesFromDom(webView: WebView): List<TableRost
                     }
                 }
                 continuation.resume(results)
-                        } catch (ex: Exception) {
+                } catch (ex: Exception) {
                 continuation.resume(emptyList())
-                        }
                 }
         }
+            }
 }
 
 private fun normalizeAcademicYear(raw: String): String? {

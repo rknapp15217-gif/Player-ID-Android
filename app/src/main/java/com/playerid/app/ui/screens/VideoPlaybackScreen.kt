@@ -41,6 +41,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -265,9 +268,6 @@ fun VideoPlaybackScreen(
     ) {
         mutableStateOf<Uri?>(null)
     }
-    var isBuildingComposedReel by remember(playlistUris, reelTitle, reelTeamName, reelOpponents, reelScenario) {
-        mutableStateOf(false)
-    }
     val isPlaylistMode = playlistUris.isNotEmpty() && composedReelPlaybackUri == null
     val totalVideos = if (isPlaylistMode) playlistUris.size else 1
     val reelClipCountLabel = if (totalVideos == 1) "1 clip" else "$totalVideos clips"
@@ -295,11 +295,6 @@ fun VideoPlaybackScreen(
             reelTitle?.contains(" vs ", ignoreCase = true) == true || reelOpponents.size == 1 -> "opponent"
             else -> "season"
         }
-    }
-    val reelScenarioHeader = when (resolvedReelScenario) {
-        "top_plays" -> "2. TOP PLAYS REEL"
-        "opponent" -> "3. OPPONENT REEL"
-        else -> "1. SEASON REEL"
     }
     val reelScenarioSubheader = when (resolvedReelScenario) {
         "top_plays" -> "Highlights the best moments"
@@ -413,7 +408,6 @@ fun VideoPlaybackScreen(
     var showShareSuggestions by remember { mutableStateOf(false) }
     var showQuickSharePicker by remember { mutableStateOf(false) }
     var allContactsForShare by remember { mutableStateOf<List<SelectedContact>>(emptyList()) }
-    var pendingPhoneSharePlayers by remember { mutableStateOf<List<Player>>(emptyList()) }
     var favoritePhoneContacts by remember { mutableStateOf(loadFavoritePhoneContacts(context)) }
     var detectionMode by remember { mutableStateOf(VideoProcessingManager.DetectionMode.FAST) }
     var showDeeperScanPrompt by remember { mutableStateOf(false) }
@@ -425,7 +419,6 @@ fun VideoPlaybackScreen(
     var showInitialShareDestinationDialog by remember(videoUri) { mutableStateOf(false) }
     var showTeamShareAboutDialog by remember { mutableStateOf(false) }
     var isPreparingTeamShare by remember { mutableStateOf(false) }
-    var selectedTeamRecipientKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedHighlightTag by remember { mutableStateOf<String?>(null) }
     var teamShareMessage by remember { mutableStateOf("") }
     var showHighlightTags by remember { mutableStateOf(false) }
@@ -581,37 +574,6 @@ fun VideoPlaybackScreen(
             )
         )
     }
-    val teamShareRecipients = remember(selectedPlayersForShare) {
-        buildTeamShareRecipients(selectedPlayersForShare)
-    }
-
-    val contactPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickContact()
-    ) { contactUri ->
-        if (contactUri == null) return@rememberLauncherForActivityResult
-
-        val parsedContact = readSelectedContact(context, contactUri)
-        val selectedContact = parsedContact
-            ?: SelectedContact(
-                displayName = "Selected contact",
-                phoneNumber = null,
-                email = null
-            )
-
-        resolveShareUri { uri ->
-            shareVideoToPhoneContact(
-                context = context,
-                videoUri = uri,
-                players = pendingPhoneSharePlayers.ifEmpty { selectedPlayersForShare },
-                contact = selectedContact
-            )
-        }
-        if (parsedContact != null) {
-            favoritePhoneContacts = addFavoritePhoneContact(context, parsedContact)
-        }
-        pendingPhoneSharePlayers = emptyList()
-    }
-
     val shareContactPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickContact()
     ) { contactUri ->
@@ -951,7 +913,7 @@ fun VideoPlaybackScreen(
         }.isSuccess
 
         scrubRetriever = if (prepared) retriever else null
-        scrubPreviewFrameCount = if (prepared) {
+        scrubPreviewFrameCount = if (prepared && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)
                 ?.toIntOrNull()
                 ?: 0
@@ -1160,7 +1122,7 @@ fun VideoPlaybackScreen(
                     title = {},
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.Default.ArrowBack, "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                         }
                     },
                     actions = {
@@ -1273,9 +1235,8 @@ fun VideoPlaybackScreen(
                             .pointerInput(isPlaylistMode, exoPlayer) {
                                 if (!isPlaylistMode) return@pointerInput
                                 val swipeThreshold = 80.dp.toPx()
-                                var totalDragX = 0f
                                 awaitEachGesture {
-                                    totalDragX = 0f
+                                    var totalDragX = 0f
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     var dragging = true
                                     while (dragging) {
@@ -1560,7 +1521,7 @@ fun VideoPlaybackScreen(
                     ) {
                         IconButton(onClick = onNavigateBack) {
                             Icon(
-                                Icons.Default.ArrowBack,
+                                Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back",
                                 tint = Color.White
                             )
@@ -1689,7 +1650,7 @@ fun VideoPlaybackScreen(
                                 .background(Color.Black.copy(alpha = 0.40f), CircleShape)
                         ) {
                             Icon(
-                                Icons.Default.KeyboardArrowLeft,
+                                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                 contentDescription = "Previous clip",
                                 tint = Color.White,
                                 modifier = Modifier.size(32.dp)
@@ -1705,7 +1666,7 @@ fun VideoPlaybackScreen(
                                 .background(Color.Black.copy(alpha = 0.40f), CircleShape)
                         ) {
                             Icon(
-                                Icons.Default.KeyboardArrowRight,
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                 contentDescription = "Next clip",
                                 tint = Color.White,
                                 modifier = Modifier.size(32.dp)

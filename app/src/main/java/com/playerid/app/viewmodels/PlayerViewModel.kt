@@ -367,15 +367,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                 }
             }
             _isVoiceSessionActive.value = false
-                // Fallback: If nothing matched and _voiceResult is still null, set error
-                if (_voiceResult.value == null) {
-                    val msg = "Sorry, I didn't understand. Please try again."
-                    Log.d(TAG, "Setting voiceResult: Error '$msg' (fallback)")
-                    _voiceResult.value = VoiceAssistantResult.Error(msg)
-                    speak(msg)
-                    _isListening.value = false
-                    _isVoiceSessionActive.value = false
-                }
+            // Fallback: If nothing matched and _voiceResult is still null, set error
+            if (_voiceResult.value == null) {
+                val msg = "Sorry, I didn't understand. Please try again."
+                Log.d(TAG, "Setting voiceResult: Error '$msg' (fallback)")
+                _voiceResult.value = VoiceAssistantResult.Error(msg)
+                speak(msg)
+                _isListening.value = false
+                _isVoiceSessionActive.value = false
+            }
         }
     }
 
@@ -534,7 +534,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             for (candidate in candidates) {
                 val existing = playerDao.getPlayerByNumber(candidate.number, teamName)
                 val candidateYear = candidate.academicYear?.takeIf { it.isNotBlank() }
-                val candidatePosition = candidate.position?.takeIf { it.isNotBlank() }
+                val candidatePosition = candidate.position.takeIf { it.isNotBlank() }
                 if (existing != null) {
                     val updated = existing.copy(
                         name = candidate.name,

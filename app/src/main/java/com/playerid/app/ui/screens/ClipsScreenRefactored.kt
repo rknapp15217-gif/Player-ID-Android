@@ -574,8 +574,6 @@ fun ClipsScreenRefactored(
             initialSelectedIds = selectedIds,
             initialTitle = defaultTitle,
             availableClips = availableClipsForReel,
-            kidLookup = kidLookup,
-            opponentLookup = opponentLookup,
             isSaving = isBuildingReel,
             onAddClips = { orderedIds, title ->
                 reelEditorSelectionIdsOverride = orderedIds
@@ -607,8 +605,7 @@ fun ClipsScreenRefactored(
                                 clipUris = clipUris,
                                 reelTitle = newTitle,
                                 teamName = selectedTeamName,
-                                opponentName = null,
-                                scenario = "top_plays"
+                                opponentName = null
                             )
                             if (reelUri != null) {
                                 persistReelClipSummary(context, reelUri, orderedClips)
@@ -648,8 +645,6 @@ fun ClipsScreenRefactored(
             initialTitle = reelNameInput.takeIf { reelEditorSelectionIdsOverride != null && it.isNotBlank() }
                 ?: reelDisplayTitleForClip(reelTarget),
             availableClips = availableClipsForReel,
-            kidLookup = kidLookup,
-            opponentLookup = opponentLookup,
             isSaving = isRebuildingReel,
             onAddClips = { orderedIds, title ->
                 reelEditorSelectionIdsOverride = orderedIds
@@ -676,8 +671,7 @@ fun ClipsScreenRefactored(
                             clipUris = clipUris,
                             reelTitle = newTitle,
                             teamName = localTeamName,
-                            opponentName = null,
-                            scenario = "top_plays"
+                            opponentName = null
                         )
                         if (newReelUri != null) {
                             persistReelClipSummary(context, newReelUri, orderedClips)
@@ -1820,13 +1814,12 @@ private fun ClipEditorScreen(
 }
 
 @Composable
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 private fun EditReelScreen(
     reelClip: VideoClip?,
     initialSelectedIds: List<String>,
     initialTitle: String,
     availableClips: List<VideoClip>,
-    kidLookup: Map<String, String?>,
-    opponentLookup: Map<String, String?>,
     isSaving: Boolean,
     onAddClips: (List<String>, String) -> Unit,
     onClose: () -> Unit,
@@ -3884,8 +3877,7 @@ private suspend fun buildShareableReelForRefactored(
     clipUris: List<Uri>,
     reelTitle: String,
     teamName: String?,
-    opponentName: String?,
-    scenario: String
+    opponentName: String?
 ): Uri? {
     if (clipUris.isEmpty()) return null
     return withContext(Dispatchers.IO) {

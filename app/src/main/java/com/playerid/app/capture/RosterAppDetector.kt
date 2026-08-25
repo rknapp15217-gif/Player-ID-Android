@@ -45,41 +45,7 @@ object RosterAppDetector {
             }
         }
         
-        // Also search all installed apps for roster-related keywords
-        val allApps = try {
-            packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-        } catch (e: Exception) {
-            emptyList()
-        }
-        
-        val rosterKeywords = listOf("teamsnap", "team", "roster", "league", "sport", "hudl", "gamechanger")
-        val discoveredApps = allApps.mapNotNull { appInfo ->
-            val appName = appInfo.loadLabel(packageManager).toString()
-            val packageLower = appInfo.packageName.lowercase()
-            val nameLower = appName.lowercase()
-            
-            if (rosterKeywords.any { keyword -> 
-                packageLower.contains(keyword) || nameLower.contains(keyword)
-            } && !found.any { it.packageName == appInfo.packageName }) {
-                val icon = try {
-                    packageManager.getApplicationIcon(appInfo)
-                } catch (e: Exception) {
-                    null
-                }
-                RosterApp(appName, appInfo.packageName, true, icon)
-            } else {
-                null
-            }
-        }.filter { app ->
-            // Filter out system apps and common non-roster apps
-            !app.packageName.startsWith("com.android") &&
-            !app.packageName.startsWith("com.google") &&
-            !app.name.contains("keyboard", ignoreCase = true) &&
-            !app.name.contains("widget", ignoreCase = true)
-        }
-        
-        // Deduplicate by app name, preferring known apps
-        return (found + discoveredApps).distinctBy { it.name }
+        return found.distinctBy { it.name }
     }
 
     fun launchApp(context: Context, packageName: String): Boolean {

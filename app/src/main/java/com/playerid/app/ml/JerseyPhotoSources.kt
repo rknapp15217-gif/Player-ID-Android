@@ -187,6 +187,7 @@ class JerseyPhotoWebScraper {
     /**
      * Extract jersey photo URLs from a team page
      */
+    @Suppress("UNUSED_PARAMETER")
     fun extractJerseyPhotosFromTeamPage(teamPageUrl: String): List<String> {
         // This would use a web scraping library like JSoup
         // For now, return example URLs
@@ -198,6 +199,7 @@ class JerseyPhotoWebScraper {
     /**
      * Search for jersey photos using multiple sources
      */
+    @Suppress("UNUSED_PARAMETER")
     fun searchJerseyPhotos(
         sport: String,
         teamName: String? = null,

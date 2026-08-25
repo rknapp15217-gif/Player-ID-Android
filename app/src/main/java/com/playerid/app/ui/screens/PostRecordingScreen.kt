@@ -39,14 +39,12 @@ import kotlinx.coroutines.delay
  * Celebratory screen for tagging and saving youth sports moments.
  * This is NOT file management - it's memory capture.
  */
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 @ExperimentalMaterial3Api
 @Composable
 fun PostRecordingScreen(
     videoUri: Uri,
-    onEdit: () -> Unit,
     onSaveToLibrary: (selectedTag: MomentTag?) -> Unit,
-    onDiscard: () -> Unit,
     onDelete: () -> Unit = {}
 ) {
     val context = LocalContext.current

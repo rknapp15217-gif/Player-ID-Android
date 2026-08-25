@@ -166,8 +166,6 @@ fun ClipsScreen(
     var showTeamMenu by remember { mutableStateOf(false) }
     var showKidMenu by remember { mutableStateOf(false) }
     var showFiltersMenu by remember { mutableStateOf(false) }
-    var expandedTeamSection by remember { mutableStateOf(false) }
-    var expandedKidSection by remember { mutableStateOf(false) }
     var expandedSeasonSection by remember { mutableStateOf(false) }
     var expandedOpponentSection by remember { mutableStateOf(false) }
     var expandedViewSection by remember { mutableStateOf(false) }
@@ -257,10 +255,10 @@ fun ClipsScreen(
                         .sortedWith(compareBy({ it.number.toIntOrNull() ?: Int.MAX_VALUE }, { it.number }, { it.name }))
                     if (rosterForTeam.isEmpty()) return@launch
 
-                    val uriString = uri.toString()
+                    val detectionUriString = uri.toString()
                     val database = com.playerid.app.data.PlayerDatabase.getDatabase(context)
                     val dao = database.videoDetectionResultDao()
-                    val existing = dao.getDetectionResult(uriString)
+                    val existing = dao.getDetectionResult(detectionUriString)
                     if (existing != null) return@launch
 
                     val teamForClip = subscribedTeams.firstOrNull { it.name == selectedTeamName }
@@ -435,24 +433,6 @@ fun ClipsScreen(
         context = context,
         clip = starReelHeroClip
     )
-    val starReelGlow = rememberInfiniteTransition(label = "starReelGlow").animateFloat(
-        initialValue = 0.22f,
-        targetValue = 0.44f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1600),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "starReelGlowAlpha"
-    )
-    val starReelShimmerX = rememberInfiniteTransition(label = "starReelShimmer").animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "starReelShimmerX"
-    )
     fun openBatchShareDialog() {
         val primary = selectedBatchUris.firstOrNull() ?: return
         shareSelectedPlayerIds = emptySet()
@@ -598,10 +578,9 @@ fun ClipsScreen(
     }
 
     LaunchedEffect(teamName) {
-        val selectedTeamName = teamName ?: return@LaunchedEffect
-        hallOfFameClipIds = loadHallOfFameClipIds(context, selectedTeamName)
-        hallOfFameReelFilters = loadHallOfFameReelFilters(context, selectedTeamName)
-        savedGoatReels = loadSavedGoatReels(context, selectedTeamName)
+        hallOfFameClipIds = loadHallOfFameClipIds(context)
+        hallOfFameReelFilters = loadHallOfFameReelFilters(context)
+        savedGoatReels = loadSavedGoatReels(context)
     }
 
     LaunchedEffect(shareDialogUri) {
@@ -705,8 +684,7 @@ fun ClipsScreen(
             allVideos = selectedHeartVideos,
             onDismiss = { showCreateReelDialog = false },
             onSave = { name, clipIds ->
-                val selectedTeamName = teamName
-                if (selectedTeamName != null) {
+                run {
                     val scopeValidationError = validateReelScopeForClipIds(
                         context = context,
                         clipIds = clipIds,
@@ -717,7 +695,7 @@ fun ClipsScreen(
                         return@CreateReelDialog
                     }
                     val reel = SavedReel(name = name, clipIds = clipIds)
-                    savedGoatReels = saveGoatReel(context, selectedTeamName, reel, savedGoatReels)
+                    savedGoatReels = saveGoatReel(context, reel, savedGoatReels)
 
                     // Reels are created from temporary heart selections; clear hearts after save.
                     val highlightedIds = selectedHeartVideos.map { it.id }.toSet()
@@ -731,8 +709,7 @@ fun ClipsScreen(
                 showCreateReelDialog = false
             },
             onCreateAndShare = { name, clipIds ->
-                val selectedTeamName = teamName
-                if (selectedTeamName != null) {
+                run {
                     val scopeValidationError = validateReelScopeForClipIds(
                         context = context,
                         clipIds = clipIds,
@@ -743,7 +720,7 @@ fun ClipsScreen(
                         return@CreateReelDialog
                     }
                     val reel = SavedReel(name = name, clipIds = clipIds)
-                    savedGoatReels = saveGoatReel(context, selectedTeamName, reel, savedGoatReels)
+                    savedGoatReels = saveGoatReel(context, reel, savedGoatReels)
 
                     val selectedReelVideos = selectedHeartVideos
                         .filter { clipIds.contains(it.id) }
@@ -767,7 +744,7 @@ fun ClipsScreen(
                                 context = context,
                                 clipUris = clipUris,
                                 reelTitle = name,
-                                teamName = selectedTeamName,
+                                teamName = teamName,
                                 opponentName = reelOpponents.firstOrNull(),
                                 scenario = scenario
                             )
@@ -850,7 +827,6 @@ fun ClipsScreen(
             reelScenario = reelScenario,
             activeReelId = activeReelId,
             onSaveAsGoatReel = { name ->
-                val selectedTeamName = teamName ?: return@VideoPlaybackScreen
                 val clipIds = playlistUris.mapNotNull { uri ->
                     allTeamVideos.firstOrNull { it.filePath == uri.toString() }?.id
                 }
@@ -865,7 +841,7 @@ fun ClipsScreen(
                 }
                 val reelId = activeReelId ?: java.util.UUID.randomUUID().toString()
                 val reel = SavedReel(id = reelId, name = name, clipIds = clipIds)
-                savedGoatReels = saveGoatReel(context, selectedTeamName, reel, savedGoatReels)
+                savedGoatReels = saveGoatReel(context, reel, savedGoatReels)
                 activeReelId = reelId
             }
         )
@@ -927,7 +903,7 @@ fun ClipsScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = teamName ?: "Select team",
+                                text = teamName,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -1459,7 +1435,7 @@ fun ClipsScreen(
             Spacer(modifier = Modifier.height(6.dp))
 
             VideoLibraryScreen(
-                teamName = teamName!!,
+                teamName = teamName,
                 videos = visibleVideos,
                 sections = visibleSections,
                 rosterPlayers = rosterPlayers,
@@ -1475,7 +1451,7 @@ fun ClipsScreen(
                 onRefresh = {
                     scope.launch {
                         isLoading = true
-                        videos = loadTeamVideosForClips(context, teamName!!)
+                        videos = loadTeamVideosForClips(context, teamName)
                         allTeamVideos = loadAllVideosForClips(context)
                         isLoading = false
                     }
@@ -1501,7 +1477,7 @@ fun ClipsScreen(
                     prefs.edit().putString(video.id, opponent).apply()
                     // Refresh the video list to rebuild sections with new opponent
                     scope.launch {
-                        videos = loadTeamVideosForClips(context, teamName!!)
+                        videos = loadTeamVideosForClips(context, teamName)
                         allTeamVideos = loadAllVideosForClips(context)
                     }
                 },
@@ -1538,10 +1514,8 @@ fun ClipsScreen(
                 hallOfFameClipIds = hallOfFameClipIds,
                 savedGoatReels = savedGoatReels,
                 onToggleHallOfFameClip = { video ->
-                    val selectedTeamName = teamName ?: return@VideoLibraryScreen
                     hallOfFameClipIds = toggleHallOfFameClip(
                         context = context,
-                        teamName = selectedTeamName,
                         clipId = video.id,
                         existing = hallOfFameClipIds
                     )
@@ -1603,27 +1577,23 @@ fun ClipsScreen(
                     }
                 },
                 onToggleSavedReelTopPlay = { reel ->
-                    val selectedTeamName = teamName ?: return@VideoLibraryScreen
                     hallOfFameClipIds = toggleHallOfFameReelClips(
                         context = context,
-                        teamName = selectedTeamName,
                         clipIds = reel.clipIds,
                         existing = hallOfFameClipIds
                     )
                 },
                 onEditSavedReelDetails = { reel, newName ->
-                    val selectedTeamName = teamName ?: return@VideoLibraryScreen
                     val trimmedName = newName.trim()
                     if (trimmedName.isBlank()) {
                         Toast.makeText(context, "Reel name cannot be empty", Toast.LENGTH_SHORT).show()
                     } else {
                         val updatedReel = reel.copy(name = trimmedName)
-                        savedGoatReels = saveGoatReel(context, selectedTeamName, updatedReel, savedGoatReels)
+                        savedGoatReels = saveGoatReel(context, updatedReel, savedGoatReels)
                     }
                 },
                 onDeleteSavedReel = { reel ->
-                    val selectedTeamName = teamName ?: return@VideoLibraryScreen
-                    savedGoatReels = deleteGoatReel(context, selectedTeamName, reel.id, savedGoatReels)
+                    savedGoatReels = deleteGoatReel(context, reel.id, savedGoatReels)
                     if (activeReelId == reel.id) activeReelId = null
                 },
                 onCreateReel = {
@@ -2128,8 +2098,8 @@ fun ClipsScreen(
                         showCleanupDialog = false
                         cleanupInProgress = true
                         scope.launch {
-                            cleanupTeamClipsForClips(context, teamName!!)
-                            videos = loadTeamVideosForClips(context, teamName!!)
+                            cleanupTeamClipsForClips(context, teamName)
+                            videos = loadTeamVideosForClips(context, teamName)
                             allTeamVideos = loadAllVideosForClips(context)
                             cleanupInProgress = false
                         }
@@ -2141,11 +2111,12 @@ fun ClipsScreen(
         )
     }
 
-    if (showDeleteDialog && videoToDelete != null) {
+    val pendingDeleteVideo = videoToDelete
+    if (showDeleteDialog && pendingDeleteVideo != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Delete clip?") },
-            text = { Text("This will permanently delete '${videoToDelete!!.gameTitle}' from your phone.") },
+            text = { Text("This will permanently delete '${pendingDeleteVideo.gameTitle}' from your phone.") },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
                     Text("Cancel")
@@ -2154,15 +2125,13 @@ fun ClipsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val target = videoToDelete
+                        val target = pendingDeleteVideo
                         showDeleteDialog = false
-                        if (target != null) {
-                            scope.launch {
-                                deleteClipForClips(context, target)
-                                videos = loadTeamVideosForClips(context, teamName!!)
-                                allTeamVideos = loadAllVideosForClips(context)
-                                videoToDelete = null
-                            }
+                        scope.launch {
+                            deleteClipForClips(context, target)
+                            videos = loadTeamVideosForClips(context, teamName)
+                            allTeamVideos = loadAllVideosForClips(context)
+                            videoToDelete = null
                         }
                     }
                 ) {
@@ -3441,15 +3410,14 @@ private fun hallOfFameClipKey(teamName: String): String = "clips_$teamName"
 
 private fun hallOfFameReelKey(teamName: String): String = "reels_$teamName"
 
-private fun loadHallOfFameClipIds(context: android.content.Context, teamName: String): Set<String> {
+private fun loadHallOfFameClipIds(context: android.content.Context): Set<String> {
     migrateLegacyTeamScopedGoatDataIfNeeded(context)
     val prefs = context.getSharedPreferences(HALL_OF_FAME_PREFS, android.content.Context.MODE_PRIVATE)
     return prefs.getStringSet(GOAT_CLIPS_GLOBAL_KEY, emptySet()).orEmpty().toSet()
 }
 
 private fun loadHallOfFameReelFilters(
-    context: android.content.Context,
-    teamName: String
+    context: android.content.Context
 ): Set<HighlightReelFilter> {
     migrateLegacyTeamScopedGoatDataIfNeeded(context)
     val prefs = context.getSharedPreferences(HALL_OF_FAME_PREFS, android.content.Context.MODE_PRIVATE)
@@ -3461,7 +3429,6 @@ private fun loadHallOfFameReelFilters(
 
 private fun toggleHallOfFameClip(
     context: android.content.Context,
-    teamName: String,
     clipId: String,
     existing: Set<String>
 ): Set<String> {
@@ -3474,7 +3441,6 @@ private fun toggleHallOfFameClip(
 
 private fun toggleHallOfFameReelClips(
     context: android.content.Context,
-    teamName: String,
     clipIds: List<String>,
     existing: Set<String>
 ): Set<String> {
@@ -3491,7 +3457,6 @@ private fun toggleHallOfFameReelClips(
 
 private fun toggleHallOfFameReelFilter(
     context: android.content.Context,
-    teamName: String,
     filter: HighlightReelFilter,
     existing: Set<HighlightReelFilter>
 ): Set<HighlightReelFilter> {
@@ -3504,7 +3469,6 @@ private fun toggleHallOfFameReelFilter(
 
 private fun removeHallOfFameReelFilter(
     context: android.content.Context,
-    teamName: String,
     filter: HighlightReelFilter,
     existing: Set<HighlightReelFilter>
 ): Set<HighlightReelFilter> {
@@ -3746,8 +3710,7 @@ private fun parseSeasonKey(gameDate: String): SeasonOption? {
 // --- SavedReel persistence ---------------------------------------------------
 
 private fun loadSavedGoatReels(
-    context: android.content.Context,
-    teamName: String
+    context: android.content.Context
 ): List<SavedReel> {
     migrateLegacyTeamScopedGoatDataIfNeeded(context)
     val prefs = context.getSharedPreferences(HALL_OF_FAME_PREFS, android.content.Context.MODE_PRIVATE)
@@ -3756,29 +3719,26 @@ private fun loadSavedGoatReels(
 
 private fun saveGoatReel(
     context: android.content.Context,
-    teamName: String,
     reel: SavedReel,
     existing: List<SavedReel>
 ): List<SavedReel> {
     val updated = existing.filter { it.id != reel.id } + reel
-    persistSavedGoatReels(context, teamName, updated)
+    persistSavedGoatReels(context, updated)
     return updated
 }
 
 private fun deleteGoatReel(
     context: android.content.Context,
-    teamName: String,
     reelId: String,
     existing: List<SavedReel>
 ): List<SavedReel> {
     val updated = existing.filter { it.id != reelId }
-    persistSavedGoatReels(context, teamName, updated)
+    persistSavedGoatReels(context, updated)
     return updated
 }
 
 private fun persistSavedGoatReels(
     context: android.content.Context,
-    teamName: String,
     reels: List<SavedReel>
 ) {
     migrateLegacyTeamScopedGoatDataIfNeeded(context)

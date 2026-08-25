@@ -238,7 +238,6 @@ fun PlayerIDApp() {
                                 CameraScreen(
                                     viewModel = playerViewModel,
                                     teamViewModel = teamViewModel,
-                                    onNavigateToClips = { navController.navigate("clips") },
                                     onNavigateToTeams = { navController.navigate("teams") }
                                 )
                             }
@@ -270,7 +269,6 @@ fun PlayerIDApp() {
                                 TeamScreen(
                                     teamViewModel = teamViewModel,
                                     playerViewModel = playerViewModel,
-                                    cameraHandoffToken = cameraHandoffToken,
                                     onNavigateToWebImport = { teamName ->
                                         navController.navigate("webRosterImport/${Uri.encode(teamName)}")
                                     },
@@ -291,7 +289,6 @@ fun PlayerIDApp() {
                                     playerViewModel = playerViewModel,
                                     startCreateTeamInitially = true,
                                     openRosterAfterCreate = true,
-                                    cameraHandoffToken = cameraHandoffToken,
                                     onNavigateToWebImport = { teamName ->
                                         navController.navigate("webRosterImport/${Uri.encode(teamName)}")
                                     },
@@ -315,7 +312,6 @@ fun PlayerIDApp() {
                                     playerViewModel = playerViewModel,
                                     initialTeamName = backStackEntry.arguments?.getString("teamName"),
                                     openRosterInitially = true,
-                                    cameraHandoffToken = cameraHandoffToken,
                                     onNavigateToWebImport = { teamName ->
                                         navController.navigate("webRosterImport/${Uri.encode(teamName)}")
                                     },

@@ -50,7 +50,7 @@ class BundledJerseyPhotos(private val context: Context) {
                                 filename = filename,
                                 expectedNumber = number,
                                 sport = sport,
-                                team = "${sport.capitalize()} Team $number",
+                                team = "${sport.replaceFirstChar { it.uppercaseChar() }} Team $number",
                                 description = "Jersey #$number ($sport, $difficulty, $variation)",
                                 difficultyLevel = difficulty
                             )

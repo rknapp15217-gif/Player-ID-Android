@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.Log
 import java.io.File
+import java.util.Locale
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -62,8 +63,8 @@ fun JerseyValidationScreen() {
     }
     // Load saved progress or start fresh
     val loadedProgress = loadValidationProgress(context)
-    var currentNumberIndex by remember { 
-        mutableStateOf(
+    var currentNumberIndex by remember {
+        mutableIntStateOf(
             if (loadedProgress >= jerseyNumbers.size) {
                 Log.d("ValidationPersistence", "🔄 Loaded progress ($loadedProgress) exceeds available numbers (${jerseyNumbers.size}), starting from 0")
                 0
@@ -74,10 +75,10 @@ fun JerseyValidationScreen() {
     }
     val currentNumber = jerseyNumbers[currentNumberIndex]
     var currentBatch by remember { mutableStateOf<List<ValidationPhoto>>(emptyList()) }
-    var currentIndex by remember { mutableStateOf(0) }
+    var currentIndex by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(false) }
-    var validatedCount by remember { mutableStateOf(0) }
-    var totalValidated by remember { mutableStateOf(loadTotalValidated(context)) }
+    var validatedCount by remember { mutableIntStateOf(0) }
+    var totalValidated by remember { mutableIntStateOf(loadTotalValidated(context)) }
     
     // Export state
     var isExporting by remember { mutableStateOf(false) }
@@ -86,8 +87,6 @@ fun JerseyValidationScreen() {
     
     // Initialize services
     val datasetCollector = remember { JerseyDatasetCollector(context) }
-    val bundledPhotos = remember { BundledJerseyPhotos(context) }
-    val onlineImporter = remember { OnlineJerseyImporter(context, datasetCollector) }
     
     Column(
         modifier = Modifier
@@ -131,7 +130,9 @@ fun JerseyValidationScreen() {
                 Text("Total Validated: $totalValidated samples")
                 
                 LinearProgressIndicator(
-                    progress = if (validatedCount > 0) validatedCount / SAMPLES_PER_NUMBER.toFloat() else 0f,
+                    progress = {
+                        if (validatedCount > 0) validatedCount / SAMPLES_PER_NUMBER.toFloat() else 0f
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp)
@@ -656,7 +657,7 @@ private fun generateSequentialBatch(targetNumber: String, context: Context, batc
         try {
             val bitmap = if (useRealPhoto) {
                 // Try to load real jersey photo, with enhanced fallback
-                loadRealJerseyPhoto(targetNumber, context) ?: loadBundledJerseyPhoto(targetNumber, context) ?: createEnhancedRealisticJersey(targetNumber, color, difficulty, variation)
+                loadRealJerseyPhoto(targetNumber, context) ?: loadBundledJerseyPhoto(targetNumber, context) ?: createEnhancedRealisticJersey(targetNumber, color, difficulty)
             } else {
                 // Generate synthetic image with enhanced realism
                 createJerseyBitmapWithString(targetNumber, color, difficulty, variation)
@@ -726,7 +727,7 @@ private fun createJerseyBitmapWithString(numberStr: String, bgColor: Int, diffic
     val (jerseyArea, jerseyCanvas) = createJerseyArea(bgColor, variation)
     
     // Apply difficulty-based transformations and challenges to jersey area
-    val (transformedJerseyCanvas, finalXPos, finalYPos, clarityFactor) = applyDifficultyEffects(jerseyCanvas, difficulty, jerseyArea.width, jerseyArea.height)
+    val (_, _, _, clarityFactor) = applyDifficultyEffects(jerseyCanvas, difficulty, jerseyArea.width, jerseyArea.height)
     
     // Position jersey randomly in the camera view (realistic player positions)
     val jerseyPosition = getRealisticJerseyPosition(width, height, jerseyArea.width, jerseyArea.height)
@@ -1524,7 +1525,7 @@ private suspend fun deployTrainedModel(context: Context): Boolean {
         Log.d("Deploy", "🚀 Model deployed to ${deployedModel.absolutePath}")
         
         // Update app to use custom model
-        updateModelConfiguration(context)
+        updateModelConfiguration()
         
         return true
         
@@ -1696,12 +1697,6 @@ print("✅ Model converted to TensorFlow Lite successfully!")
 /**
  * � Check if real jersey photo exists for this number
  */
-private fun hasRealJerseyPhoto(number: String): Boolean {
-    // Check if real jersey photos are available in assets or external storage
-    // This will integrate with your jersey_photos_to_import.md workflow
-    return false // For now - will be implemented when real photos are added
-}
-
 /**
  * 📷 Load real jersey photo if available
  */
@@ -1768,7 +1763,7 @@ private fun loadBundledJerseyPhoto(number: String, context: Context): Bitmap? {
 /**
  * Create enhanced realistic jersey with photographic elements
  */
-private fun createEnhancedRealisticJersey(number: String, bgColor: Int, difficulty: String, variation: String): Bitmap {
+private fun createEnhancedRealisticJersey(number: String, bgColor: Int, difficulty: String): Bitmap {
     val bitmap = Bitmap.createBitmap(320, 240, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     
@@ -1779,7 +1774,7 @@ private fun createEnhancedRealisticJersey(number: String, bgColor: Int, difficul
     addFabricRealism(canvas, 320, 240)
     
     // Draw number with realistic positioning and lighting
-    drawRealisticNumber(canvas, number, bgColor, difficulty, variation, 320, 240)
+    drawRealisticNumber(canvas, number, bgColor, difficulty, 320, 240)
     
     Log.d("EnhancedJersey", "✅ Created enhanced realistic jersey for #$number")
     return bitmap
@@ -1832,7 +1827,7 @@ private fun addFabricRealism(canvas: Canvas, width: Int, height: Int) {
 /**
  * Draw number with realistic lighting and positioning
  */
-private fun drawRealisticNumber(canvas: Canvas, number: String, bgColor: Int, difficulty: String, variation: String, width: Int, height: Int) {
+private fun drawRealisticNumber(canvas: Canvas, number: String, bgColor: Int, difficulty: String, width: Int, height: Int) {
     val positionRect = getRealisticJerseyPosition(width, height, width, height)
     val xPos = positionRect.centerX()
     val yPos = positionRect.centerY()
@@ -1925,7 +1920,7 @@ SUCCESS CRITERIA:
 - Works with different fonts/styles
 - >70% accuracy on real jersey photos
 
-Generated: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())}
+Generated: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(java.util.Date())}
 """.trimIndent()
 
     instructionsFile.writeText(instructions)
@@ -1973,8 +1968,6 @@ private fun loadValidationProgress(context: Context): Int {
     return try {
         val prefs = context.getSharedPreferences("jersey_validation", Context.MODE_PRIVATE)
         val savedIndex = prefs.getInt("current_number_index", 0)
-        val lastSaved = prefs.getLong("last_saved", 0)
-        
         Log.d("ValidationPersistence", "📂 Loaded progress: resuming at number index $savedIndex")
         savedIndex
     } catch (e: Exception) {
@@ -2061,7 +2054,7 @@ Based on your proof-of-concept validation, here are alternative ML approaches to
 - Measure inference speed on device
 - Check false positive rates
 
-Generated: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())}
+Generated: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(java.util.Date())}
 """.trimIndent()
 
     researchFile.writeText(researchContent)
@@ -2131,7 +2124,7 @@ private fun testTemplateMatching() {
 /**
  * ⚙️ Update app configuration to use custom trained model
  */
-private fun updateModelConfiguration(context: Context) {
+private fun updateModelConfiguration() {
     // This would integrate with your existing JerseyDetectionManager
     // to switch from ML Kit to the custom trained model
     Log.d("Deploy", "🔧 Updating app to use custom trained model...")

@@ -18,11 +18,13 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
 
     private val videoProcessingManager = VideoProcessingManager(application.applicationContext)
 
+    @Suppress("UNUSED_PARAMETER")
     fun getBubblesForVideo(videoId: String): Flow<List<NameBubble>> {
         // This is a placeholder. In a real app, you would fetch this from a repository.
         return MutableStateFlow(emptyList<NameBubble>()).asStateFlow()
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun exportVideo(
         videoClip: VideoClip,
         selectedBubbles: List<String>,

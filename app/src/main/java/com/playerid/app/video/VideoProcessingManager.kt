@@ -93,7 +93,7 @@ class VideoProcessingManager(private val context: Context) {
         val confirmationHitsByPlayer = mutableMapOf<String, Int>()
         val singleTargetPlayer = roster.singleOrNull()
         val allowedRosterNumbers = roster
-            .mapNotNull { it.number?.trim() }
+            .map { it.number.trim() }
             .filter { it.isNotEmpty() }
             .toSet()
         var frameWidth = 0
@@ -485,7 +485,7 @@ class VideoProcessingManager(private val context: Context) {
             }
         }
 
-        val resolvedCenter = bestCenter!!
+        val resolvedCenter = bestCenter
         val resolvedPatch = bestPatch!!
 
         val maxStep = max(tracker.sampleWidth, tracker.sampleHeight).toFloat() * 0.28f
@@ -835,15 +835,15 @@ class VideoProcessingManager(private val context: Context) {
                             }
 
                             if (includeElementLevelOcr) {
-                                line.elements.forEach { element ->
+                                line.elements.forEach elementLoop@ { element ->
                                     val elementText = element.text.trim()
                                     extractJerseyNumberCandidates(elementText, allowedNumbers).forEach { text ->
                                         if (allowedNumbers != null && !allowedNumbers.contains(text)) {
-                                            return@forEach
+                                            return@elementLoop
                                         }
-                                        val box = element.boundingBox ?: return@forEach
+                                        val box = element.boundingBox ?: return@elementLoop
                                         if (targetColor != null && !isColorMatchNearBox(variant.bitmap, box, targetColor)) {
-                                            return@forEach
+                                            return@elementLoop
                                         }
                                         val key = "${text}_${box.centerX()}_${box.centerY()}"
                                         if (seenCandidates.add(key)) {
@@ -1019,6 +1019,7 @@ class VideoProcessingManager(private val context: Context) {
         return confidence.coerceIn(0f, 1f)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     suspend fun exportVideoWithBubbles(
         originalVideoUri: Uri,
         nameBubbles: List<NameBubble>,

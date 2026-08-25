@@ -26,6 +26,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -35,6 +36,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import androidx.core.content.IntentCompat
 import android.app.PendingIntent
 import com.playerid.app.MainActivity
 import com.playerid.app.R
@@ -75,7 +77,7 @@ class ScreenCaptureService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
-                val data = intent.getParcelableExtra<Intent>(EXTRA_DATA)
+                val data = IntentCompat.getParcelableExtra(intent, EXTRA_DATA, Intent::class.java)
                 autoRemind = intent.getBooleanExtra(EXTRA_AUTO_REMIND, false)
                 captureContent = intent.getStringExtra(EXTRA_CAPTURE_CONTENT)
                     ?.let { runCatching { CaptureContent.valueOf(it) }.getOrNull() }
@@ -133,16 +135,16 @@ class ScreenCaptureService : Service() {
 
     private fun startReminderLoopIfNeeded() {
         if (!autoRemind || reminderJob != null) return
-        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(VibratorManager::class.java).defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
         reminderJob = serviceScope.launch {
             while (true) {
                 delay(12000)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(60, VibrationEffect.DEFAULT_AMPLITUDE))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(60)
-                }
+                vibrator.vibrate(VibrationEffect.createOneShot(60, VibrationEffect.DEFAULT_AMPLITUDE))
             }
         }
     }
@@ -166,7 +168,7 @@ class ScreenCaptureService : Service() {
         }
 
         val captureButton = Button(this).apply {
-            text = "Start Capture"
+            setText(R.string.start_capture)
             setOnClickListener {
                 // Remove Capture button and show Done button
                 (this.parent as? LinearLayout)?.removeView(this)
@@ -180,7 +182,7 @@ class ScreenCaptureService : Service() {
 
         // Create Done button but don't add it yet - will be shown after Capture is pressed
         doneButton = Button(this).apply {
-            text = "Done"
+            setText(R.string.done)
             setOnClickListener {
                 // Stop auto-capture
                 autoCaptureJob?.cancel()
@@ -208,12 +210,7 @@ class ScreenCaptureService : Service() {
         container.addView(captureButton)
         // Don't add Done button initially - only add after first capture
 
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
+        val type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -255,10 +252,6 @@ class ScreenCaptureService : Service() {
     
     private fun showTutorialScreen() {
         if (tutorialFingerView != null) return
-        
-        val metrics = resources.displayMetrics
-        val screenWidth = metrics.widthPixels
-        val screenHeight = metrics.heightPixels
         
         class TutorialOverlayView(context: Context) : FrameLayout(context) {
             init {
@@ -308,6 +301,9 @@ class ScreenCaptureService : Service() {
                 color = Color.argb(200, 100, 181, 246) // Semi-transparent blue
                 style = Paint.Style.FILL
             }
+            private val phoneRect = RectF()
+            private val buttonRect = RectF()
+            private val arrowPath = Path()
             
             var animationProgress = 0f
                 set(value) {
@@ -328,7 +324,7 @@ class ScreenCaptureService : Service() {
                 val phoneTop = (height - phoneHeight) / 2f
                 
                 // Draw phone background
-                val phoneRect = RectF(phoneLeft, phoneTop, phoneLeft + phoneWidth, phoneTop + phoneHeight)
+                phoneRect.set(phoneLeft, phoneTop, phoneLeft + phoneWidth, phoneTop + phoneHeight)
                 canvas.drawRoundRect(phoneRect, 40f, 40f, phonePaint)
                 canvas.drawRoundRect(phoneRect, 40f, 40f, phoneBorderPaint)
                 
@@ -349,8 +345,8 @@ class ScreenCaptureService : Service() {
                         canvas.drawText("Push Start Capture", phoneLeft + phoneWidth / 2f, phoneTop - 60f, instructionPaint)
                         
                         // Draw Capture button
-                        val captureRect = RectF(buttonX, buttonY, buttonX + buttonWidth, buttonY + buttonHeight)
-                        canvas.drawRoundRect(captureRect, 20f, 20f, buttonPaint)
+                        buttonRect.set(buttonX, buttonY, buttonX + buttonWidth, buttonY + buttonHeight)
+                        canvas.drawRoundRect(buttonRect, 20f, 20f, buttonPaint)
                         canvas.drawText("Capture", buttonX + buttonWidth / 2f, buttonY + (buttonHeight / 2f) + 12f, textPaint)
                         
                         // Draw finger tapping
@@ -380,8 +376,8 @@ class ScreenCaptureService : Service() {
                         }
                         
                         // Draw Done button at top right (same position as Capture)
-                        val doneRect = RectF(buttonX, buttonY, buttonX + buttonWidth, buttonY + buttonHeight)
-                        canvas.drawRoundRect(doneRect, 20f, 20f, buttonPaint)
+                        buttonRect.set(buttonX, buttonY, buttonX + buttonWidth, buttonY + buttonHeight)
+                        canvas.drawRoundRect(buttonRect, 20f, 20f, buttonPaint)
                         canvas.drawText("Done", buttonX + buttonWidth / 2f, buttonY + (buttonHeight / 2f) + 12f, textPaint)
                         
                         // Draw finger scrolling
@@ -389,13 +385,12 @@ class ScreenCaptureService : Service() {
                         drawFinger(canvas, phoneLeft + phoneWidth / 2f, fingerY)
                         
                         // Draw down arrow next to finger
-                        val arrowPath = Path().apply {
-                            moveTo(phoneLeft + phoneWidth / 2f + 60f, fingerY - 20f)
-                            lineTo(phoneLeft + phoneWidth / 2f + 60f, fingerY + 40f)
-                            lineTo(phoneLeft + phoneWidth / 2f + 50f, fingerY + 30f)
-                            moveTo(phoneLeft + phoneWidth / 2f + 60f, fingerY + 40f)
-                            lineTo(phoneLeft + phoneWidth / 2f + 70f, fingerY + 30f)
-                        }
+                        arrowPath.rewind()
+                        arrowPath.moveTo(phoneLeft + phoneWidth / 2f + 60f, fingerY - 20f)
+                        arrowPath.lineTo(phoneLeft + phoneWidth / 2f + 60f, fingerY + 40f)
+                        arrowPath.lineTo(phoneLeft + phoneWidth / 2f + 50f, fingerY + 30f)
+                        arrowPath.moveTo(phoneLeft + phoneWidth / 2f + 60f, fingerY + 40f)
+                        arrowPath.lineTo(phoneLeft + phoneWidth / 2f + 70f, fingerY + 30f)
                         fingerPaint.style = Paint.Style.STROKE
                         fingerPaint.strokeWidth = 6f
                         canvas.drawPath(arrowPath, fingerPaint)
@@ -409,8 +404,8 @@ class ScreenCaptureService : Service() {
                         canvas.drawText("Push Done", phoneLeft + phoneWidth / 2f, phoneTop - 60f, instructionPaint)
                         
                         // Draw Done button at top right (same position as Capture)
-                        val doneRect = RectF(buttonX, buttonY, buttonX + buttonWidth, buttonY + buttonHeight)
-                        canvas.drawRoundRect(doneRect, 20f, 20f, buttonPaint)
+                        buttonRect.set(buttonX, buttonY, buttonX + buttonWidth, buttonY + buttonHeight)
+                        canvas.drawRoundRect(buttonRect, 20f, 20f, buttonPaint)
                         canvas.drawText("Done", buttonX + buttonWidth / 2f, buttonY + (buttonHeight / 2f) + 12f, textPaint)
                         
                         // Draw finger tapping Done
@@ -432,7 +427,7 @@ class ScreenCaptureService : Service() {
         
         // Add dismiss button
         val dismissButton = Button(this).apply {
-            text = "Got it!"
+            setText(R.string.got_it)
             textSize = 18f
             setOnClickListener {
                 removeTutorialScreen()
@@ -449,12 +444,7 @@ class ScreenCaptureService : Service() {
         
         tutorialView.addView(dismissButton, dismissParams)
         
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
+        val type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -587,17 +577,15 @@ class ScreenCaptureService : Service() {
 
     private fun ensureNotificationChannel(): String {
         val channelId = "roster_capture"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val existing = manager.getNotificationChannel(channelId)
-            if (existing == null) {
-                val channel = NotificationChannel(
-                    channelId,
-                    "Roster Capture",
-                    NotificationManager.IMPORTANCE_LOW
-                )
-                manager.createNotificationChannel(channel)
-            }
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val existing = manager.getNotificationChannel(channelId)
+        if (existing == null) {
+            val channel = NotificationChannel(
+                channelId,
+                "Roster Capture",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            manager.createNotificationChannel(channel)
         }
         return channelId
     }

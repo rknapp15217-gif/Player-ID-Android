@@ -69,7 +69,7 @@ class Jersey10Detector(private val context: Context) {
                             Log.d(TAG, "    🔍 Element $elementIndex: '$text' (confidence: ${element.confidence})")
                             
                             if (boundingBox != null) {
-                                allElements.add(TextElement(text, boundingBox, element.confidence ?: 0.5f))
+                                allElements.add(TextElement(text, boundingBox, element.confidence))
                                 
                                 // Also check for direct "10" matches
                                 if (isJersey10Candidate(text, boundingBox)) {
@@ -91,7 +91,7 @@ class Jersey10Detector(private val context: Context) {
                 }
                 
                 // Look for fragmented "1" and "0" that should be combined into "10"
-                val fragmentedResults = findFragmented10(allElements, bitmap)
+                val fragmentedResults = findFragmented10(allElements)
                 results.addAll(fragmentedResults)
                 
                 callback(results.sortedByDescending { it.confidence })
@@ -261,7 +261,7 @@ class Jersey10Detector(private val context: Context) {
     /**
      * Look for fragmented "1" and "0" characters that should form "10"
      */
-    private fun findFragmented10(elements: List<TextElement>, bitmap: Bitmap): List<DetectionResult> {
+    private fun findFragmented10(elements: List<TextElement>): List<DetectionResult> {
         val results = mutableListOf<DetectionResult>()
         
         // Find all "1" elements (could be "1", "l", "I", "|", etc.)
@@ -293,7 +293,7 @@ class Jersey10Detector(private val context: Context) {
                     )
                     
                     // Calculate confidence based on element quality and positioning
-                    val confidence = calculateFragmentedConfidence(oneElement, zeroElement, bitmap)
+                    val confidence = calculateFragmentedConfidence(oneElement, zeroElement)
                     
                     if (confidence > CONFIDENCE_THRESHOLD) {
                         results.add(
@@ -341,7 +341,7 @@ class Jersey10Detector(private val context: Context) {
     /**
      * Calculate confidence for fragmented "1" + "0" detection
      */
-    private fun calculateFragmentedConfidence(oneElement: TextElement, zeroElement: TextElement, bitmap: Bitmap): Float {
+    private fun calculateFragmentedConfidence(oneElement: TextElement, zeroElement: TextElement): Float {
         var confidence = 0.4f // Base confidence for fragmented detection
         
         // Element confidence bonus

@@ -123,12 +123,7 @@ fun PlayerIDVoiceScreen(
             }
             vibrator?.let {
                 if (it.hasVibrator()) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        it.vibrate(VibrationEffect.createOneShot(32L, VibrationEffect.DEFAULT_AMPLITUDE))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        it.vibrate(32L)
-                    }
+                    it.vibrate(VibrationEffect.createOneShot(32L, VibrationEffect.DEFAULT_AMPLITUDE))
                 }
             }
         } catch (e: Exception) {
@@ -301,14 +296,8 @@ fun PlayerIDVoiceScreen(
             vibrator?.let {
                 android.util.Log.d("PlayerIDVoiceScreen", "Vibrator hasVibrator: ${it.hasVibrator()}")
                 if (it.hasVibrator()) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        it.vibrate(VibrationEffect.createOneShot(24L, VibrationEffect.DEFAULT_AMPLITUDE))
-                        android.util.Log.d("PlayerIDVoiceScreen", "Vibrator API 26+ vibrate called")
-                    } else {
-                        @Suppress("DEPRECATION")
-                        it.vibrate(24L)
-                        android.util.Log.d("PlayerIDVoiceScreen", "Vibrator deprecated vibrate called")
-                    }
+                    it.vibrate(VibrationEffect.createOneShot(24L, VibrationEffect.DEFAULT_AMPLITUDE))
+                    android.util.Log.d("PlayerIDVoiceScreen", "Vibrator API 26+ vibrate called")
                 } else {
                     android.util.Log.d("PlayerIDVoiceScreen", "Device reports no vibrator support")
                 }
@@ -327,7 +316,6 @@ fun PlayerIDVoiceScreen(
     val micButtonSize = if (isSmallScreen) 132.dp else 150.dp
     val micIconSize = if (isSmallScreen) 76.dp else 88.dp
     val cardVerticalPadding = if (isSmallScreen) 18.dp else 24.dp
-    val titleStyle = if (isSmallScreen) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall
 
     LaunchedEffect(isListening) {
         if (isListening) {
@@ -348,10 +336,6 @@ fun PlayerIDVoiceScreen(
     var positionMenuExpanded by remember { mutableStateOf(false) }
     var yearMenuExpanded by remember { mutableStateOf(false) }
     val selectedTeam = localSelectedTeam ?: ""
-    val selectedTeamMeta = remember(teams, selectedTeam) {
-        teams.firstOrNull { it.name == selectedTeam }
-    }
-    val teamPrimary = parsePlayerScreenColor(selectedTeamMeta?.color, Color(0xFF1976D2))
     val teamRoster = remember(allPlayers, selectedTeam) {
         allPlayers.filter { it.team == selectedTeam }
     }

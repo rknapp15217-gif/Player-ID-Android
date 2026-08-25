@@ -2,10 +2,8 @@ package com.playerid.app.roster
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
+import android.graphics.BitmapFactory
 import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -129,13 +127,13 @@ private fun parseRosterLine(line: String): RosterCandidate? {
     val parsedNumber = number.toIntOrNull() ?: return null
     if (parsedNumber < 0 || parsedNumber > 99) return null
 
-        return RosterCandidate(
-            name = finalName,
-            number = parsedNumber.toString(),
-            position = inlinePosition?.let { normalizePosition(it) } ?: "",
-            graduationYear = null,
-            academicYear = academicYear
-        )
+    return RosterCandidate(
+        name = finalName,
+        number = parsedNumber.toString(),
+        position = inlinePosition?.let { normalizePosition(it) } ?: "",
+        graduationYear = null,
+        academicYear = academicYear
+    )
 }
 
 private fun parseAdjacentLinePairs(lines: List<String>): List<RosterCandidate> {
@@ -281,7 +279,6 @@ private fun looksLikeNameLine(text: String): Boolean {
         val lower = token.lowercase()
         val hasVowel = lower.any { it in "aeiou" }
         val consonantCount = lower.count { it in "bcdfghjklmnpqrstvwxyz" }
-        val vowelCount = lower.count { it in "aeiou" }
         // Reject if all consonants or looks like abbreviation
         hasVowel && consonantCount <= token.length - 1
     }
@@ -391,12 +388,9 @@ private fun normalizeAcademicYear(raw: String): String? {
 }
 
 private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        val source = ImageDecoder.createSource(context.contentResolver, uri)
-        ImageDecoder.decodeBitmap(source)
-    } else {
-        MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-    }
+    return context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input)
+    } ?: error("Unable to decode roster image: $uri")
 }
 
 private fun scaleBitmap(bitmap: Bitmap, maxDimension: Int): Bitmap {

@@ -15,7 +15,6 @@ import com.playerid.app.data.TrackedPlayer
 @Composable
 fun PlayerBubblesOverlay(
     trackedPlayers: List<Pair<TrackedPlayer, Player?>>,
-    processing: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier.fillMaxSize()) {

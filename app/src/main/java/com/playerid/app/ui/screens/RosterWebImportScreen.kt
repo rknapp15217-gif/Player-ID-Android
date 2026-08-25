@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.material.icons.Icons
@@ -29,7 +28,6 @@ fun RosterWebImportScreen(
     onBack: () -> Unit
 ) {
     var currentUrl by remember { mutableStateOf(initialUrl) }
-    val context = LocalContext.current
     var showConfirmation by remember { mutableStateOf(false) }
     var importedCount by remember { mutableStateOf(0) }
 
@@ -45,9 +43,6 @@ fun RosterWebImportScreen(
                     }
                     loadUrl(initialUrl)
                 }
-            },
-            update = { webView ->
-                // No-op
             },
             modifier = Modifier.fillMaxSize()
         )

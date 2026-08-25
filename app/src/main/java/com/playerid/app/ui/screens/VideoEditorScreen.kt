@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.*
@@ -68,7 +69,7 @@ data class NameBubble(
     val isSelected: Boolean = false
 )
 
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 @ExperimentalMaterial3Api
 @Composable
 fun VideoEditorScreen(
@@ -205,7 +206,7 @@ fun VideoEditorScreen(
                 title = { Text("Edit & Trim Clip", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 actions = {
@@ -256,15 +257,12 @@ fun VideoEditorScreen(
                     onAutoDetect = { /* TODO */ },
                     nameBubbles = nameBubbles,
                     textOverlays = textOverlays,
-                    overlayText = overlayText,
                     showOverlayPanel = showOverlayPanel,
                     onShowOverlayPanelChange = { showOverlayPanel = it },
                     onBubbleVisibilityToggle = { id ->
                         nameBubbles = nameBubbles.map { if (it.id == id) it.copy(isVisible = !it.isVisible) else it }
                     },
                     onDeleteBubble = { id -> nameBubbles = nameBubbles.filter { it.id != id } },
-                    onOverlayTextChange = { overlayText = it },
-                    onAddOverlay = addOrReplaceOverlay,
                     onDeleteOverlay = { id ->
                         textOverlays = textOverlays.filter { it.id != id }
                     }
@@ -370,9 +368,7 @@ fun VideoEditorScreen(
                         
                         drawOverlayText(
                             text = overlay.text,
-                            position = overlayPositionOffset,
-                            canvasWidth = size.width,
-                            canvasHeight = size.height
+                            position = overlayPositionOffset
                         )
                     }
 
@@ -385,9 +381,7 @@ fun VideoEditorScreen(
 
                         drawOverlayText(
                             text = overlayPreviewText,
-                            position = overlayPositionOffset,
-                            canvasWidth = size.width,
-                            canvasHeight = size.height
+                            position = overlayPositionOffset
                         )
                     }
                 }
@@ -487,13 +481,10 @@ fun VideoEditorControls(
     onAutoDetect: () -> Unit,
     nameBubbles: List<NameBubble>,
     textOverlays: List<Overlay>,
-    overlayText: String,
     showOverlayPanel: Boolean,
     onShowOverlayPanelChange: (Boolean) -> Unit,
     onBubbleVisibilityToggle: (String) -> Unit,
     onDeleteBubble: (String) -> Unit,
-    onOverlayTextChange: (String) -> Unit,
-    onAddOverlay: () -> Unit,
     onDeleteOverlay: (String) -> Unit
 ) {
     Card(
@@ -734,9 +725,7 @@ fun isOverlayHit(offset: Offset, center: Offset, text: String): Boolean {
 
 fun DrawScope.drawOverlayText(
     text: String,
-    position: Offset,
-    canvasWidth: Float,
-    canvasHeight: Float
+    position: Offset
 ) {
     // Draw larger overlay text with no background
     val textPaint = Paint().apply {

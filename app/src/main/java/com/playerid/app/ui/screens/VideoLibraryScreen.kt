@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
@@ -112,6 +113,7 @@ private val PlaysAccentColor = Color(0xFF1C8CFF)
 private val PlaysBackgroundColor = Color(0xFFFFFFFF)
 
 @ExperimentalMaterial3Api
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun VideoLibraryScreen(
     teamName: String,
@@ -174,9 +176,6 @@ fun VideoLibraryScreen(
         savedGoatReels.filter { reel -> reel.clipIds.any { seasonClipIds.contains(it) } }
     }
     val hasReelContent = reelsForSeason.isNotEmpty()
-    val hasHallOfFameContent = remember(hallOfFameClipIds, seasonClipIds) {
-        hallOfFameClipIds.any { seasonClipIds.contains(it) }
-    }
     val showHallOfFameChip = goatSourceVideos.isNotEmpty() || hallOfFameClipIds.isNotEmpty()
     val displaySections = remember(videos, goatSourceVideos, sections, effectiveShowReelsOnly, effectiveShowHallOfFameOnly, hallOfFameClipIds) {
         if (effectiveShowReelsOnly) return@remember emptyList()
@@ -235,7 +234,7 @@ fun VideoLibraryScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.Default.ArrowBack, "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                         }
                     },
                     actions = {
@@ -307,7 +306,7 @@ fun VideoLibraryScreen(
                         }
                     }
 
-                    if (onUploadRequested != null) {
+                    onUploadRequested?.let { uploadRequested ->
                         Box {
                             IconButton(onClick = { showHeaderActionsMenu = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "More actions")
@@ -316,16 +315,14 @@ fun VideoLibraryScreen(
                                 expanded = showHeaderActionsMenu,
                                 onDismissRequest = { showHeaderActionsMenu = false }
                             ) {
-                                if (onUploadRequested != null) {
-                                    DropdownMenuItem(
-                                        text = { Text("Upload") },
-                                        leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
-                                        onClick = {
-                                            onUploadRequested()
-                                            showHeaderActionsMenu = false
-                                        }
-                                    )
-                                }
+                                DropdownMenuItem(
+                                    text = { Text("Upload") },
+                                    leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
+                                    onClick = {
+                                        uploadRequested()
+                                        showHeaderActionsMenu = false
+                                    }
+                                )
                             }
                         }
                     }
@@ -573,6 +570,7 @@ fun VideoLibraryScreen(
 }
 
 @ExperimentalMaterial3Api
+@Suppress("UNUSED_PARAMETER")
 @Composable
 private fun VideoClipCard(
     video: VideoClip,
@@ -1774,7 +1772,7 @@ private fun SavedReelCard(
             ) {
                 if (!thumbnailPath.isNullOrBlank() && reelThumbnail != null) {
                     Image(
-                        bitmap = reelThumbnail!!.asImageBitmap(),
+                        bitmap = reelThumbnail.asImageBitmap(),
                         contentDescription = "Reel preview",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,7 +41,6 @@ fun CrowdSourcedTeamsScreen(
     var searchQuery by remember { mutableStateOf("") }
     var debouncedSearchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
-    val scope = rememberCoroutineScope()
     
     // Debounce search query for better performance with thousands of teams
     LaunchedEffect(searchQuery) {
@@ -70,7 +71,7 @@ fun CrowdSourcedTeamsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onNavigateBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
@@ -506,7 +507,7 @@ fun TeamStatCard(
                             )
                         ) {
                             Icon(
-                                Icons.Default.ExitToApp,
+                                Icons.AutoMirrored.Filled.ExitToApp,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -542,7 +543,6 @@ fun TeamDetailsDialog(
     onSubscriptionToggle: () -> Unit
 ) {
     var contributors by remember { mutableStateOf<List<String>>(emptyList()) }
-    val scope = rememberCoroutineScope()
     
     LaunchedEffect(teamWithStats.name) {
         contributors = teamViewModel.getTeamContributors(teamWithStats.name)

@@ -64,7 +64,7 @@ fun JerseyAnnotationDialog(
                         listOf("bright", "normal", "dark").forEach { condition ->
                             FilterChip(
                                 onClick = { lightingCondition = condition },
-                                label = { Text(condition.capitalize()) },
+                                label = { Text(condition.replaceFirstChar { it.uppercaseChar() }) },
                                 selected = lightingCondition == condition
                             )
                         }
@@ -78,7 +78,7 @@ fun JerseyAnnotationDialog(
                         listOf("close", "medium", "far").forEach { dist ->
                             FilterChip(
                                 onClick = { distance = dist },
-                                label = { Text(dist.capitalize()) },
+                                label = { Text(dist.replaceFirstChar { it.uppercaseChar() }) },
                                 selected = distance == dist
                             )
                         }
@@ -92,7 +92,7 @@ fun JerseyAnnotationDialog(
                         listOf("front", "side", "angled").forEach { ang ->
                             FilterChip(
                                 onClick = { angle = ang },
-                                label = { Text(ang.capitalize()) },
+                                label = { Text(ang.replaceFirstChar { it.uppercaseChar() }) },
                                 selected = angle == ang
                             )
                         }

@@ -28,7 +28,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.AlertDialog
@@ -173,7 +173,7 @@ fun AppRosterImportScreen(
                         }
                         onBack()
                     }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -338,14 +338,14 @@ fun AppRosterImportScreen(
                                     )
                                     if (!candidate.position.isNullOrBlank()) {
                                         Text(
-                                            candidate.position!!,
+                                            candidate.position,
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                     if (!candidate.academicYear.isNullOrBlank()) {
                                         Text(
-                                            candidate.academicYear!!,
+                                            candidate.academicYear,
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -469,11 +469,7 @@ private fun startCaptureService(
         putExtra(ScreenCaptureService.EXTRA_DATA, data)
         putExtra(ScreenCaptureService.EXTRA_AUTO_REMIND, autoRemind)
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(intent)
-    } else {
-        context.startService(intent)
-    }
+    context.startForegroundService(intent)
 }
 
 private fun stopCaptureService(context: Context) {

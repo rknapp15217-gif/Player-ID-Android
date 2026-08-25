@@ -79,6 +79,7 @@ import java.time.format.DateTimeFormatter
 import org.json.JSONArray
 
 @OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ScheduleImportScreen(
     teamName: String,
@@ -117,9 +118,12 @@ fun ScheduleImportScreen(
             isReading = true
             val entries = withContext(Dispatchers.IO) {
                 runCatching {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
-                        parseScheduleText(reader.readText())
-                    } ?: emptyList()
+                    val input = context.contentResolver.openInputStream(uri) ?: return@runCatching emptyList()
+                    input.use { stream ->
+                        stream.bufferedReader().use { reader ->
+                            parseScheduleText(reader.readText())
+                        }
+                    }
                 }.getOrElse { emptyList() }
             }
             parsedEntries = entries
@@ -451,7 +455,7 @@ private fun startScheduleCaptureService(context: Context, resultCode: Int, data:
         putExtra(ScreenCaptureService.EXTRA_AUTO_REMIND, false)
         putExtra(ScreenCaptureService.EXTRA_CAPTURE_CONTENT, CaptureContent.SCHEDULE.name)
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
+    context.startForegroundService(intent)
 }
 
 private fun stopScheduleCaptureService(context: Context) {

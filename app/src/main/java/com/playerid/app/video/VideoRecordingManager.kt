@@ -216,6 +216,7 @@ class VideoRecordingManager(private val context: Context) {
         }
     }
     
+    @Suppress("UNUSED_PARAMETER", "UNUSED_VARIABLE")
     private fun saveOverlayMetadata(
         videoPath: String,
         bubbles: List<BubbleMetadata>,

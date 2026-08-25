@@ -103,7 +103,6 @@ class TeamSimilarityUtil {
          */
         fun generateTeamNameSuggestions(teamName: String): List<String> {
             val suggestions = mutableListOf<String>()
-            val normalized = normalizeTeamName(teamName)
             
             // Suggest full names for common abbreviations
             if (teamName.contains("HS", ignoreCase = true)) {

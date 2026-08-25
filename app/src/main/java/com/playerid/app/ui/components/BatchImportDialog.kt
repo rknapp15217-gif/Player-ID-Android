@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,9 +31,6 @@ fun BatchImportDialog(
     var urlText by remember { mutableStateOf("") }
     var selectedSport by remember { mutableStateOf("soccer") }
     var selectedTeam by remember { mutableStateOf<String?>(null) }
-    var showSuggestions by remember { mutableStateOf(true) }
-    
-    val jerseyPhotoSources = remember { JerseyPhotoSources.getRealJerseySources() }
     val teamSources = remember { JerseyPhotoSources.getTeamJerseySources() }
     
     Dialog(
@@ -236,14 +234,14 @@ fun TeamImportTab(
                             onSportChange(sport)
                             onTeamChange(null) // Reset team selection
                         }
-                    ) { Text(sport.capitalize()) }
+                    ) { Text(sport.replaceFirstChar { it.uppercaseChar() }) }
                 } else {
                     OutlinedButton(
                         onClick = { 
                             onSportChange(sport)
                             onTeamChange(null) // Reset team selection
                         }
-                    ) { Text(sport.capitalize()) }
+                    ) { Text(sport.replaceFirstChar { it.uppercaseChar() }) }
                 }
             }
         }
@@ -360,7 +358,7 @@ fun QuickImportTab(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "${sport.capitalize()} Jerseys",
+                            text = "${sport.replaceFirstChar { it.uppercaseChar() }} Jerseys",
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
@@ -371,7 +369,7 @@ fun QuickImportTab(
                     }
                     
                     Icon(
-                        Icons.Default.ArrowForward,
+                        Icons.AutoMirrored.Filled.ArrowForward,
                         contentDescription = "Import",
                         tint = MaterialTheme.colorScheme.primary
                     )

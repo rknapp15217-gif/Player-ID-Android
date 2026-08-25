@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -47,7 +48,7 @@ fun VideoExportScreen(
                 title = { Text("Export Highlight") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -105,8 +106,7 @@ fun VideoExportScreen(
             
             OverlaySelectionSection(
                 selectedOverlays = selectedOverlays,
-                onOverlaysChanged = { selectedOverlays = it },
-                videoDuration = videoClip.duration
+                onOverlaysChanged = { selectedOverlays = it }
             )
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -137,7 +137,7 @@ fun VideoExportScreen(
                         style = MaterialTheme.typography.bodyMedium
                     )
                     LinearProgressIndicator(
-                        progress = exportProgress / 100f,
+                        progress = { exportProgress / 100f },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -163,7 +163,7 @@ fun VideoExportScreen(
                                 // Show sharing options
                                 shareVideo(context, exportedPath)
                             },
-                            onError = { error ->
+                            onError = { _ ->
                                 isExporting = false
                                 // Show error
                             }
@@ -308,10 +308,8 @@ fun PlayerSelectionCard(
 @Composable
 fun OverlaySelectionSection(
     selectedOverlays: List<Overlay>,
-    onOverlaysChanged: (List<Overlay>) -> Unit,
-    videoDuration: Long
+    onOverlaysChanged: (List<Overlay>) -> Unit
 ) {
-    val availableOverlays = OverlayType.values().map { it.displayName }
     var showAddOverlay by remember { mutableStateOf(false) }
     
     Column {
@@ -338,7 +336,6 @@ fun OverlaySelectionSection(
     
     if (showAddOverlay) {
         AddOverlayDialog(
-            videoDuration = videoDuration,
             onDismiss = { showAddOverlay = false },
             onAdd = { overlay ->
                 onOverlaysChanged(selectedOverlays + overlay)
@@ -390,7 +387,6 @@ fun OverlayCard(
 
 @Composable
 fun AddOverlayDialog(
-    videoDuration: Long,
     onDismiss: () -> Unit,
     onAdd: (Overlay) -> Unit
 ) {
@@ -462,7 +458,7 @@ private fun formatDuration(milliseconds: Long): String {
     val seconds = milliseconds / 1000
     val minutes = seconds / 60
     val remainingSeconds = seconds % 60
-    return "${minutes}:${String.format("%02d", remainingSeconds)}"
+    return "${minutes}:${String.format(java.util.Locale.US, "%02d", remainingSeconds)}"
 }
 
 private fun formatTimestamp(milliseconds: Long): String {

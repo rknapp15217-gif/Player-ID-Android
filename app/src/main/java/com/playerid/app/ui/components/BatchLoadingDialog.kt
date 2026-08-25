@@ -25,7 +25,7 @@ fun BatchLoadingDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
-    var loadingProgress by remember { mutableStateOf(0f) }
+    var loadingProgress by remember { mutableFloatStateOf(0f) }
     var loadingText by remember { mutableStateOf("") }
     
     val bundledPhotos = remember { BundledJerseyPhotos(context) }
@@ -46,7 +46,7 @@ fun BatchLoadingDialog(
                 if (isLoading) {
                     Column {
                         LinearProgressIndicator(
-                            progress = loadingProgress,
+                            progress = { loadingProgress },
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(8.dp))

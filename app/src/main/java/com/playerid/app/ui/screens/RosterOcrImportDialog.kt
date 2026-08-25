@@ -179,7 +179,7 @@ fun RosterOcrImportDialog(
                                             )
                                             if (!candidate.academicYear.isNullOrBlank()) {
                                                 Text(
-                                                    candidate.academicYear!!,
+                                                    candidate.academicYear,
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )

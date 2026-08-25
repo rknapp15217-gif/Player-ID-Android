@@ -51,7 +51,7 @@
     <string name="settings_tab">Settings</string>
     
     <!-- Search -->
-    <string name="search_players">Search players...</string>
+    <string name="search_players">Search players&#8230;</string>
     <string name="no_players_found">No players found</string>
     <string name="try_adjusting_search">Try adjusting your search</string>
     <string name="no_roster_loaded">No roster loaded</string>
@@ -101,11 +101,17 @@
 
     <!-- Camera -->
     <string name="capture_past">Never Miss</string>
-    <string name="capture_past_recording_hint">Recording the last moments... Tap to wake UI</string>
+    <string name="capture_past_recording_hint">Recording the last moments&#8230; Tap to wake UI</string>
     <string name="capture_past_icon">Capture past mode</string>
+    <string name="start_capture">Start Capture</string>
+    <string name="done">Done</string>
+    <string name="got_it">Got it!</string>
 
     <!-- TeamSnap -->
-    <string name="teamsnap_import_success">Imported %1$d players from TeamSnap (%2$d skipped)</string>
+    <plurals name="teamsnap_import_success">
+        <item quantity="one">Imported %1$d player from TeamSnap (%2$d skipped)</item>
+        <item quantity="other">Imported %1$d players from TeamSnap (%2$d skipped)</item>
+    </plurals>
 
     <!-- Accessibility -->
     <string name="open_destination">Open destination</string>

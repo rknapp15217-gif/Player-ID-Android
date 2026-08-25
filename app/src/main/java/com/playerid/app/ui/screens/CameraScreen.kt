@@ -1,8 +1,7 @@
 @file:OptIn(
     com.google.accompanist.permissions.ExperimentalPermissionsApi::class,
     androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.camera.core.ExperimentalGetImage::class
+    androidx.compose.material3.ExperimentalMaterial3Api::class
 )
 package com.playerid.app.ui.screens
 
@@ -27,7 +26,6 @@ import com.playerid.app.data.Player
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
-import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
@@ -52,6 +50,7 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -73,7 +72,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -86,6 +84,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.animation.animateColorAsState
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -182,7 +181,13 @@ fun startCamera(
                 .build()
             recordingManager.setVideoCapture(videoCapture)
             val imageAnalyzer = androidx.camera.core.ImageAnalysis.Builder()
-                .setTargetResolution(android.util.Size(1280, 720))
+                .setResolutionSelector(
+                    androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(
+                            androidx.camera.core.resolutionselector.AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
+                        )
+                        .build()
+                )
                 .setBackpressureStrategy(androidx.camera.core.ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
             imageAnalyzer.setAnalyzer(cameraExecutor, analyzer)
@@ -229,11 +234,10 @@ fun ModeChip(
 fun CameraScreen(
     viewModel: PlayerViewModel,
     teamViewModel: com.playerid.app.viewmodels.TeamViewModel,
-    onNavigateToClips: () -> Unit = {},
     onNavigateToTeams: () -> Unit = {}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val cameraPermissionsState = rememberMultiplePermissionsState(
         permissions = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
     )
@@ -350,21 +354,6 @@ fun CameraScreen(
     var scanSuggestionsDone by remember { mutableStateOf(false) }
     var showSharePlayerList by remember { mutableStateOf(false) }
     var showManualShareOptions by remember { mutableStateOf(false) }
-    val shareContactPickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickContact()
-    ) { contactUri ->
-        if (contactUri != null) {
-            val savedUri = postCapturePromptUri
-            if (savedUri != null) {
-                val contact = readSelectedContact(context, contactUri)
-                if (contact != null) {
-                    shareVideoToPhoneContact(context, savedUri, emptyList(), contact)
-                    showPostCaptureShareDialog = false
-                    postCapturePromptUri = null
-                }
-            }
-        }
-    }
     var imageCapture by remember { mutableStateOf<androidx.camera.core.ImageCapture?>(null) }
     var selectedCameraFeature by rememberSaveable { mutableStateOf(CameraFeature.VIDEO) }
     var isCapturingPhoto by remember { mutableStateOf(false) }
@@ -452,7 +441,7 @@ fun CameraScreen(
             // Trigger player detection with FAST mode
             if (postCapturePromptUri != null && shareRosterPlayers.isNotEmpty()) {
                 isLoadingSuggestions = true
-                val detectionJob = scope.launch(Dispatchers.Default) {
+                scope.launch(Dispatchers.Default) {
                     try {
                         val videoProcessingManager = VideoProcessingManager(context)
                         val detectionResult = videoProcessingManager.autoDetectPlayersWithTracksInVideo(
@@ -532,7 +521,6 @@ fun CameraScreen(
     }
     var wasCapturePast by remember { mutableStateOf(capturePastMode) }
     var lastManualStop by remember { mutableStateOf(System.currentTimeMillis()) }
-    var isAppInBackground by remember { mutableStateOf(false) }
 
     val onRecordingSaved: (Uri?) -> Unit = { uri ->
         scope.launch {
@@ -722,7 +710,6 @@ fun CameraScreen(
     // --- Speech Recognition Integration ---
     var speechRecognizer: SpeechRecognizer? by remember { mutableStateOf<SpeechRecognizer?>(null) }
     var isSpeechActive by rememberSaveable { mutableStateOf(false) }
-    val lastVoiceListening = remember { mutableStateOf(false) }
     var lastSpokenText by remember { mutableStateOf("") }
     var recognitionError by remember { mutableStateOf<String?>(null) }
     var arMode by remember { mutableStateOf(true) }
@@ -1026,7 +1013,6 @@ fun CameraScreen(
                 if (arMode && !isStandby) {
                     PlayerBubblesOverlay(
                         trackedPlayers = trackedPlayersWithInfo,
-                        processing = processing,
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(bottom = cameraViewportBottomPadding)
@@ -1641,7 +1627,7 @@ fun CameraScreen(
                                     } else {
                                         MomentActionButton(
                                             label = label,
-                                            icon = Icons.Default.Label,
+                                            icon = Icons.AutoMirrored.Filled.Label,
                                             onClick = {
                                                 persistClipMomentTag(context = context, videoUri = savedUri, tagLabel = label)
                                                 selectedMomentTag = null
