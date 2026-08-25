@@ -11,6 +11,9 @@ interface UserTeamSubscriptionDao {
     
     @Query("DELETE FROM user_team_subscriptions WHERE userId = :userId AND teamName = :teamName")
     suspend fun unsubscribeFromTeam(userId: String, teamName: String)
+
+    @Query("DELETE FROM user_team_subscriptions WHERE userId = :userId")
+    suspend fun clearUserSubscriptions(userId: String)
     
     @Query("SELECT * FROM user_team_subscriptions WHERE userId = :userId AND isActive = 1 ORDER BY subscribedAt DESC")
     fun getUserSubscriptions(userId: String): Flow<List<UserTeamSubscription>>

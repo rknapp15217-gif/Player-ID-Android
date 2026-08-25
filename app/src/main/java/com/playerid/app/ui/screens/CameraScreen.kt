@@ -247,7 +247,12 @@ fun CameraScreen(
     var selectedJerseyColor by remember { mutableStateOf<String?>(null) }
     var selectedJerseyType by remember { mutableStateOf<String?>(null) }
     var selectedOpponent by rememberSaveable { mutableStateOf("") }
+    var opponentManuallyEdited by remember { mutableStateOf(false) }
+    var opponentTeamInitialized by remember { mutableStateOf<String?>(null) }
     var opponentSuggestionsExpanded by remember { mutableStateOf(false) }
+    val scheduledGames by remember(selectedTeam) {
+        teamViewModel.getGamesForTeam(selectedTeam.orEmpty())
+    }.collectAsState(initial = emptyList())
     val knownOpponents = remember(context) {
         context.getSharedPreferences("video_opponent_names", Context.MODE_PRIVATE)
             .all
@@ -482,12 +487,36 @@ fun CameraScreen(
     LaunchedEffect(selectedTeam) {
         viewModel.setSelectedTeam(selectedTeam)
         val teamKey = selectedTeam?.trim().orEmpty().ifEmpty { "__no_team__" }
-        selectedOpponent = cameraPrefs.getString("last_opponent_$teamKey", "").orEmpty()
+        opponentManuallyEdited = false
+        opponentTeamInitialized = selectedTeam
+        val savedOpponent = cameraPrefs.getString("last_opponent_$teamKey", "").orEmpty()
+        val savedAtMs = cameraPrefs.getLong("last_opponent_updated_$teamKey", 0L)
+        selectedOpponent = if (shouldRestoreSavedOpponent(savedOpponent, savedAtMs, System.currentTimeMillis())) {
+            savedOpponent
+        } else {
+            ""
+        }
         selectedKid = teamViewModel.getSelectedKidForTeam(selectedTeam)
+    }
+    LaunchedEffect(selectedTeam, scheduledGames, opponentTeamInitialized) {
+        if (selectedTeam != null && opponentTeamInitialized == selectedTeam && !opponentManuallyEdited) {
+            findCurrentScheduledGame(scheduledGames, System.currentTimeMillis())?.let { game ->
+                selectedOpponent = game.opponentName
+            }
+        }
     }
     LaunchedEffect(selectedTeam, selectedOpponent) {
         val teamKey = selectedTeam?.trim().orEmpty().ifEmpty { "__no_team__" }
-        cameraPrefs.edit().putString("last_opponent_$teamKey", selectedOpponent.trim()).apply()
+        val opponent = selectedOpponent.trim()
+        cameraPrefs.edit().apply {
+            if (opponent.isEmpty()) {
+                remove("last_opponent_$teamKey")
+                remove("last_opponent_updated_$teamKey")
+            } else {
+                putString("last_opponent_$teamKey", opponent)
+                putLong("last_opponent_updated_$teamKey", System.currentTimeMillis())
+            }
+        }.apply()
     }
     LaunchedEffect(selectedTeam, selectedKid) {
         teamViewModel.selectKidForTeam(selectedTeam, selectedKid)
@@ -1115,9 +1144,9 @@ fun CameraScreen(
                     }
                     Icon(
                         imageVector = Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.6f),
-                        modifier = Modifier.size(17.dp)
+                        contentDescription = "Choose team, opponent, and player",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(28.dp)
                     )
                 }
 
@@ -1207,9 +1236,9 @@ fun CameraScreen(
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 180.dp)
+                            .padding(bottom = 196.dp)
                             .width(96.dp)
-                            .height(28.dp)
+                            .height(40.dp)
                             .zIndex(1f)
                             .pointerInput(Unit) {
                                 var totalDrag = 0f
@@ -1226,12 +1255,20 @@ fun CameraScreen(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .width(50.dp)
-                                .height(5.dp)
-                                .background(Color.White.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Swipe up to view roster",
+                                tint = Color.White.copy(alpha = 0.75f),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(50.dp)
+                                    .height(5.dp)
+                                    .background(Color.White.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                            )
+                        }
                     }
                 }
 
@@ -1356,6 +1393,7 @@ fun CameraScreen(
                                     OutlinedTextField(
                                         value = selectedOpponent,
                                         onValueChange = {
+                                            opponentManuallyEdited = true
                                             selectedOpponent = it
                                             if (it.isBlank()) {
                                                 fieldScope.launch {
@@ -1398,6 +1436,7 @@ fun CameraScreen(
                                             DropdownMenuItem(
                                                 text = { Text(suggestion) },
                                                 onClick = {
+                                                    opponentManuallyEdited = true
                                                     selectedOpponent = suggestion
                                                     opponentSuggestionsExpanded = false
                                                     keyboardController?.hide()

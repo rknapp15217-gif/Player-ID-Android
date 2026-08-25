@@ -11,6 +11,10 @@ object AppRosterCaptureRepository {
     val candidates: StateFlow<List<RosterCandidate>> = _candidates.asStateFlow()
     private val _activeTeamName = MutableStateFlow<String?>(null)
     val activeTeamName: StateFlow<String?> = _activeTeamName.asStateFlow()
+    private val _scheduleLines = MutableStateFlow<List<String>>(emptyList())
+    val scheduleLines: StateFlow<List<String>> = _scheduleLines.asStateFlow()
+    private val _captureContent = MutableStateFlow(CaptureContent.ROSTER)
+    val captureContent: StateFlow<CaptureContent> = _captureContent.asStateFlow()
     private var cachedProjectionResultCode: Int? = null
     private var cachedProjectionData: Intent? = null
 
@@ -26,6 +30,18 @@ object AppRosterCaptureRepository {
 
     fun clear() {
         _candidates.value = emptyList()
+    }
+
+    fun addScheduleLines(lines: List<String>) {
+        _scheduleLines.value = (_scheduleLines.value + lines.map(String::trim).filter(String::isNotEmpty)).distinct()
+    }
+
+    fun clearSchedule() {
+        _scheduleLines.value = emptyList()
+    }
+
+    fun setCaptureContent(content: CaptureContent) {
+        _captureContent.value = content
     }
 
     fun setActiveTeamName(teamName: String) {
@@ -52,3 +68,5 @@ object AppRosterCaptureRepository {
         cachedProjectionData = null
     }
 }
+
+enum class CaptureContent { ROSTER, SCHEDULE }

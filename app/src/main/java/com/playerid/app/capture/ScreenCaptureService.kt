@@ -64,6 +64,7 @@ class ScreenCaptureService : Service() {
     private var doneButton: Button? = null
     private var tutorialFingerView: View? = null
     private var tutorialAnimator: ValueAnimator? = null
+    private var captureContent = CaptureContent.ROSTER
 
     override fun onCreate() {
         super.onCreate()
@@ -76,6 +77,9 @@ class ScreenCaptureService : Service() {
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val data = intent.getParcelableExtra<Intent>(EXTRA_DATA)
                 autoRemind = intent.getBooleanExtra(EXTRA_AUTO_REMIND, false)
+                captureContent = intent.getStringExtra(EXTRA_CAPTURE_CONTENT)
+                    ?.let { runCatching { CaptureContent.valueOf(it) }.getOrNull() }
+                    ?: CaptureContent.ROSTER
                 if (resultCode != 0 && data != null) {
                     startForeground(NOTIFICATION_ID, buildNotification())
                     startCaptureSession(resultCode, data)
@@ -184,7 +188,11 @@ class ScreenCaptureService : Service() {
                 
                 val teamName = AppRosterCaptureRepository.activeTeamName.value
                 val route = if (!teamName.isNullOrBlank()) {
-                    "app_roster_import/${Uri.encode(teamName)}"
+                    if (captureContent == CaptureContent.SCHEDULE) {
+                        "scheduleImport/${Uri.encode(teamName)}/app"
+                    } else {
+                        "appRosterImport/${Uri.encode(teamName)}"
+                    }
                 } else {
                     "team"
                 }
@@ -511,7 +519,11 @@ class ScreenCaptureService : Service() {
         serviceScope.launch {
             val scaled = scaleBitmap(bitmap, 2048)
             val result = extractRosterCandidates(scaled)
-            AppRosterCaptureRepository.addCandidates(result.candidates)
+            if (captureContent == CaptureContent.SCHEDULE) {
+                AppRosterCaptureRepository.addScheduleLines(result.rawLines)
+            } else {
+                AppRosterCaptureRepository.addCandidates(result.candidates)
+            }
         }
     }
 
@@ -598,6 +610,7 @@ class ScreenCaptureService : Service() {
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_DATA = "data"
         const val EXTRA_AUTO_REMIND = "auto_remind"
+        const val EXTRA_CAPTURE_CONTENT = "capture_content"
         private const val NOTIFICATION_ID = 4011
     }
 }

@@ -214,16 +214,6 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
                 defaultTeams.forEach { team ->
                     teamDao.insertTeam(team)
                     println("TeamViewModel: Inserted team: ${team.name}")
-
-                    // Auto-subscribe to Ryan's Team and a couple others for better UX
-                    if (team.name == "Ryan's Team" || team.name == "North Allegheny Lacrosse" || team.name == "True Lacrosse Club") {
-                        val subscription = UserTeamSubscription(
-                            userId = currentUser,
-                            teamName = team.name
-                        )
-                        subscriptionDao.subscribeToTeam(subscription)
-                        println("TeamViewModel: Auto-subscribed to ${team.name}")
-                    }
                 }
 
                 // Refresh after initialization
@@ -231,9 +221,7 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
                 loadAllTeamNames()
                 loadSubscribedTeams()
 
-                // Auto-select North Allegheny Lacrosse for immediate testing
-                selectTeam("North Allegheny Lacrosse")
-                println("TeamViewModel: Initialized ${defaultTeams.size} default teams and selected North Allegheny Lacrosse")
+                println("TeamViewModel: Initialized ${defaultTeams.size} default teams")
             }
 
             // ALWAYS ensure Ryan's Team exists, regardless of other teams
@@ -248,12 +236,6 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 teamDao.insertTeam(ryansTeamData)
 
-                // Auto-subscribe to Ryan's Team
-                val subscription = UserTeamSubscription(
-                    userId = currentUser,
-                    teamName = "Ryan's Team"
-                )
-                subscriptionDao.subscribeToTeam(subscription)
                 println("TeamViewModel: Added Ryan's Team")
             } else {
                 println("TeamViewModel: Found existing Ryan's Team")
@@ -273,24 +255,6 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
                     teamDao.updateTeam(brandedNorthAllegheny)
                     println("TeamViewModel: Updated North Allegheny colors to black/gold branding")
                 }
-            }
-
-            // ALWAYS ensure Ryan's Team subscription exists (in case it was lost)
-            try {
-                val isSubscribed = subscriptionDao.isUserSubscribedToTeam(currentUser, "Ryan's Team")
-                if (!isSubscribed) {
-                    println("TeamViewModel: Ryan's Team subscription missing, adding it...")
-                    val subscription = UserTeamSubscription(
-                        userId = currentUser,
-                        teamName = "Ryan's Team"
-                    )
-                    subscriptionDao.subscribeToTeam(subscription)
-                    println("TeamViewModel: Added Ryan's Team subscription")
-                } else {
-                    println("TeamViewModel: Ryan's Team subscription already exists")
-                }
-            } catch (e: Exception) {
-                println("TeamViewModel: Error checking subscription: ${e.message}")
             }
 
         } catch (e: Exception) {
@@ -333,6 +297,22 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun assignPlayerToTeam(teamName: String, playerName: String) {
+        val normalizedTeam = teamName.trim()
+        val normalizedPlayer = playerName.trim()
+        if (normalizedTeam.isEmpty() || normalizedPlayer.isEmpty()) return
+        prefs.edit()
+            .putString(KEY_ASSIGNED_KID_PREFIX + normalizedTeam.lowercase(), normalizedPlayer)
+            .putString(KEY_SELECTED_KID_PREFIX + normalizedTeam.lowercase(), normalizedPlayer)
+            .apply()
+        if (_kidOptions.value.none { it.equals(normalizedPlayer, ignoreCase = true) }) {
+            _kidOptions.value = _kidOptions.value + normalizedPlayer
+        }
+        if (_selectedTeam.value == normalizedTeam) {
+            _selectedKid.value = normalizedPlayer
+        }
+    }
+
     fun getSelectedKidForTeam(teamName: String?): String {
         val normalizedTeam = teamName?.trim().orEmpty()
         if (normalizedTeam.isEmpty()) return DEFAULT_KID_NAME
@@ -363,7 +343,7 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     private fun normalizeKidName(kidName: String?): String {
         val requested = kidName?.trim().orEmpty()
         val canonical = _kidOptions.value.firstOrNull { it.equals(requested, ignoreCase = true) }
-        return canonical ?: DEFAULT_KID_NAME
+        return canonical ?: requested.ifEmpty { DEFAULT_KID_NAME }
     }
 
     fun learnTeamColor(color: String, teamName: String) {
@@ -438,6 +418,40 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
                 loadTeamStatistics()
                 loadAllTeamNames()
             }
+        }
+    }
+
+    fun updateTeamSettings(
+        currentName: String,
+        newName: String,
+        color: String,
+        awayColor: String,
+        homeJerseyColor: String,
+        awayJerseyColor: String
+    ) {
+        viewModelScope.launch {
+            val existingTeam = teamDao.getTeamByName(currentName) ?: return@launch
+            teamDao.updateTeam(
+                existingTeam.copy(
+                    color = color,
+                    awayColor = awayColor,
+                    homeJerseyColor = homeJerseyColor,
+                    awayJerseyColor = awayJerseyColor,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+
+            val normalizedName = newName.trim()
+            if (normalizedName != currentName) {
+                teamDao.renameTeam(currentName, normalizedName)
+                if (_selectedTeam.value == currentName) {
+                    _selectedTeam.value = normalizedName
+                    prefs.edit().putString(KEY_LAST_SELECTED_TEAM, normalizedName).apply()
+                }
+            }
+
+            loadTeamStatistics()
+            loadAllTeamNames()
         }
     }
 
@@ -517,6 +531,22 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
 
             // Set as selected team after subscribing
             selectTeam(teamName)
+        }
+    }
+
+    fun replaceSubscriptionsWithTeam(teamName: String) {
+        val normalizedTeam = teamName.trim()
+        if (normalizedTeam.isEmpty()) return
+        selectTeam(normalizedTeam)
+        viewModelScope.launch {
+            subscriptionDao.clearUserSubscriptions(currentUser)
+            subscriptionDao.subscribeToTeam(
+                UserTeamSubscription(
+                    userId = currentUser,
+                    teamName = normalizedTeam,
+                    subscribedAt = System.currentTimeMillis()
+                )
+            )
         }
     }
 

@@ -62,6 +62,8 @@ import com.playerid.app.ui.screens.WebRosterImportScreen
 import com.playerid.app.ui.screens.AppRosterImportScreen
 import com.playerid.app.ui.screens.ClipsScreenRefactored
 import com.playerid.app.ui.screens.ScheduleImportScreen
+import com.playerid.app.ui.screens.OnboardingScreen
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.playerid.app.R
@@ -81,6 +83,14 @@ fun reelVideoRelativePathsForRestoredClips(): List<String> = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerIDApp() {
+    val context = LocalContext.current
+    val onboardingPrefs = remember(context) {
+        context.getSharedPreferences("onboarding", Context.MODE_PRIVATE)
+    }
+    var onboardingCompleted by rememberSaveable {
+        mutableStateOf(onboardingPrefs.getBoolean("sections_1_2a_completed", false))
+    }
+    var postOnboardingRoute by remember { mutableStateOf<String?>(null) }
     val navController = rememberNavController()
     val playerViewModel: PlayerViewModel = viewModel()
     val teamViewModel: TeamViewModel = viewModel()
@@ -88,6 +98,7 @@ fun PlayerIDApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: "camera"
     val pendingMemoryPrompt by memoryIngestionViewModel.pendingPrompt.collectAsState()
+    val requestedRoute by AppNavigationCallback.route.collectAsState()
     val navItems = listOf(
         BottomNavItem(stringResource(R.string.clips_tab), Icons.Filled.PhotoLibrary, "clips"),
         BottomNavItem(stringResource(R.string.camera_tab), Icons.Filled.CameraAlt, "camera"),
@@ -110,8 +121,15 @@ fun PlayerIDApp() {
         previousRoute = currentRoute
     }
 
-    LaunchedEffect(Unit) {
-        memoryIngestionViewModel.scanForNewMemoriesOnLaunch()
+    LaunchedEffect(onboardingCompleted) {
+        if (onboardingCompleted) memoryIngestionViewModel.scanForNewMemoriesOnLaunch()
+    }
+
+    LaunchedEffect(requestedRoute) {
+        requestedRoute?.let { route ->
+            navController.navigate(route) { launchSingleTop = true }
+            AppNavigationCallback.clear()
+        }
     }
 
     // Handle permission grant and retry scan
@@ -128,6 +146,18 @@ fun PlayerIDApp() {
         LocalAppContext provides playerViewModel.getApplication()
     ) {
         Surface(color = MaterialTheme.colorScheme.background) {
+            if (!onboardingCompleted) {
+                OnboardingScreen(
+                    teamViewModel = teamViewModel,
+                    playerViewModel = playerViewModel,
+                    onComplete = { route ->
+                        onboardingPrefs.edit().putBoolean("sections_1_2a_completed", true).apply()
+                        postOnboardingRoute = route
+                        onboardingCompleted = true
+                    }
+                )
+                return@Surface
+            }
             val permissionDenied by memoryIngestionViewModel.permissionDenied.collectAsState()
             
             if (permissionDenied) {
@@ -200,7 +230,10 @@ fun PlayerIDApp() {
                     androidx.compose.foundation.layout.Box(
                         modifier = androidx.compose.ui.Modifier.weight(1f)
                     ) {
-                        NavHost(navController = navController, startDestination = "camera") {
+                        NavHost(
+                            navController = navController,
+                            startDestination = postOnboardingRoute ?: "camera"
+                        ) {
                             composable("camera") {
                                 CameraScreen(
                                     viewModel = playerViewModel,
@@ -244,8 +277,56 @@ fun PlayerIDApp() {
                                     onNavigateToAppImport = { teamName, _ ->
                                         navController.navigate("appRosterImport/${Uri.encode(teamName)}")
                                     },
-                                    onNavigateToScheduleImport = { teamName ->
-                                        navController.navigate("scheduleImport/${Uri.encode(teamName)}")
+                                    onNavigateToScheduleImport = { teamName, source ->
+                                        if (source == "app") {
+                                            com.playerid.app.capture.AppRosterCaptureRepository.clearSchedule()
+                                        }
+                                        navController.navigate("scheduleImport/${Uri.encode(teamName)}/$source")
+                                    }
+                                )
+                            }
+                            composable("teams/create") {
+                                TeamScreen(
+                                    teamViewModel = teamViewModel,
+                                    playerViewModel = playerViewModel,
+                                    startCreateTeamInitially = true,
+                                    openRosterAfterCreate = true,
+                                    cameraHandoffToken = cameraHandoffToken,
+                                    onNavigateToWebImport = { teamName ->
+                                        navController.navigate("webRosterImport/${Uri.encode(teamName)}")
+                                    },
+                                    onNavigateToAppImport = { teamName, _ ->
+                                        navController.navigate("appRosterImport/${Uri.encode(teamName)}")
+                                    },
+                                    onNavigateToScheduleImport = { teamName, source ->
+                                        if (source == "app") {
+                                            com.playerid.app.capture.AppRosterCaptureRepository.clearSchedule()
+                                        }
+                                        navController.navigate("scheduleImport/${Uri.encode(teamName)}/$source")
+                                    }
+                                )
+                            }
+                            composable(
+                                route = "teams/roster/{teamName}",
+                                arguments = listOf(navArgument("teamName") { type = NavType.StringType })
+                            ) { backStackEntry ->
+                                TeamScreen(
+                                    teamViewModel = teamViewModel,
+                                    playerViewModel = playerViewModel,
+                                    initialTeamName = backStackEntry.arguments?.getString("teamName"),
+                                    openRosterInitially = true,
+                                    cameraHandoffToken = cameraHandoffToken,
+                                    onNavigateToWebImport = { teamName ->
+                                        navController.navigate("webRosterImport/${Uri.encode(teamName)}")
+                                    },
+                                    onNavigateToAppImport = { teamName, _ ->
+                                        navController.navigate("appRosterImport/${Uri.encode(teamName)}")
+                                    },
+                                    onNavigateToScheduleImport = { teamName, source ->
+                                        if (source == "app") {
+                                            com.playerid.app.capture.AppRosterCaptureRepository.clearSchedule()
+                                        }
+                                        navController.navigate("scheduleImport/${Uri.encode(teamName)}/$source")
                                     }
                                 )
                             }
@@ -293,12 +374,17 @@ fun PlayerIDApp() {
                                 )
                             }
                             composable(
-                                route = "scheduleImport/{teamName}",
-                                arguments = listOf(navArgument("teamName") { type = NavType.StringType })
+                                route = "scheduleImport/{teamName}/{source}",
+                                arguments = listOf(
+                                    navArgument("teamName") { type = NavType.StringType },
+                                    navArgument("source") { type = NavType.StringType }
+                                )
                             ) { backStackEntry ->
                                 val teamName = backStackEntry.arguments?.getString("teamName") ?: ""
+                                val source = backStackEntry.arguments?.getString("source") ?: "screenshot"
                                 ScheduleImportScreen(
                                     teamName = teamName,
+                                    source = source,
                                     onBack = { navController.popBackStack() },
                                     onImport = { entries ->
                                         memoryIngestionViewModel.importSchedule(teamName, entries) {
@@ -324,13 +410,18 @@ fun PlayerIDApp() {
                         items = navItems,
                         selectedIndex = selectedIndex,
                         onItemSelected = { idx ->
-                            navController.navigate(navItems[idx].route) {
-                                popUpTo(navController.graph.startDestinationId) {
-                                    inclusive = false
-                                    saveState = true
+                            val targetRoute = navItems[idx].route
+                            val returnedToCamera = targetRoute == "camera" &&
+                                navController.popBackStack(route = "camera", inclusive = false)
+                            if (!returnedToCamera && currentRoute != targetRoute) {
+                                navController.navigate(targetRoute) {
+                                    popUpTo(navController.graph.startDestinationId) {
+                                        inclusive = false
+                                        saveState = targetRoute != "camera"
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = targetRoute != "camera"
                                 }
-                                launchSingleTop = true
-                                restoreState = true
                             }
                         }
                     )

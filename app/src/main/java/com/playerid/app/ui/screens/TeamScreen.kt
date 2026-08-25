@@ -110,8 +110,7 @@ import com.playerid.app.ui.dialogs.AddTeamDialog
 import com.playerid.app.ui.dialogs.DeleteTeamDialog
 import com.playerid.app.ui.dialogs.DeletePlayerDialog
 import com.playerid.app.ui.dialogs.EditPlayerDialog
-import com.playerid.app.ui.dialogs.EditTeamColorsDialog
-import com.playerid.app.ui.dialogs.RenameTeamDialog
+import com.playerid.app.ui.dialogs.EditTeamSettingsDialog
 import com.playerid.app.ui.components.*
 import com.playerid.app.ui.theme.*
 import com.playerid.app.viewmodels.PlayerViewModel
@@ -130,12 +129,16 @@ import java.util.Locale
 fun TeamScreen(
     teamViewModel: TeamViewModel,
     playerViewModel: PlayerViewModel,
+    initialTeamName: String? = null,
+    openRosterInitially: Boolean = false,
+    startCreateTeamInitially: Boolean = false,
+    openRosterAfterCreate: Boolean = false,
     cameraHandoffToken: Int = 0,
     teamSnapRepository: TeamSnapRepository? = null,
     onNavigateToCrowdSourced: () -> Unit = {},
     onNavigateToWebImport: (String) -> Unit = {},
     onNavigateToAppImport: (String, Boolean) -> Unit = { _, _ -> },
-    onNavigateToScheduleImport: (String) -> Unit = {},
+    onNavigateToScheduleImport: (String, String) -> Unit = { _, _ -> },
     onNavigateToVideoLibrary: (String) -> Unit = { },
     onVideoSelected: (android.net.Uri, List<Player>) -> Unit = { _, _ -> },
     onVideoEdit: (android.net.Uri) -> Unit = { }
@@ -143,6 +146,10 @@ fun TeamScreen(
     TeamSelectionView(
         teamViewModel = teamViewModel,
         playerViewModel = playerViewModel,
+        initialTeamName = initialTeamName,
+        openRosterInitially = openRosterInitially,
+        startCreateTeamInitially = startCreateTeamInitially,
+        openRosterAfterCreate = openRosterAfterCreate,
         teamSnapRepository = teamSnapRepository,
         onNavigateToWebImport = onNavigateToWebImport,
         onNavigateToAppImport = onNavigateToAppImport,
@@ -158,10 +165,14 @@ fun TeamScreen(
 fun TeamSelectionView(
     teamViewModel: TeamViewModel,
     playerViewModel: PlayerViewModel,
+    initialTeamName: String? = null,
+    openRosterInitially: Boolean = false,
+    startCreateTeamInitially: Boolean = false,
+    openRosterAfterCreate: Boolean = false,
     teamSnapRepository: TeamSnapRepository? = null,
     onNavigateToWebImport: (String) -> Unit,
     onNavigateToAppImport: (String, Boolean) -> Unit,
-    onNavigateToScheduleImport: (String) -> Unit,
+    onNavigateToScheduleImport: (String, String) -> Unit,
     onNavigateToVideoLibrary: (String) -> Unit,
     onVideoSelected: (android.net.Uri, List<Player>) -> Unit,
     onVideoEdit: (android.net.Uri) -> Unit
@@ -171,10 +182,13 @@ fun TeamSelectionView(
     val subscribedTeamsWithStats by teamViewModel.subscribedTeamsWithStats.collectAsState()
     
     // Dialog states
-    var showAddTeamDialog by remember { mutableStateOf(false) }
+    var showAddTeamDialog by rememberSaveable(startCreateTeamInitially) {
+        mutableStateOf(startCreateTeamInitially)
+    }
     var showJoinTeamDialog by remember { mutableStateOf(false) }
     var showTeamSnapImportDialog by remember { mutableStateOf(false) }
-    var selectedTeamName by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedTeamName by rememberSaveable(initialTeamName) { mutableStateOf(initialTeamName) }
+    var createdTeamName by rememberSaveable { mutableStateOf<String?>(null) }
     
     if (selectedTeamName != null) {
         TeamManagementView(
@@ -188,6 +202,7 @@ fun TeamSelectionView(
             onNavigateToVideoLibrary = onNavigateToVideoLibrary,
             onVideoSelected = onVideoSelected,
             onVideoEdit = onVideoEdit,
+            openRosterInitially = openRosterInitially || createdTeamName == selectedTeamName,
             embedded = false
         )
     } else Column(
@@ -363,6 +378,12 @@ fun TeamSelectionView(
                     awayJerseyColor = awayJerseyColor
                 )
                 showAddTeamDialog = false
+                if (openRosterAfterCreate) {
+                    teamViewModel.replaceSubscriptionsWithTeam(teamName)
+                    playerViewModel.setSelectedTeam(teamName)
+                    createdTeamName = teamName
+                    selectedTeamName = teamName
+                }
             }
         )
     }
@@ -508,10 +529,11 @@ fun TeamManagementView(
     onClearTeam: () -> Unit,
     onNavigateToWebImport: (String) -> Unit,
     onNavigateToAppImport: (String, Boolean) -> Unit,
-    onNavigateToScheduleImport: (String) -> Unit,
+    onNavigateToScheduleImport: (String, String) -> Unit,
     onNavigateToVideoLibrary: (String) -> Unit = { },
     onVideoSelected: (android.net.Uri, List<Player>) -> Unit = { _, _ -> },
     onVideoEdit: (android.net.Uri) -> Unit = { },
+    openRosterInitially: Boolean = false,
     embedded: Boolean = false
 ) {
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
@@ -554,14 +576,15 @@ fun TeamManagementView(
     var editingPlayer by remember { mutableStateOf<Player?>(null) }
     var showDeletePlayerDialog by remember { mutableStateOf(false) }
     var playerToDelete by remember { mutableStateOf<Player?>(null) }
-    var showRenameTeamDialog by remember { mutableStateOf(false) }
-    var showEditTeamColorsDialog by remember { mutableStateOf(false) }
     var showLeaveTeamDialog by remember { mutableStateOf(false) }
     var showTeamActions by remember { mutableStateOf(false) }
     var showInviteDialog by remember { mutableStateOf(false) }
     var showOcrImportDialog by remember { mutableStateOf(false) }
     var showImportRosterOptions by remember { mutableStateOf(false) }
-    var detailPage by rememberSaveable(teamName) { mutableStateOf(TeamDetailPage.Overview) }
+    var showImportScheduleOptions by remember { mutableStateOf(false) }
+    var detailPage by rememberSaveable(teamName, openRosterInitially) {
+        mutableStateOf(if (openRosterInitially) TeamDetailPage.Roster else TeamDetailPage.Overview)
+    }
     var rosterSearch by rememberSaveable(teamName) { mutableStateOf("") }
     var scheduleSearch by rememberSaveable(teamName) { mutableStateOf("") }
     var favoritePlayerIds by rememberSaveable(teamName) { mutableStateOf(setOf<String>()) }
@@ -649,6 +672,48 @@ fun TeamManagementView(
         )
     }
 
+    if (showImportScheduleOptions) {
+        AlertDialog(
+            onDismissRequest = { showImportScheduleOptions = false },
+            title = { Text("Import schedule") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Choose where to import the team schedule from.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    listOf(
+                        Triple("screenshot", Icons.Default.CloudDownload, stringResource(R.string.from_screenshot)),
+                        Triple("app", Icons.Default.PhoneAndroid, stringResource(R.string.from_app)),
+                        Triple("website", Icons.Default.Language, stringResource(R.string.from_website))
+                    ).forEach { (source, icon, label) ->
+                        OutlinedButton(
+                            onClick = {
+                                showImportScheduleOptions = false
+                                onNavigateToScheduleImport(teamName, source)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Start,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(icon, contentDescription = label)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(label)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showImportScheduleOptions = false }) { Text(stringResource(R.string.close)) }
+            }
+        )
+    }
+
     when (detailPage) {
         TeamDetailPage.Overview -> TeamOverviewPage(
             teamName = teamName,
@@ -677,7 +742,7 @@ fun TeamManagementView(
             onRoster = { detailPage = TeamDetailPage.Roster },
             onImportRoster = { showImportRosterOptions = true },
             onSchedule = { detailPage = TeamDetailPage.Schedule },
-            onImportSchedule = { onNavigateToScheduleImport(teamName) },
+            onImportSchedule = { showImportScheduleOptions = true },
             onInvite = { showInviteDialog = true },
             onSettings = { showTeamActions = true },
             onLeave = { showLeaveTeamDialog = true }
@@ -711,18 +776,33 @@ fun TeamManagementView(
             search = scheduleSearch,
             onSearchChange = { scheduleSearch = it },
             onBack = { detailPage = TeamDetailPage.Overview },
-            onAdd = { onNavigateToScheduleImport(teamName) },
-            onImport = { onNavigateToScheduleImport(teamName) }
+            onAdd = { showImportScheduleOptions = true },
+            onImport = { showImportScheduleOptions = true }
         )
     }
 
     if (showTeamActions) {
-        TeamSettingsDialog(
-            onDismiss = { showTeamActions = false },
-            onColors = { showTeamActions = false; showEditTeamColorsDialog = true },
-            onRename = { showTeamActions = false; showRenameTeamDialog = true },
-            onLeave = { showTeamActions = false; showLeaveTeamDialog = true }
-        )
+        selectedTeamMeta?.let { team ->
+            EditTeamSettingsDialog(
+                teamName = teamName,
+                initialHomeColor = team.color,
+                initialAwayColor = team.awayColor,
+                initialHomeJerseyColor = team.homeJerseyColor,
+                initialAwayJerseyColor = team.awayJerseyColor,
+                onDismiss = { showTeamActions = false },
+                onSave = { newName, newHome, newAway, newHomeJersey, newAwayJersey ->
+                    teamViewModel.updateTeamSettings(
+                        currentName = teamName,
+                        newName = newName,
+                        color = newHome,
+                        awayColor = newAway,
+                        homeJerseyColor = newHomeJersey,
+                        awayJerseyColor = newAwayJersey
+                    )
+                    showTeamActions = false
+                }
+            )
+        }
     }
 
     // Dialogs
@@ -766,46 +846,6 @@ fun TeamManagementView(
                 playerViewModel.deletePlayer(playerToDelete!!)
                 showDeletePlayerDialog = false
                 playerToDelete = null
-            }
-        )
-    }
-
-    if (showEditTeamColorsDialog) {
-        if (selectedTeamMeta != null) {
-            EditTeamColorsDialog(
-                teamName = teamName,
-                initialHomeColor = selectedTeamMeta.color,
-                initialAwayColor = selectedTeamMeta.awayColor,
-                initialHomeJerseyColor = selectedTeamMeta.homeJerseyColor,
-                initialAwayJerseyColor = selectedTeamMeta.awayJerseyColor,
-                onDismiss = {
-                    showEditTeamColorsDialog = false
-                },
-                onSave = { newHome, newAway, newHomeJersey, newAwayJersey ->
-                    teamViewModel.updateTeamColors(
-                        teamName = teamName,
-                        color = newHome,
-                        awayColor = newAway,
-                        homeJerseyColor = newHomeJersey,
-                        awayJerseyColor = newAwayJersey
-                    )
-                    showEditTeamColorsDialog = false
-                }
-            )
-        } else {
-            showEditTeamColorsDialog = false
-        }
-    }
-
-    if (showRenameTeamDialog) {
-        RenameTeamDialog(
-            teamName = teamName,
-            onDismiss = {
-                showRenameTeamDialog = false
-            },
-            onRename = { newName ->
-                teamViewModel.renameTeam(teamName, newName)
-                showRenameTeamDialog = false
             }
         )
     }
@@ -1149,22 +1189,6 @@ private fun TeamAvatar(number: String, color: Color) {
     Box(Modifier.size(48.dp).background(color, CircleShape), contentAlignment = Alignment.Center) {
         Text(number, fontWeight = FontWeight.Bold, color = if (color.luminance() > 0.5f) Color.Black else Color.White)
     }
-}
-
-@Composable
-private fun TeamSettingsDialog(onDismiss: () -> Unit, onColors: () -> Unit, onRename: () -> Unit, onLeave: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Team settings") },
-        text = {
-            Column {
-                TextButton(onClick = onRename, modifier = Modifier.fillMaxWidth()) { Text("Rename team") }
-                TextButton(onClick = onColors, modifier = Modifier.fillMaxWidth()) { Text("Team colors") }
-                TextButton(onClick = onLeave, modifier = Modifier.fillMaxWidth()) { Text("Leave team", color = MaterialTheme.colorScheme.error) }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
-    )
 }
 
 @Composable
