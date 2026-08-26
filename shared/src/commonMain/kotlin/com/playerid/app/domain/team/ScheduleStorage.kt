@@ -2,6 +2,25 @@ package com.playerid.app.domain.team
 
 import kotlinx.coroutines.flow.Flow
 
+data class ChildProfileRecord(
+    val id: String,
+    val displayName: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val isActive: Boolean = true
+)
+
+data class SportSeasonProfile(
+    val id: String,
+    val childId: String,
+    val sportName: String,
+    val seasonLabel: String,
+    val teamName: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val isActive: Boolean = true
+)
+
 data class GameScheduleProfile(
     val id: String,
     val sportSeasonId: String,
@@ -18,5 +37,8 @@ data class GameScheduleProfile(
 )
 
 interface ScheduleStorageRepository {
+    fun observeActiveChildren(): Flow<List<ChildProfileRecord>>
+    fun observeSeasonsForChild(childId: String): Flow<List<SportSeasonProfile>>
+    fun observeGamesForSeason(seasonId: String): Flow<List<GameScheduleProfile>>
     fun observeGamesForTeam(teamName: String): Flow<List<GameScheduleProfile>>
 }

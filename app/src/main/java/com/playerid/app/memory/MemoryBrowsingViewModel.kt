@@ -8,6 +8,8 @@ import com.playerid.app.data.GameSchedule
 import com.playerid.app.data.MemoryItem
 import com.playerid.app.data.PlayerDatabase
 import com.playerid.app.data.SportSeason
+import com.playerid.app.data.repositories.RoomScheduleStorageRepository
+import com.playerid.app.data.repositories.toEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +18,7 @@ import kotlinx.coroutines.launch
 class MemoryBrowsingViewModel(application: Application) : AndroidViewModel(application) {
 
     private val memoryDao = PlayerDatabase.getDatabase(application).memoryOrganizationDao()
+    private val scheduleStorageRepository = RoomScheduleStorageRepository(memoryDao)
 
     private val _children = MutableStateFlow<List<ChildProfile>>(emptyList())
     val children: StateFlow<List<ChildProfile>> = _children.asStateFlow()
@@ -47,8 +50,8 @@ class MemoryBrowsingViewModel(application: Application) : AndroidViewModel(appli
 
     private fun loadChildren() {
         viewModelScope.launch {
-            memoryDao.getActiveChildren().collect { children ->
-                _children.value = children
+            scheduleStorageRepository.observeActiveChildren().collect { children ->
+                _children.value = children.map { it.toEntity() }
             }
         }
     }
@@ -62,8 +65,8 @@ class MemoryBrowsingViewModel(application: Application) : AndroidViewModel(appli
 
     private fun loadSeasonsForChild(childId: String) {
         viewModelScope.launch {
-            memoryDao.getSeasonsForChild(childId).collect { seasons ->
-                _seasons.value = seasons
+            scheduleStorageRepository.observeSeasonsForChild(childId).collect { seasons ->
+                _seasons.value = seasons.map { it.toEntity() }
             }
         }
     }
@@ -76,8 +79,8 @@ class MemoryBrowsingViewModel(application: Application) : AndroidViewModel(appli
 
     private fun loadGamesForSeason(seasonId: String) {
         viewModelScope.launch {
-            memoryDao.getGamesForSeason(seasonId).collect { games ->
-                _games.value = games
+            scheduleStorageRepository.observeGamesForSeason(seasonId).collect { games ->
+                _games.value = games.map { it.toEntity() }
             }
         }
     }

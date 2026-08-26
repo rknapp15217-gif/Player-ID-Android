@@ -75,6 +75,21 @@ class RoomTeamSubscriptionRepository(
 class RoomScheduleStorageRepository(
     private val memoryOrganizationDao: MemoryOrganizationDao
 ) : ScheduleStorageRepository {
+    override fun observeActiveChildren() =
+        memoryOrganizationDao.getActiveChildren().map { children ->
+            children.map { it.toProfile() }
+        }
+
+    override fun observeSeasonsForChild(childId: String) =
+        memoryOrganizationDao.getSeasonsForChild(childId).map { seasons ->
+            seasons.map { it.toProfile() }
+        }
+
+    override fun observeGamesForSeason(seasonId: String) =
+        memoryOrganizationDao.getGamesForSeason(seasonId).map { games ->
+            games.map { it.toProfile() }
+        }
+
     override fun observeGamesForTeam(teamName: String): Flow<List<GameScheduleProfile>> =
         memoryOrganizationDao.getGamesForTeam(teamName).map { games ->
             games.map { it.toProfile() }

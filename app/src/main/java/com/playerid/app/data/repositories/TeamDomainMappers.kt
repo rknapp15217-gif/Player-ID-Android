@@ -2,11 +2,15 @@ package com.playerid.app.data.repositories
 
 import com.playerid.app.data.Player
 import com.playerid.app.data.GameSchedule
+import com.playerid.app.data.ChildProfile
+import com.playerid.app.data.SportSeason
 import com.playerid.app.data.Team
 import com.playerid.app.data.UserTeamSubscription
 import com.playerid.app.data.teamsnap.TeamSnapSyncStatus
 import com.playerid.app.domain.team.PlayerProfile
 import com.playerid.app.domain.team.GameScheduleProfile
+import com.playerid.app.domain.team.ChildProfileRecord
+import com.playerid.app.domain.team.SportSeasonProfile
 import com.playerid.app.domain.team.TeamProfile
 import com.playerid.app.domain.team.TeamSubscription
 
@@ -127,4 +131,42 @@ fun GameScheduleProfile.toEntity() = GameSchedule(
     source = source,
     createdAt = createdAt,
     updatedAt = updatedAt
+)
+
+fun ChildProfile.toProfile() = ChildProfileRecord(
+    id = id,
+    displayName = displayName,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    isActive = isActive
+)
+
+fun ChildProfileRecord.toEntity() = ChildProfile(
+    id = id,
+    displayName = displayName,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    isActive = isActive
+)
+
+fun SportSeason.toProfile() = SportSeasonProfile(
+    id = id,
+    childId = childId,
+    sportName = sportName,
+    seasonLabel = seasonLabel,
+    teamName = teamName,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    isActive = isActive
+)
+
+fun SportSeasonProfile.toEntity() = SportSeason(
+    id = id,
+    childId = childId,
+    sportName = sportName,
+    seasonLabel = seasonLabel,
+    teamName = teamName,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    isActive = isActive
 )
