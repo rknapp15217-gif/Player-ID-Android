@@ -120,6 +120,7 @@ import com.playerid.app.ui.components.*
 import com.playerid.app.ui.roster.RosterPage
 import com.playerid.app.ui.team.SchedulePage
 import com.playerid.app.ui.team.JoinTeamDialog as SharedJoinTeamDialog
+import com.playerid.app.ui.team.InviteTeamDialog as SharedInviteTeamDialog
 import com.playerid.app.ui.team.TeamOverviewDestination
 import com.playerid.app.ui.team.TeamOverviewPage
 import com.playerid.app.ui.theme.*
@@ -986,9 +987,6 @@ fun InviteTeamDialog(
     onDismiss: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    // 0 = options menu, 1 = QR code, 2 = NFC tap
-    var screen by remember { mutableStateOf(0) }
-
     val inviteLink = "spotr://join?team=${java.net.URLEncoder.encode(teamName, "UTF-8")}"
 
     val qrBitmap = remember(inviteLink) {
@@ -1010,195 +1008,103 @@ fun InviteTeamDialog(
     }
     val nfcAvailable = nfcAdapter != null
     val nfcEnabled = nfcAdapter?.isEnabled == true
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier.fillMaxWidth().wrapContentHeight(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+    SharedInviteTeamDialog(
+        teamName = teamName,
+        nfcAvailable = nfcAvailable,
+        nfcEnabled = nfcEnabled,
+        onDismiss = onDismiss,
+        onSendText = {
+            val smsBody = "Join my team \"$teamName\" on Spotr! $inviteLink"
+            val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO).apply {
+                data = android.net.Uri.parse("smsto:")
+                putExtra("sms_body", smsBody)
+            }
+            context.startActivity(intent)
+        },
+        onOpenNfcSettings = {
+            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NFC_SETTINGS))
+        },
+        onShareNearby = {
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(android.content.Intent.EXTRA_TEXT, inviteLink)
+                putExtra(android.content.Intent.EXTRA_SUBJECT, "Join $teamName on Spotr")
+            }
+            context.startActivity(
+                android.content.Intent.createChooser(shareIntent, "Invite to $teamName")
+            )
+        },
+        headerIcon = {
+            Icon(
+                Icons.Default.PersonAdd,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+        },
+        closeIcon = {
+            Icon(Icons.Default.Check, contentDescription = "Close", modifier = Modifier.size(18.dp))
+        },
+        textIcon = {
+            Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
+        },
+        qrIcon = {
+            Icon(Icons.Default.QrCode, contentDescription = null)
+        },
+        proximityIcon = {
+            Icon(Icons.Default.Wifi, contentDescription = null)
+        },
+        nfcHeroIcon = {
+            Icon(
+                Icons.Default.Wifi,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        },
+        qrCodeContent = {
+            if (qrBitmap != null) {
+                Box(
+                    modifier = Modifier
+                        .size(220.dp)
+                        .background(Color.White, RoundedCornerShape(8.dp))
+                        .padding(8.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.PersonAdd, contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            if (screen == 0) "Invite to $teamName"
-                            else if (screen == 1) "Scan QR Code"
-                            else "Tap to Share via NFC",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Check, contentDescription = "Close", modifier = Modifier.size(18.dp))
-                    }
+                    androidx.compose.foundation.Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "QR code to join $teamName",
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                when (screen) {
-                    0 -> {
-                        // Send via Text
-                        OutlinedButton(
-                            onClick = {
-                                val smsBody = "Join my team \"$teamName\" on Spotr! $inviteLink"
-                                val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO).apply {
-                                    data = android.net.Uri.parse("smsto:")
-                                    putExtra("sms_body", smsBody)
-                                }
-                                context.startActivity(intent)
-                            },
-                            modifier = Modifier.fillMaxWidth().height(52.dp)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text("Send via Text", fontWeight = FontWeight.Medium)
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // QR Code
-                        OutlinedButton(
-                            onClick = { screen = 1 },
-                            modifier = Modifier.fillMaxWidth().height(52.dp)
-                        ) {
-                            Icon(Icons.Default.QrCode, contentDescription = null)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text("Show QR Code", fontWeight = FontWeight.Medium)
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // NFC / Nearby Share
-                        OutlinedButton(
-                            onClick = {
-                                if (nfcAvailable && nfcEnabled) {
-                                    screen = 2
-                                } else if (nfcAvailable && !nfcEnabled) {
-                                    // Open NFC settings so user can enable it
-                                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_NFC_SETTINGS))
-                                } else {
-                                    // No NFC — fall back to system share sheet (includes Nearby Share)
-                                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(android.content.Intent.EXTRA_TEXT, inviteLink)
-                                        putExtra(android.content.Intent.EXTRA_SUBJECT, "Join $teamName on Spotr")
-                                    }
-                                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Invite to $teamName"))
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            enabled = true
-                        ) {
-                            Icon(Icons.Default.Wifi, contentDescription = null)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(horizontalAlignment = Alignment.Start) {
-                                Text(
-                                    if (nfcAvailable) "Tap Phones (NFC)" else "Nearby Share",
-                                    fontWeight = FontWeight.Medium,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                if (nfcAvailable && !nfcEnabled) {
-                                    Text(
-                                        "NFC is off — tap to enable",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
+            } else {
+                Box(modifier = Modifier.size(220.dp), contentAlignment = Alignment.Center) {
+                    Text("Could not generate QR code", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        nfcSession = {
+            val activity = context as? android.app.Activity
+            DisposableEffect(Unit) {
+                val pendingIntent = android.app.PendingIntent.getActivity(
+                    context,
+                    0,
+                    android.content.Intent(context, context.javaClass)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                    android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                try {
+                    activity?.let {
+                        nfcAdapter?.enableForegroundDispatch(it, pendingIntent, null, null)
                     }
-
-                    1 -> {
-                        // QR code screen
-                        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            if (qrBitmap != null) {
-                                androidx.compose.foundation.layout.Box(
-                                    modifier = Modifier
-                                        .size(220.dp)
-                                        .background(Color.White, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                                        .padding(8.dp)
-                                ) {
-                                    androidx.compose.foundation.Image(
-                                        bitmap = qrBitmap.asImageBitmap(),
-                                        contentDescription = "QR code to join $teamName",
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                            } else {
-                                Box(modifier = Modifier.size(220.dp), contentAlignment = Alignment.Center) {
-                                    Text("Could not generate QR code", color = MaterialTheme.colorScheme.error)
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "Have the other parent scan this to join \"$teamName\"",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            TextButton(onClick = { screen = 0 }) { Text("Back") }
-                        }
-                    }
-
-                    2 -> {
-                        // NFC tap screen — write NDEF record when phone is tapped
-                        val activity = context as? android.app.Activity
-                        DisposableEffect(Unit) {
-                            val pendingIntent = android.app.PendingIntent.getActivity(
-                                context, 0,
-                                android.content.Intent(context, context.javaClass).addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                                android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
-                            )
-                            try {
-                                activity?.let {
-                                    nfcAdapter?.enableForegroundDispatch(it, pendingIntent, null, null)
-                                }
-                            } catch (_: Exception) {}
-                            onDispose {
-                                try { activity?.let { nfcAdapter?.disableForegroundDispatch(it) } } catch (_: Exception) {}
-                            }
-                        }
-
-                        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.Wifi,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "Hold phones back-to-back",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "The other parent will receive a link to join \"$teamName\"",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            Spacer(modifier = Modifier.height(16.dp))
-                            TextButton(onClick = { screen = 0 }) { Text("Cancel") }
-                        }
-                    }
+                } catch (_: Exception) {}
+                onDispose {
+                    try {
+                        activity?.let { nfcAdapter?.disableForegroundDispatch(it) }
+                    } catch (_: Exception) {}
                 }
             }
         }
-    }
+    )
 }
 
 private suspend fun deleteClip(context: android.content.Context, video: com.playerid.app.data.VideoClip) {
