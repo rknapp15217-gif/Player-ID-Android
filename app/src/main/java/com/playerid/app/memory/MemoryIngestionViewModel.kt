@@ -11,6 +11,10 @@ import com.playerid.app.data.MediaIngestionState
 import com.playerid.app.data.MemoryItem
 import com.playerid.app.data.PlayerDatabase
 import com.playerid.app.data.SportSeason
+import com.playerid.app.data.repositories.RoomScheduleStorageRepository
+import com.playerid.app.data.repositories.toEntity
+import com.playerid.app.data.repositories.toProfile
+import com.playerid.app.domain.team.MemoryReviewService
 import com.playerid.app.domain.team.ScheduleImportEntry
 import com.playerid.app.domain.team.parseScheduleCsv
 import com.playerid.app.utils.MediaPermissionHelper
@@ -40,6 +44,8 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
 
     private val database = PlayerDatabase.getDatabase(application)
     private val memoryDao = database.memoryOrganizationDao()
+    private val scheduleStorageRepository = RoomScheduleStorageRepository(memoryDao)
+    private val memoryReviewService = MemoryReviewService(scheduleStorageRepository)
     private val teamDao = database.teamDao()
 
     private val _pendingPrompt = MutableStateFlow<MemoryScanPrompt?>(null)
@@ -66,7 +72,9 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
             try {
                 val now = System.currentTimeMillis()
                 val state = memoryDao.getIngestionState() ?: MediaIngestionState()
-                val games = memoryDao.getGamesSince(now - 1000L * 60L * 60L * 24L * 90L)
+                val games = scheduleStorageRepository
+                    .findGamesSince(now - 1000L * 60L * 60L * 24L * 90L)
+                    .map { it.toEntity() }
                 if (games.isEmpty()) {
                     memoryDao.upsertIngestionState(state.copy(lastScannedAtMs = now))
                     return@launch
@@ -84,7 +92,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
 
                 for (candidate in newMedia) {
                     maxDateAdded = maxOf(maxDateAdded, candidate.dateAddedMs)
-                    val existing = memoryDao.findMemoryByUri(candidate.contentUri)
+                    val existing = scheduleStorageRepository.findMemoryByMediaIdentifier(candidate.contentUri)
                     if (existing != null) continue
 
                     val bestMatch = findBestGameMatch(
@@ -139,7 +147,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
                 }
 
                 if (toInsert.isNotEmpty()) {
-                    memoryDao.upsertMemoryItems(toInsert)
+                    scheduleStorageRepository.saveMemories(toInsert.map { it.toProfile() })
                 }
 
                 memoryDao.upsertIngestionState(
@@ -175,19 +183,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
     fun acceptPendingMemories() {
         val prompt = _pendingPrompt.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = memoryDao.getMemoryItemsByIds(prompt.pendingMemoryIds)
-            if (existing.isNotEmpty()) {
-                val now = System.currentTimeMillis()
-                val updated = existing.map { item ->
-                    item.copy(
-                        needsReview = false,
-                        categorizationSource = "auto_schedule_accepted",
-                        reviewedAtMs = now,
-                        updatedAt = now
-                    )
-                }
-                memoryDao.upsertMemoryItems(updated)
-            }
+            memoryReviewService.accept(prompt.pendingMemoryIds, System.currentTimeMillis())
             _pendingPrompt.value = null
         }
     }
@@ -195,7 +191,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
     fun skipPendingMemories() {
         val prompt = _pendingPrompt.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            memoryDao.deleteMemoryItemsByIds(prompt.pendingMemoryIds)
+            memoryReviewService.skip(prompt.pendingMemoryIds)
             _pendingPrompt.value = null
         }
     }
@@ -212,7 +208,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
                 id = DEFAULT_CHILD_ID,
                 displayName = "My Child"
             )
-            memoryDao.upsertChildProfile(childProfile)
+            scheduleStorageRepository.saveChild(childProfile.toProfile())
 
             val firstYear = entries.minByOrNull { it.startMs }?.let {
                 LocalDateTime.ofInstant(
@@ -221,14 +217,14 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
                 ).year
             } ?: LocalDate.now().year
 
-            val season = memoryDao.getActiveSeasonForTeam(teamName) ?: SportSeason(
+            val season = scheduleStorageRepository.findActiveSeasonForTeam(teamName)?.toEntity() ?: SportSeason(
                 id = "season-${teamName.lowercase(Locale.US).replace(" ", "-")}-${firstYear}",
                 childId = DEFAULT_CHILD_ID,
                 sportName = team?.sport ?: "Unknown Sport",
                 seasonLabel = "$firstYear Season",
                 teamName = teamName
             )
-            memoryDao.upsertSportSeason(season)
+            scheduleStorageRepository.saveSeason(season.toProfile())
 
             val now = System.currentTimeMillis()
             val games = entries.map { entry ->
@@ -247,7 +243,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
                     updatedAt = now
                 )
             }
-            memoryDao.upsertGameSchedules(games)
+            scheduleStorageRepository.saveGames(games.map { it.toProfile() })
             withContext(Dispatchers.Main) { onComplete(games.size) }
         }
     }

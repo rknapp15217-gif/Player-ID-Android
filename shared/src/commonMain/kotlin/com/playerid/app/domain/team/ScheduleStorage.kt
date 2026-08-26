@@ -66,4 +66,38 @@ interface ScheduleStorageRepository {
     fun observeGamesForSeason(seasonId: String): Flow<List<GameScheduleProfile>>
     fun observeGamesForTeam(teamName: String): Flow<List<GameScheduleProfile>>
     fun observeMemoriesForGame(gameId: String): Flow<List<MemoryItemProfile>>
+    suspend fun findActiveSeasonForTeam(teamName: String): SportSeasonProfile?
+    suspend fun findGamesSince(windowStartMs: Long): List<GameScheduleProfile>
+    suspend fun findMemoryByMediaIdentifier(identifier: String): MemoryItemProfile?
+    suspend fun findMemoryItems(ids: List<String>): List<MemoryItemProfile>
+    suspend fun saveChild(child: ChildProfileRecord)
+    suspend fun saveSeason(season: SportSeasonProfile)
+    suspend fun saveGames(games: List<GameScheduleProfile>)
+    suspend fun saveMemories(memories: List<MemoryItemProfile>)
+    suspend fun deleteMemories(ids: List<String>)
+}
+
+class MemoryReviewService(
+    private val repository: ScheduleStorageRepository
+) {
+    suspend fun accept(memoryIds: List<String>, reviewedAtMs: Long): Int {
+        val memories = repository.findMemoryItems(memoryIds)
+        if (memories.isEmpty()) return 0
+
+        repository.saveMemories(
+            memories.map { memory ->
+                memory.copy(
+                    needsReview = false,
+                    categorizationSource = "auto_schedule_accepted",
+                    reviewedAtMs = reviewedAtMs,
+                    updatedAt = reviewedAtMs
+                )
+            }
+        )
+        return memories.size
+    }
+
+    suspend fun skip(memoryIds: List<String>) {
+        repository.deleteMemories(memoryIds)
+    }
 }

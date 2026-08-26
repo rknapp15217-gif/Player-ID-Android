@@ -5,12 +5,15 @@ import com.playerid.app.data.MemoryOrganizationDao
 import com.playerid.app.data.TeamDao
 import com.playerid.app.data.UserTeamSubscriptionDao
 import com.playerid.app.domain.team.PlayerProfile
+import com.playerid.app.domain.team.ChildProfileRecord
 import com.playerid.app.domain.team.TeamProfile
 import com.playerid.app.domain.team.TeamRosterRepository
 import com.playerid.app.domain.team.TeamSubscription
 import com.playerid.app.domain.team.TeamSubscriptionRepository
 import com.playerid.app.domain.team.GameScheduleProfile
+import com.playerid.app.domain.team.MemoryItemProfile
 import com.playerid.app.domain.team.ScheduleStorageRepository
+import com.playerid.app.domain.team.SportSeasonProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -99,4 +102,36 @@ class RoomScheduleStorageRepository(
         memoryOrganizationDao.getMemoryForGame(gameId).map { memories ->
             memories.map { it.toProfile() }
         }
+
+    override suspend fun findActiveSeasonForTeam(teamName: String) =
+        memoryOrganizationDao.getActiveSeasonForTeam(teamName)?.toProfile()
+
+    override suspend fun findGamesSince(windowStartMs: Long) =
+        memoryOrganizationDao.getGamesSince(windowStartMs).map { it.toProfile() }
+
+    override suspend fun findMemoryByMediaIdentifier(identifier: String) =
+        memoryOrganizationDao.findMemoryByUri(identifier)?.toProfile()
+
+    override suspend fun findMemoryItems(ids: List<String>) =
+        memoryOrganizationDao.getMemoryItemsByIds(ids).map { it.toProfile() }
+
+    override suspend fun saveChild(child: ChildProfileRecord) {
+        memoryOrganizationDao.upsertChildProfile(child.toEntity())
+    }
+
+    override suspend fun saveSeason(season: SportSeasonProfile) {
+        memoryOrganizationDao.upsertSportSeason(season.toEntity())
+    }
+
+    override suspend fun saveGames(games: List<GameScheduleProfile>) {
+        memoryOrganizationDao.upsertGameSchedules(games.map { it.toEntity() })
+    }
+
+    override suspend fun saveMemories(memories: List<MemoryItemProfile>) {
+        memoryOrganizationDao.upsertMemoryItems(memories.map { it.toEntity() })
+    }
+
+    override suspend fun deleteMemories(ids: List<String>) {
+        memoryOrganizationDao.deleteMemoryItemsByIds(ids)
+    }
 }
