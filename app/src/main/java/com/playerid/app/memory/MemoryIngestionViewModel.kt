@@ -11,6 +11,8 @@ import com.playerid.app.data.MediaIngestionState
 import com.playerid.app.data.MemoryItem
 import com.playerid.app.data.PlayerDatabase
 import com.playerid.app.data.SportSeason
+import com.playerid.app.domain.team.ScheduleImportEntry
+import com.playerid.app.domain.team.parseScheduleCsv
 import com.playerid.app.utils.MediaPermissionHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -426,16 +428,6 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
     }
 }
 
-data class ScheduleImportEntry(
-    val gameLabel: String,
-    val opponent: String,
-    val startMs: Long,
-    val endMs: Long,
-    val locationName: String?,
-    val latitude: Double?,
-    val longitude: Double?
-)
-
 data class MemoryScanPrompt(
     val totalCount: Int,
     val groups: List<MemoryScanPromptGroup>,
@@ -473,45 +465,6 @@ private data class MemoryPromptGroupAccumulator(
     var count: Int,
     val memoryIds: MutableList<String>
 )
-
-fun parseScheduleCsv(csvText: String): List<ScheduleImportEntry> {
-    val lines = csvText
-        .lineSequence()
-        .map { it.trim() }
-        .filter { it.isNotBlank() }
-        .toList()
-
-    if (lines.isEmpty()) return emptyList()
-
-    val rows = lines.drop(1)
-    val zone = ZoneId.systemDefault()
-    return rows.mapNotNull { line ->
-        val parts = splitCsvLine(line)
-        if (parts.size < 5) return@mapNotNull null
-
-        val date = runCatching { LocalDate.parse(parts[0].trim()) }.getOrNull() ?: return@mapNotNull null
-        val start = parseFlexibleTime(parts[1].trim()) ?: return@mapNotNull null
-        val end = parseFlexibleTime(parts[2].trim()) ?: start.plusHours(2)
-        val opponent = parts[3].trim().ifBlank { "Opponent" }
-        val location = parts.getOrNull(4)?.trim()?.ifBlank { null }
-        val latitude = parts.getOrNull(5)?.trim()?.toDoubleOrNull()
-        val longitude = parts.getOrNull(6)?.trim()?.toDoubleOrNull()
-        val gameLabel = parts.getOrNull(7)?.trim().orEmpty()
-
-        val startMs = date.atTime(start).atZone(zone).toInstant().toEpochMilli()
-        val endMs = date.atTime(end).atZone(zone).toInstant().toEpochMilli()
-
-        ScheduleImportEntry(
-            gameLabel = gameLabel,
-            opponent = opponent,
-            startMs = startMs,
-            endMs = endMs,
-            locationName = location,
-            latitude = latitude,
-            longitude = longitude
-        )
-    }
-}
 
 fun parseScheduleText(rawText: String): List<ScheduleImportEntry> {
     val csvEntries = parseScheduleCsv(rawText)
@@ -707,25 +660,6 @@ private fun parseFlexibleDate(raw: String): LocalDate? {
             .getOrNull()?.let { return it }
     }
     return null
-}
-
-private fun splitCsvLine(line: String): List<String> {
-    val values = mutableListOf<String>()
-    val current = StringBuilder()
-    var inQuotes = false
-
-    for (char in line) {
-        when {
-            char == '"' -> inQuotes = !inQuotes
-            char == ',' && !inQuotes -> {
-                values.add(current.toString())
-                current.clear()
-            }
-            else -> current.append(char)
-        }
-    }
-    values.add(current.toString())
-    return values
 }
 
 private fun parseFlexibleTime(raw: String): LocalTime? {
