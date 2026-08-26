@@ -94,4 +94,9 @@ class RoomScheduleStorageRepository(
         memoryOrganizationDao.getGamesForTeam(teamName).map { games ->
             games.map { it.toProfile() }
         }
+
+    override fun observeMemoriesForGame(gameId: String) =
+        memoryOrganizationDao.getMemoryForGame(gameId).map { memories ->
+            memories.map { it.toProfile() }
+        }
 }

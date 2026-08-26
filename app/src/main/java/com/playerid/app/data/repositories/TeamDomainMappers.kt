@@ -4,6 +4,7 @@ import com.playerid.app.data.Player
 import com.playerid.app.data.GameSchedule
 import com.playerid.app.data.ChildProfile
 import com.playerid.app.data.SportSeason
+import com.playerid.app.data.MemoryItem
 import com.playerid.app.data.Team
 import com.playerid.app.data.UserTeamSubscription
 import com.playerid.app.data.teamsnap.TeamSnapSyncStatus
@@ -11,6 +12,9 @@ import com.playerid.app.domain.team.PlayerProfile
 import com.playerid.app.domain.team.GameScheduleProfile
 import com.playerid.app.domain.team.ChildProfileRecord
 import com.playerid.app.domain.team.SportSeasonProfile
+import com.playerid.app.domain.team.MemoryItemProfile
+import com.playerid.app.platform.MediaKind
+import com.playerid.app.platform.MediaReference
 import com.playerid.app.domain.team.TeamProfile
 import com.playerid.app.domain.team.TeamSubscription
 
@@ -169,4 +173,55 @@ fun SportSeasonProfile.toEntity() = SportSeason(
     createdAt = createdAt,
     updatedAt = updatedAt,
     isActive = isActive
+)
+
+fun MemoryItem.toProfile() = MemoryItemProfile(
+    id = id,
+    media = MediaReference(
+        identifier = contentUri,
+        kind = if (mimeType.startsWith("video/")) MediaKind.VIDEO else MediaKind.IMAGE,
+        mimeType = mimeType
+    ),
+    platformMediaId = mediaStoreId,
+    displayName = displayName,
+    dateTakenMs = dateTakenMs,
+    dateAddedMs = dateAddedMs,
+    bucketName = bucketName,
+    width = width,
+    height = height,
+    durationMs = durationMs,
+    latitude = latitude,
+    longitude = longitude,
+    sportSeasonId = sportSeasonId,
+    gameScheduleId = gameScheduleId,
+    categorizationSource = categorizationSource,
+    autoScore = autoScore,
+    needsReview = needsReview,
+    reviewedAtMs = reviewedAtMs,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
+
+fun MemoryItemProfile.toEntity() = MemoryItem(
+    id = id,
+    contentUri = media.identifier,
+    mediaStoreId = platformMediaId,
+    mimeType = media.mimeType.orEmpty(),
+    displayName = displayName,
+    dateTakenMs = dateTakenMs,
+    dateAddedMs = dateAddedMs,
+    bucketName = bucketName,
+    width = width,
+    height = height,
+    durationMs = durationMs,
+    latitude = latitude,
+    longitude = longitude,
+    sportSeasonId = sportSeasonId,
+    gameScheduleId = gameScheduleId,
+    categorizationSource = categorizationSource,
+    autoScore = autoScore,
+    needsReview = needsReview,
+    reviewedAtMs = reviewedAtMs,
+    createdAt = createdAt,
+    updatedAt = updatedAt
 )

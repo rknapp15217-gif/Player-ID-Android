@@ -92,8 +92,8 @@ class MemoryBrowsingViewModel(application: Application) : AndroidViewModel(appli
 
     private fun loadMemoriesForGame(gameId: String) {
         viewModelScope.launch {
-            memoryDao.getMemoryForGame(gameId).collect { memories ->
-                _memories.value = memories
+            scheduleStorageRepository.observeMemoriesForGame(gameId).collect { memories ->
+                _memories.value = memories.map { it.toEntity() }
             }
         }
     }
