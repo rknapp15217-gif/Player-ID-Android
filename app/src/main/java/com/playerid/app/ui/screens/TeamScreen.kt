@@ -84,6 +84,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,6 +107,11 @@ import com.playerid.app.domain.team.ScheduleGameItem
 import com.playerid.app.domain.team.ScheduleListEvent
 import com.playerid.app.domain.team.ScheduleListState
 import com.playerid.app.domain.team.JoinTeamItem
+import com.playerid.app.domain.team.TeamSelectionDialog
+import com.playerid.app.domain.team.TeamSelectionEvent
+import com.playerid.app.domain.team.TeamSelectionItem
+import com.playerid.app.domain.team.TeamSelectionState
+import com.playerid.app.domain.team.initialTeamSelectionState
 import com.playerid.app.domain.team.TeamDetailNavigationEvent
 import com.playerid.app.domain.team.TeamDetailPage
 import com.playerid.app.domain.team.initialTeamDetailPage
@@ -123,6 +129,7 @@ import com.playerid.app.ui.team.JoinTeamDialog as SharedJoinTeamDialog
 import com.playerid.app.ui.team.InviteTeamDialog as SharedInviteTeamDialog
 import com.playerid.app.ui.team.TeamOverviewDestination
 import com.playerid.app.ui.team.TeamOverviewPage
+import com.playerid.app.ui.team.TeamSelectionPage
 import com.playerid.app.ui.theme.*
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
@@ -180,190 +187,112 @@ fun TeamSelectionView(
     val context = LocalContext.current
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
     val subscribedTeamsWithStats by teamViewModel.subscribedTeamsWithStats.collectAsState()
-    
-    // Dialog states
-    var showAddTeamDialog by rememberSaveable(startCreateTeamInitially) {
-        mutableStateOf(startCreateTeamInitially)
+    val playerCounts = remember(subscribedTeamsWithStats) {
+        subscribedTeamsWithStats.associate { it.name to it.playerCount }
     }
-    var showJoinTeamDialog by remember { mutableStateOf(false) }
-    var showTeamSnapImportDialog by remember { mutableStateOf(false) }
-    var selectedTeamName by rememberSaveable(initialTeamName) { mutableStateOf(initialTeamName) }
-    var createdTeamName by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectionItems = remember(subscribedTeams, playerCounts) {
+        subscribedTeams.map { team ->
+            TeamSelectionItem(
+                name = team.name,
+                homeColorHex = team.color,
+                awayColorHex = team.awayColor,
+                playerCount = playerCounts[team.name]
+            )
+        }
+    }
     
-    if (selectedTeamName != null) {
+    var selectionState by rememberSaveable(
+        initialTeamName,
+        startCreateTeamInitially,
+        stateSaver = Saver(
+            save = { state ->
+                listOf(
+                    state.selectedTeamName.orEmpty(),
+                    state.createdTeamName.orEmpty(),
+                    state.activeDialog?.name.orEmpty()
+                )
+            },
+            restore = { saved ->
+                TeamSelectionState(
+                    selectedTeamName = saved[0].ifBlank { null },
+                    createdTeamName = saved[1].ifBlank { null },
+                    activeDialog = saved[2].ifBlank { null }?.let(TeamSelectionDialog::valueOf)
+                )
+            }
+        )
+    ) {
+        mutableStateOf(
+            initialTeamSelectionState(
+                initialTeamName = initialTeamName,
+                startCreateTeamInitially = startCreateTeamInitially
+            )
+        )
+    }
+    
+    if (selectionState.selectedTeamName != null) {
         TeamManagementView(
-            teamName = selectedTeamName!!,
+            teamName = selectionState.selectedTeamName!!,
             playerViewModel = playerViewModel,
             teamViewModel = teamViewModel,
-            onClearTeam = { selectedTeamName = null },
+            onClearTeam = {
+                selectionState = selectionState.reduce(TeamSelectionEvent.TeamCleared)
+            },
             onNavigateToWebImport = onNavigateToWebImport,
             onNavigateToAppImport = onNavigateToAppImport,
             onNavigateToScheduleImport = onNavigateToScheduleImport,
-            openRosterInitially = openRosterInitially || createdTeamName == selectedTeamName
+            openRosterInitially = selectionState.shouldOpenRoster(openRosterInitially)
         )
-    } else Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-        ) {
-            OutlinedButton(
-                onClick = { showJoinTeamDialog = true },
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Icon(Icons.Default.Group, contentDescription = stringResource(R.string.join_team), modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.join_team))
-            }
-            OutlinedButton(
-                onClick = { showAddTeamDialog = true },
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.create_team), modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.create_team))
-            }
-        }
-        
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            // Teams content area
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 20.dp),
-                contentPadding = PaddingValues(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Subscribed teams list or empty state
-                if (subscribedTeams.isNotEmpty()) {
-                    items(subscribedTeams, key = { it.name }) { team ->
-                        val teamStats = subscribedTeamsWithStats.find { it.name == team.name }
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = {
-                                    selectedTeamName = team.name
-                                },
-                                colors = CardDefaults.cardColors(
-                                    containerColor = parseTeamColor(team.color, fallback = Color(0xFF1976D2)).copy(alpha = 0.10f)
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = team.name,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            TeamColorDot(label = "Home", colorHex = team.color)
-                                            TeamColorDot(label = "Away", colorHex = team.awayColor)
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        if (teamStats != null) {
-                                            Text(
-                                                text = "${teamStats.playerCount} players",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-
-                                    Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.select_team))
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    item {
-                        // Empty state for no subscribed teams
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            )
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    Icons.Default.SearchOff,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(48.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = "No Teams Yet",
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Join an existing team or create your own new team",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Button(
-                                    onClick = { showAddTeamDialog = true }
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.create_team))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(stringResource(R.string.create_new_team))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Bottom actions section
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // TeamSnap import button (only show if repository is available)
-                if (teamSnapRepository != null) {
-                    OutlinedButton(
-                        onClick = { showTeamSnapImportDialog = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Icon(Icons.Default.CloudDownload, contentDescription = stringResource(R.string.import_roster))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.import_from_teamsnap))
-                    }
-                }
-            }
-        }
+    } else {
+        TeamSelectionPage(
+            teams = selectionItems,
+            teamSnapImportAvailable = teamSnapRepository != null,
+            onSelectTeam = { teamName ->
+                selectionState = selectionState.reduce(TeamSelectionEvent.TeamSelected(teamName))
+            },
+            onJoinTeam = {
+                selectionState = selectionState.reduce(
+                    TeamSelectionEvent.DialogRequested(TeamSelectionDialog.JoinTeam)
+                )
+            },
+            onCreateTeam = {
+                selectionState = selectionState.reduce(
+                    TeamSelectionEvent.DialogRequested(TeamSelectionDialog.CreateTeam)
+                )
+            },
+            onImportTeamSnap = {
+                selectionState = selectionState.reduce(
+                    TeamSelectionEvent.DialogRequested(TeamSelectionDialog.TeamSnapImport)
+                )
+            },
+            joinIcon = { Icon(Icons.Default.Group, contentDescription = null) },
+            createIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+            selectIcon = {
+                Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.select_team))
+            },
+            emptyIcon = {
+                Icon(
+                    Icons.Default.SearchOff,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            importIcon = {
+                Icon(Icons.Default.CloudDownload, contentDescription = stringResource(R.string.import_roster))
+            },
+            joinTeamLabel = stringResource(R.string.join_team),
+            createTeamLabel = stringResource(R.string.create_team),
+            createNewTeamLabel = stringResource(R.string.create_new_team),
+            importTeamSnapLabel = stringResource(R.string.import_from_teamsnap)
+        )
     }
 
     // Team Management Dialogs
-    if (showAddTeamDialog) {
+    if (selectionState.activeDialog == TeamSelectionDialog.CreateTeam) {
         AddTeamDialog(
-            onDismiss = { showAddTeamDialog = false },
+            onDismiss = {
+                selectionState = selectionState.reduce(TeamSelectionEvent.DialogDismissed)
+            },
             onAdd = { teamName, sport, homeColor, awayColor, homeJerseyColor, awayJerseyColor ->
                 teamViewModel.addTeam(
                     teamName = teamName,
@@ -373,35 +302,39 @@ fun TeamSelectionView(
                     homeJerseyColor = homeJerseyColor,
                     awayJerseyColor = awayJerseyColor
                 )
-                showAddTeamDialog = false
+                selectionState = selectionState.reduce(
+                    TeamSelectionEvent.TeamCreated(teamName, openRosterAfterCreate)
+                )
                 if (openRosterAfterCreate) {
                     teamViewModel.replaceSubscriptionsWithTeam(teamName)
                     playerViewModel.setSelectedTeam(teamName)
-                    createdTeamName = teamName
-                    selectedTeamName = teamName
                 }
             }
         )
     }
     
     // Join Team Dialog
-    if (showJoinTeamDialog) {
+    if (selectionState.activeDialog == TeamSelectionDialog.JoinTeam) {
         JoinTeamDialog(
             teamViewModel = teamViewModel,
             subscribedTeams = subscribedTeams,
-            onDismiss = { showJoinTeamDialog = false }
+            onDismiss = {
+                selectionState = selectionState.reduce(TeamSelectionEvent.DialogDismissed)
+            }
         )
     }
 
     // TeamSnap Import Dialog
-    if (showTeamSnapImportDialog && teamSnapRepository != null) {
+    if (selectionState.activeDialog == TeamSelectionDialog.TeamSnapImport && teamSnapRepository != null) {
         TeamSnapImportDialog(
             teamSnapRepository = teamSnapRepository,
-            onDismiss = { showTeamSnapImportDialog = false },
+            onDismiss = {
+                selectionState = selectionState.reduce(TeamSelectionEvent.DialogDismissed)
+            },
             onImportComplete = { result ->
-                showTeamSnapImportDialog = false
-                // Auto-select imported team to show shared action dock.
-                selectedTeamName = result.localTeamName
+                selectionState = selectionState.reduce(
+                    TeamSelectionEvent.TeamImported(result.localTeamName)
+                )
                 Toast.makeText(
                     context,
                     context.resources.getQuantityString(
@@ -1406,23 +1339,6 @@ fun TeamPlayerCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun TeamColorDot(label: String, colorHex: String?) {
-    val color = parseTeamColor(colorHex, fallback = Color(0xFF9E9E9E))
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(10.dp)
-                .background(color, androidx.compose.foundation.shape.CircleShape)
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 

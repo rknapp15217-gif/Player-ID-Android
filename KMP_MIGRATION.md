@@ -27,6 +27,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Team schedule search, upcoming/past partitioning, ordering, and Compose rendering now live in shared code. Android maps `GameSchedule` to display items, formats localized date/time labels, and injects icons/import callbacks.
 - Join Team subscription exclusion, search reduction, and dialog rendering now live in shared code. Android maps ViewModel flows to display items, supplies localized labels/icons, and retains the subscription side effect.
 - Invite Team capability decisions, options/QR/NFC transitions, and dialog rendering now live in shared code. Android retains invite-link encoding, SMS/settings/share intents, QR bitmap generation, NFC foreground dispatch, and icon/content slots.
+- Team Selection deep links, selected/created team state, dialog transitions, roster-opening rules, and page rendering now live in shared code. Android maps Room-backed teams to display items, serializes state for restoration, supplies localized icons/labels, and retains ViewModel, subscription, and TeamSnap side effects.
 - Compose Multiplatform `1.5.10` runs on the conservative Kotlin `1.9.20` baseline; Android uses Compose compiler `1.5.4`.
 
 ## Dependency Rule
