@@ -103,9 +103,10 @@ import com.playerid.app.data.GameSchedule
 import com.playerid.app.data.repositories.toProfile
 import com.playerid.app.domain.team.RosterListEvent
 import com.playerid.app.domain.team.RosterListState
-import com.playerid.app.domain.team.ScheduleGameItem
+import com.playerid.app.domain.team.ScheduleLabelPolicy
 import com.playerid.app.domain.team.ScheduleListEvent
 import com.playerid.app.domain.team.ScheduleListState
+import com.playerid.app.domain.team.scheduleGameItem
 import com.playerid.app.domain.team.JoinTeamItem
 import com.playerid.app.domain.team.TeamSelectionDialog
 import com.playerid.app.domain.team.TeamSelectionEvent
@@ -138,8 +139,7 @@ import com.playerid.app.roster.RosterCandidate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.text.DateFormatSymbols
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -868,20 +868,26 @@ private fun TeamSchedulePage(
     onAdd: () -> Unit,
     onImport: () -> Unit
 ) {
-    val dateFormat = remember { SimpleDateFormat("MMM\ndd", Locale.getDefault()) }
-    val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
-    val scheduleItems = remember(games) {
+    val labelPolicy = remember {
+        val locale = Locale.getDefault()
+        val symbols = DateFormatSymbols.getInstance(locale)
+        ScheduleLabelPolicy(
+            monthLabels = symbols.shortMonths.take(12).map { it.uppercase(locale) },
+            amLabel = symbols.amPmStrings[0],
+            pmLabel = symbols.amPmStrings[1]
+        )
+    }
+    val scheduleItems = remember(games, labelPolicy) {
+        val timeZone = java.util.TimeZone.getDefault()
         games.map { game ->
-            ScheduleGameItem(
+            scheduleGameItem(
                 id = game.id,
                 opponentName = game.opponentName,
                 gameLabel = game.gameLabel,
                 scheduledStartMs = game.scheduledStartMs,
-                dateLabel = dateFormat.format(Date(game.scheduledStartMs)).uppercase(Locale.getDefault()),
-                detailLabel = listOfNotNull(
-                    game.locationName,
-                    timeFormat.format(Date(game.scheduledStartMs))
-                ).joinToString("  •  ")
+                locationName = game.locationName,
+                labelPolicy = labelPolicy,
+                utcOffsetMinutes = timeZone.getOffset(game.scheduledStartMs) / 60_000
             )
         }
     }

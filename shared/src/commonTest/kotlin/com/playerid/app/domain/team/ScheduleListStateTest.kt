@@ -1,5 +1,6 @@
 package com.playerid.app.domain.team
 
+import kotlinx.datetime.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -43,6 +44,41 @@ class ScheduleListStateTest {
         assertEquals("Senior Night", games[1].title)
     }
 
+    @Test
+    fun formatterHandlesMidnightNoonAndLocationInUtc() {
+        val midnight = formatted("2026-08-26T00:05:00Z", location = "Home Field")
+        val noon = formatted("2026-08-26T12:30:00Z")
+
+        assertEquals("AUG\n26", midnight.dateLabel)
+        assertEquals("Home Field  •  12:05 AM", midnight.detailLabel)
+        assertEquals("12:30 PM", noon.detailLabel)
+    }
+
+    @Test
+    fun formatterAppliesTimeZoneBeforeBuildingDateLabel() {
+        val item = formatted(
+            instant = "2026-08-26T02:15:00Z",
+            utcOffsetMinutes = -4 * 60
+        )
+
+        assertEquals("AUG\n25", item.dateLabel)
+        assertEquals("10:15 PM", item.detailLabel)
+    }
+
+    @Test
+    fun formatterUsesInjectedLocaleLabels() {
+        val policy = ScheduleLabelPolicy(
+            monthLabels = (1..12).map { "M$it" },
+            amLabel = "a",
+            pmLabel = "p"
+        )
+
+        val item = formatted("2026-08-26T17:04:00Z", labelPolicy = policy)
+
+        assertEquals("M8\n26", item.dateLabel)
+        assertEquals("5:04 p", item.detailLabel)
+    }
+
     private fun game(
         id: String,
         opponentName: String,
@@ -55,5 +91,20 @@ class ScheduleListStateTest {
         scheduledStartMs = scheduledStartMs,
         dateLabel = "DATE",
         detailLabel = "DETAIL"
+    )
+
+    private fun formatted(
+        instant: String,
+        location: String? = null,
+        labelPolicy: ScheduleLabelPolicy = ScheduleLabelPolicy.English,
+        utcOffsetMinutes: Int = 0
+    ) = scheduleGameItem(
+        id = "game",
+        opponentName = "Tigers",
+        gameLabel = "",
+        scheduledStartMs = Instant.parse(instant).toEpochMilliseconds(),
+        locationName = location,
+        labelPolicy = labelPolicy,
+        utcOffsetMinutes = utcOffsetMinutes
     )
 }
