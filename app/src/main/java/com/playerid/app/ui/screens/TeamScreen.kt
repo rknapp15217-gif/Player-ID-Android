@@ -106,6 +106,10 @@ import com.playerid.app.data.GameSchedule
 import com.playerid.app.data.repositories.toProfile
 import com.playerid.app.domain.team.RosterListEvent
 import com.playerid.app.domain.team.RosterListState
+import com.playerid.app.domain.team.TeamDetailNavigationEvent
+import com.playerid.app.domain.team.TeamDetailPage
+import com.playerid.app.domain.team.initialTeamDetailPage
+import com.playerid.app.domain.team.reduce
 import com.playerid.app.ui.dialogs.AddPlayerDialog
 import com.playerid.app.ui.dialogs.AddTeamDialog
 import com.playerid.app.ui.dialogs.DeleteTeamDialog
@@ -565,7 +569,7 @@ fun TeamManagementView(
     var showImportRosterOptions by remember { mutableStateOf(false) }
     var showImportScheduleOptions by remember { mutableStateOf(false) }
     var detailPage by rememberSaveable(teamName, openRosterInitially) {
-        mutableStateOf(if (openRosterInitially) TeamDetailPage.Roster else TeamDetailPage.Overview)
+        mutableStateOf(initialTeamDetailPage(openRosterInitially))
     }
     var rosterSearch by rememberSaveable(teamName) { mutableStateOf("") }
     var scheduleSearch by rememberSaveable(teamName) { mutableStateOf("") }
@@ -729,9 +733,9 @@ fun TeamManagementView(
                     }
                 }
             },
-            onRoster = { detailPage = TeamDetailPage.Roster },
+            onRoster = { detailPage = detailPage.reduce(TeamDetailNavigationEvent.RosterSelected) },
             onImportRoster = { showImportRosterOptions = true },
-            onSchedule = { detailPage = TeamDetailPage.Schedule },
+            onSchedule = { detailPage = detailPage.reduce(TeamDetailNavigationEvent.ScheduleSelected) },
             onImportSchedule = { showImportScheduleOptions = true },
             onInvite = { showInviteDialog = true },
             onSettings = { showTeamActions = true },
@@ -749,7 +753,7 @@ fun TeamManagementView(
                     .reduce(RosterListEvent.SearchQueryChanged(query))
                     .searchQuery
             },
-            onBack = { detailPage = TeamDetailPage.Overview },
+            onBack = { detailPage = detailPage.reduce(TeamDetailNavigationEvent.OverviewSelected) },
             onAdd = { showAddPlayerDialog = true },
             onImport = { showImportRosterOptions = true },
             playerPhotoUris = playerPhotoUris,
@@ -771,7 +775,7 @@ fun TeamManagementView(
             totalCount = teamGames.size,
             search = scheduleSearch,
             onSearchChange = { scheduleSearch = it },
-            onBack = { detailPage = TeamDetailPage.Overview },
+            onBack = { detailPage = detailPage.reduce(TeamDetailNavigationEvent.OverviewSelected) },
             onAdd = { showImportScheduleOptions = true },
             onImport = { showImportScheduleOptions = true }
         )
@@ -868,8 +872,6 @@ fun TeamManagementView(
     }
 
 }
-
-private enum class TeamDetailPage { Overview, Roster, Schedule }
 
 @Composable
 private fun TeamOverviewPage(

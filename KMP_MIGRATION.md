@@ -22,6 +22,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Roster player row layout now renders from `PlayerProfile` in shared Compose. Android injects photo-picker and favorite-icon slots, keeping URI permissions and platform media access outside `commonMain`.
 - The full roster page container now renders in shared Compose, including header, search, count, list, empty state, and add/import commands. Android injects icons and media-aware row slots through a private adapter.
 - Create Team dialog flow and rendering now live in shared Compose, including duplicate advisories, sport selection, color-target state, RGB/HSV conversion, swatches, presets, and custom Canvas/pointer color selection. Edit Team reuses the shared color picker.
+- Team detail page selection and overview/roster/schedule transitions now live in a tested shared reducer. Android retains saveable Compose state and navigation callbacks.
 - Compose Multiplatform `1.5.10` runs on the conservative Kotlin `1.9.20` baseline; Android uses Compose compiler `1.5.4`.
 
 ## Dependency Rule
@@ -78,7 +79,7 @@ Move Camera and video processing last. They have the largest platform surface an
 
 ## Next Safe Extractions
 
-- Move team overview and roster navigation state into a shared presenter while keeping Android navigation callbacks at the host boundary.
+- Move team overview rendering into shared Compose while keeping assigned-player selection and Android navigation callbacks at the host boundary.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 - Schedule parsing after replacing `java.time` with `kotlinx-datetime` or injecting a platform-neutral clock/time-zone policy.
 
