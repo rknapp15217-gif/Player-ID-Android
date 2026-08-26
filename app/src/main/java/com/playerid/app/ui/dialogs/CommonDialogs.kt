@@ -3,8 +3,6 @@ package com.playerid.app.ui.dialogs
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -17,10 +15,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -30,9 +24,6 @@ import com.playerid.app.data.Player
 import com.playerid.app.data.repositories.toProfile
 import com.playerid.app.domain.team.PlayerFormEvent
 import com.playerid.app.domain.team.PlayerFormState
-import com.playerid.app.domain.team.TeamCreationOptions
-import com.playerid.app.domain.team.teamHexToHue
-import com.playerid.app.domain.team.teamHueToHex
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,7 +61,6 @@ fun AddPlayerDialog(
         availableTeams = availableTeams
     )
 }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditPlayerDialog(
@@ -124,28 +114,6 @@ fun AddTeamDialog(
                 submission.awayJerseyColor,
                 submission.homeJerseyColor,
                 submission.awayJerseyColor
-            )
-        },
-        colorSwatch = { colorHex, selected, onClick ->
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .background(Color(android.graphics.Color.parseColor(colorHex)), CircleShape)
-                    .border(
-                        width = if (selected) 3.dp else 1.dp,
-                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                        shape = CircleShape
-                    )
-                    .clickable(onClick = onClick)
-            )
-        },
-        colorPicker = { label, selectedColorHex, onColorSelected ->
-            TeamColorPickerField(
-                label = label,
-                selectedColorHex = selectedColorHex,
-                onColorSelected = onColorSelected,
-                presetColors = TeamCreationOptions.presetColors,
-                showHexValue = false
             )
         }
     )
@@ -441,147 +409,3 @@ fun DeletePlayerDialog(
     )
 }
 
-@Composable
-private fun TeamColorPickerField(
-    label: String,
-    selectedColorHex: String,
-    onColorSelected: (String) -> Unit,
-    presetColors: List<Pair<String, String>>,
-    showHexValue: Boolean = true
-) {
-    var showCustom by remember { mutableStateOf(false) }
-
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = label, style = MaterialTheme.typography.labelMedium)
-            TextButton(onClick = { showCustom = !showCustom }) {
-                Text(if (showCustom) "Use Presets" else "Custom")
-            }
-        }
-
-        if (showCustom) {
-            TeamColorWheelPicker(
-                label = "",
-                selectedColorHex = selectedColorHex,
-                onColorSelected = onColorSelected
-            )
-        } else {
-            presetColors.chunked(4).forEach { rowColors ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    rowColors.forEach { (name, hex) ->
-                        val swatchColor = Color(android.graphics.Color.parseColor(hex))
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .background(swatchColor, CircleShape)
-                                    .border(
-                                        width = if (selectedColorHex == hex) 3.dp else 1.dp,
-                                        color = if (selectedColorHex == hex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                        shape = CircleShape
-                                    )
-                                    .clickable { onColorSelected(hex) }
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = name,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            if (showHexValue) {
-                Text(
-                    text = selectedColorHex,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TeamColorWheelPicker(
-    label: String,
-    selectedColorHex: String,
-    onColorSelected: (String) -> Unit
-) {
-    var hue by remember(selectedColorHex) { mutableStateOf(teamHexToHue(selectedColorHex)) }
-
-    Column {
-        if (label.isNotBlank()) {
-            Text(text = label, style = MaterialTheme.typography.labelMedium)
-            Spacer(modifier = Modifier.height(6.dp))
-        }
-
-        val sweepColors = remember {
-            listOf(
-                Color(0xFFFF0000),
-                Color(0xFFFFFF00),
-                Color(0xFF00FF00),
-                Color(0xFF00FFFF),
-                Color(0xFF0000FF),
-                Color(0xFFFF00FF),
-                Color(0xFFFF0000)
-            )
-        }
-
-        val selectedColor = remember(hue) {
-            Color(android.graphics.Color.parseColor(teamHueToHex(hue)))
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(88.dp)
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, _ ->
-                            val center = Offset(size.width / 2f, size.height / 2f)
-                            val p = change.position
-                            val angle = Math.toDegrees(
-                                kotlin.math.atan2((p.y - center.y).toDouble(), (p.x - center.x).toDouble())
-                            ).toFloat()
-                            hue = (angle + 360f + 90f) % 360f
-                            onColorSelected(teamHueToHex(hue))
-                        }
-                    }
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawCircle(
-                        brush = Brush.sweepGradient(sweepColors),
-                        radius = size.minDimension / 2f,
-                        style = Stroke(width = size.minDimension * 0.24f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .background(selectedColor, CircleShape)
-                    .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Text(selectedColorHex, style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}

@@ -14,14 +14,14 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - `.github/workflows/kmp-shared.yml` compiles and tests the iOS simulator framework on a GitHub macOS runner, so Apple-target regressions can be caught before local Mac hardware is available.
 - Shared production code now includes team matching, roster text parsing, tracking math, native service contracts, brand colors, and reusable vector icons.
 - Shared team-domain profiles and repository contracts now sit in front of Android Room adapters. `TeamSubscriptionService` owns the onboarding rule that replaces all existing subscriptions with exactly one normalized team.
-- Create Team form values, option lists, reducer events, duplicate matching, and normalized submission now live in `commonMain`; the Android dialog retains only transient Compose visibility state and rendering.
+- Create Team form values, option lists, reducer events, duplicate matching, normalized submission, and Compose rendering now live in `commonMain`; Android preserves only its existing callback adapter.
 - Roster list search and favorite-toggle reduction now operate on `PlayerProfile` in `commonMain`; Android retains saveable UI state, Room entities, photo URIs, and player mutation callbacks during the transition.
 - `TeamRosterService` now owns team-scoped roster loading plus add, update, hard-delete, and OCR merge coordination. `PlayerViewModel` remains the Android facade and supplies UUIDs, timestamps, lifecycle scope, and Room-backed repository adapters.
 - Add/Edit Player field state, academic-year options, reducer events, validation, profile initialization, and trimmed submissions now live in `commonMain`; Android dialogs preserve their existing `Player` callback APIs.
 - Add/Edit Player dialog rendering now uses shared Compose Material3. Android wrappers retain only `Player` entity mapping, UUID/contributor assignment, and existing public callback signatures.
 - Roster player row layout now renders from `PlayerProfile` in shared Compose. Android injects photo-picker and favorite-icon slots, keeping URI permissions and platform media access outside `commonMain`.
 - The full roster page container now renders in shared Compose, including header, search, count, list, empty state, and add/import commands. Android injects icons and media-aware row slots through a private adapter.
-- Create Team dialog flow and rendering now live in shared Compose, including duplicate advisories, sport selection, color-target state, and submission. Tested RGB/HSV conversion is platform-neutral; Android injects only color swatches and the existing custom Canvas/pointer picker.
+- Create Team dialog flow and rendering now live in shared Compose, including duplicate advisories, sport selection, color-target state, RGB/HSV conversion, swatches, presets, and custom Canvas/pointer color selection. Edit Team reuses the shared color picker.
 - Compose Multiplatform `1.5.10` runs on the conservative Kotlin `1.9.20` baseline; Android uses Compose compiler `1.5.4`.
 
 ## Dependency Rule
@@ -78,7 +78,6 @@ Move Camera and video processing last. They have the largest platform surface an
 
 ## Next Safe Extractions
 
-- Move the custom team color Canvas and pointer handling into shared Compose.
 - Move team overview and roster navigation state into a shared presenter while keeping Android navigation callbacks at the host boundary.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 - Schedule parsing after replacing `java.time` with `kotlinx-datetime` or injecting a platform-neutral clock/time-zone policy.
