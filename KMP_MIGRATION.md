@@ -24,6 +24,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Create Team dialog flow and rendering now live in shared Compose, including duplicate advisories, sport selection, color-target state, RGB/HSV conversion, swatches, presets, and custom Canvas/pointer color selection. Edit Team reuses the shared color picker.
 - Team detail page selection and overview/roster/schedule transitions now live in a tested shared reducer. Android retains saveable Compose state and navigation callbacks.
 - Team overview rendering now lives in shared Compose. Android maps the assigned `Player` to `PlayerProfile` and injects Material icons, the assigned-player picker, and navigation/dialog callbacks.
+- Team schedule search, upcoming/past partitioning, ordering, and Compose rendering now live in shared code. Android maps `GameSchedule` to display items, formats localized date/time labels, and injects icons/import callbacks.
 - Compose Multiplatform `1.5.10` runs on the conservative Kotlin `1.9.20` baseline; Android uses Compose compiler `1.5.4`.
 
 ## Dependency Rule
@@ -80,7 +81,7 @@ Move Camera and video processing last. They have the largest platform surface an
 
 ## Next Safe Extractions
 
-- Move team schedule list state and rendering into shared code while keeping date/time formatting and import callbacks at the platform boundary.
+- Replace Android `SimpleDateFormat` schedule labels with a tested platform-neutral clock, locale, and time-zone policy.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 - Schedule parsing after replacing `java.time` with `kotlinx-datetime` or injecting a platform-neutral clock/time-zone policy.
 

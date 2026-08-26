@@ -92,7 +92,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import android.widget.Toast
 import android.content.Intent
@@ -103,6 +102,9 @@ import com.playerid.app.data.GameSchedule
 import com.playerid.app.data.repositories.toProfile
 import com.playerid.app.domain.team.RosterListEvent
 import com.playerid.app.domain.team.RosterListState
+import com.playerid.app.domain.team.ScheduleGameItem
+import com.playerid.app.domain.team.ScheduleListEvent
+import com.playerid.app.domain.team.ScheduleListState
 import com.playerid.app.domain.team.TeamDetailNavigationEvent
 import com.playerid.app.domain.team.TeamDetailPage
 import com.playerid.app.domain.team.initialTeamDetailPage
@@ -115,6 +117,7 @@ import com.playerid.app.ui.dialogs.EditPlayerDialog
 import com.playerid.app.ui.dialogs.EditTeamSettingsDialog
 import com.playerid.app.ui.components.*
 import com.playerid.app.ui.roster.RosterPage
+import com.playerid.app.ui.team.SchedulePage
 import com.playerid.app.ui.team.TeamOverviewDestination
 import com.playerid.app.ui.team.TeamOverviewPage
 import com.playerid.app.ui.theme.*
@@ -804,9 +807,7 @@ fun TeamManagementView(
             }
         )
         TeamDetailPage.Schedule -> TeamSchedulePage(
-            games = teamGames.filter {
-                scheduleSearch.isBlank() || it.opponentName.contains(scheduleSearch, true) || it.gameLabel.contains(scheduleSearch, true)
-            },
+            games = teamGames,
             totalCount = teamGames.size,
             search = scheduleSearch,
             onSearchChange = { scheduleSearch = it },
@@ -990,80 +991,50 @@ private fun TeamSchedulePage(
     onAdd: () -> Unit,
     onImport: () -> Unit
 ) {
-    val now = System.currentTimeMillis()
     val dateFormat = remember { SimpleDateFormat("MMM\ndd", Locale.getDefault()) }
     val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
-        item { TeamPageHeader("Schedule", onBack, onAdd) }
-        item {
-            OutlinedTextField(
-                value = search,
-                onValueChange = onSearchChange,
-                placeholder = { Text("Search games") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+    val scheduleItems = remember(games) {
+        games.map { game ->
+            ScheduleGameItem(
+                id = game.id,
+                opponentName = game.opponentName,
+                gameLabel = game.gameLabel,
+                scheduledStartMs = game.scheduledStartMs,
+                dateLabel = dateFormat.format(Date(game.scheduledStartMs)).uppercase(Locale.getDefault()),
+                detailLabel = listOfNotNull(
+                    game.locationName,
+                    timeFormat.format(Date(game.scheduledStartMs))
+                ).joinToString("  •  ")
             )
         }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("$totalCount games", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = onImport) {
-                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp), tint = TeamActionBlue)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Import schedule", color = TeamActionBlue)
-                }
-            }
-        }
-        if (games.any { it.scheduledStartMs >= now }) item { TeamSectionLabel("UPCOMING") }
-        items(games.filter { it.scheduledStartMs >= now }, key = { it.id }) { game ->
-            TeamGameRow(game, dateFormat, timeFormat)
-        }
-        if (games.any { it.scheduledStartMs < now }) item { TeamSectionLabel("PAST") }
-        items(games.filter { it.scheduledStartMs < now }.reversed(), key = { it.id }) { game ->
-            TeamGameRow(game, dateFormat, timeFormat)
-        }
-        if (games.isEmpty()) {
-            item { Text("No games found", modifier = Modifier.fillMaxWidth().padding(32.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
     }
-}
-
-@Composable
-private fun TeamGameRow(game: GameSchedule, dateFormat: SimpleDateFormat, timeFormat: SimpleDateFormat) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(dateFormat.format(Date(game.scheduledStartMs)).uppercase(Locale.getDefault()), modifier = Modifier.width(54.dp), lineHeight = 18.sp)
-        Column(Modifier.weight(1f)) {
-            Text(game.gameLabel.ifBlank { "vs ${game.opponentName}" }, fontWeight = FontWeight.Medium)
-            Text(
-                listOfNotNull(game.locationName, timeFormat.format(Date(game.scheduledStartMs))).joinToString("  •  "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+    val scheduleState = ScheduleListState(games = scheduleItems, searchQuery = search)
+    SchedulePage(
+        state = scheduleState,
+        totalCount = totalCount,
+        nowMs = System.currentTimeMillis(),
+        onSearchChange = { query ->
+            onSearchChange(
+                scheduleState.reduce(ScheduleListEvent.SearchQueryChanged(query)).searchQuery
+            )
+        },
+        onBack = onBack,
+        onAdd = onAdd,
+        onImport = onImport,
+        backIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") },
+        addIcon = { Icon(Icons.Default.Add, contentDescription = "Add") },
+        searchIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        importIcon = {
+            Icon(Icons.Default.CloudDownload, contentDescription = null, tint = TeamActionBlue)
+        },
+        gameTrailingIcon = {
+            Icon(
+                Icons.Default.MoreVert,
+                contentDescription = "Game options",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Icon(Icons.Default.MoreVert, contentDescription = "Game options", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
-}
-
-@Composable
-private fun TeamPageHeader(title: String, onBack: () -> Unit, onAdd: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            Spacer(Modifier.width(4.dp))
-            Text(if (title == "Teams") "Teams" else "Back")
-        }
-        Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        if (onAdd != null) IconButton(onClick = onAdd) { Icon(Icons.Default.Add, contentDescription = "Add") }
-        else Spacer(Modifier.width(48.dp))
-    }
-}
-
-@Composable
-private fun TeamSectionLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, start = 4.dp))
+    )
 }
 
 @Composable
