@@ -17,6 +17,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Create Team form values, option lists, reducer events, duplicate matching, and normalized submission now live in `commonMain`; the Android dialog retains only transient Compose visibility state and rendering.
 - Roster list search and favorite-toggle reduction now operate on `PlayerProfile` in `commonMain`; Android retains saveable UI state, Room entities, photo URIs, and player mutation callbacks during the transition.
 - `TeamRosterService` now owns team-scoped roster loading plus add, update, hard-delete, and OCR merge coordination. `PlayerViewModel` remains the Android facade and supplies UUIDs, timestamps, lifecycle scope, and Room-backed repository adapters.
+- Add/Edit Player field state, academic-year options, reducer events, validation, profile initialization, and trimmed submissions now live in `commonMain`; Android dialogs preserve their existing `Player` callback APIs.
 - Compose Multiplatform `1.5.10` runs on the conservative Kotlin `1.9.20` baseline; Android uses Compose compiler `1.5.4`.
 
 ## Dependency Rule
@@ -74,7 +75,7 @@ Move Camera and video processing last. They have the largest platform surface an
 ## Next Safe Extractions
 
 - Move the Create Team dialog rendering and roster UI components that depend only on shared models, Compose, and the shared color system.
-- Move Add/Edit Player form state and validation onto `PlayerProfile` before extracting their Compose dialogs.
+- Move Add/Edit Player dialog rendering to shared Compose while keeping Android entity mapping at the callback boundary.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 - Schedule parsing after replacing `java.time` with `kotlinx-datetime` or injecting a platform-neutral clock/time-zone policy.
 

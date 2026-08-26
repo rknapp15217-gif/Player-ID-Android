@@ -26,8 +26,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import com.playerid.app.data.AcademicYear
 import com.playerid.app.data.Player
+import com.playerid.app.data.repositories.toProfile
+import com.playerid.app.domain.team.PlayerFormEvent
+import com.playerid.app.domain.team.PlayerFormOptions
+import com.playerid.app.domain.team.PlayerFormState
 import com.playerid.app.domain.team.TeamCreationEvent
 import com.playerid.app.domain.team.TeamCreationFormState
 import com.playerid.app.domain.team.TeamCreationOptions
@@ -42,11 +45,9 @@ fun AddPlayerDialog(
     availableTeams: List<String> = listOf("Red Team", "Blue Team", "Green Team", "Yellow Team"),
     currentUser: String = "Unknown"
 ) {
-    var name by remember { mutableStateOf("") }
-    var number by remember { mutableStateOf("") }
-    var position by remember { mutableStateOf("") }
-    var team by remember { mutableStateOf(teamName ?: "Red Team") }
-    var academicYear by remember { mutableStateOf(AcademicYear.FRESHMAN.displayName) }
+    var formState by remember {
+        mutableStateOf(PlayerFormState.forNewPlayer(teamName ?: "Red Team"))
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -65,8 +66,8 @@ fun AddPlayerDialog(
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
+                    value = formState.name,
+                    onValueChange = { formState = formState.reduce(PlayerFormEvent.NameChanged(it)) },
                     label = { Text("Player Name") },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -74,8 +75,8 @@ fun AddPlayerDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 OutlinedTextField(
-                    value = number,
-                    onValueChange = { number = it },
+                    value = formState.number,
+                    onValueChange = { formState = formState.reduce(PlayerFormEvent.NumberChanged(it)) },
                     label = { Text("Jersey Number") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                     modifier = Modifier.fillMaxWidth()
@@ -84,8 +85,8 @@ fun AddPlayerDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 OutlinedTextField(
-                    value = position,
-                    onValueChange = { position = it },
+                    value = formState.position,
+                    onValueChange = { formState = formState.reduce(PlayerFormEvent.PositionChanged(it)) },
                     label = { Text("Position") },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -99,7 +100,7 @@ fun AddPlayerDialog(
                         onExpandedChange = { teamExpanded = !teamExpanded }
                     ) {
                         OutlinedTextField(
-                            value = team,
+                            value = formState.teamName,
                             onValueChange = { },
                             readOnly = true,
                             label = { Text("Team") },
@@ -117,7 +118,7 @@ fun AddPlayerDialog(
                                 DropdownMenuItem(
                                     text = { Text(teamOption) },
                                     onClick = {
-                                        team = teamOption
+                                        formState = formState.reduce(PlayerFormEvent.TeamSelected(teamOption))
                                         teamExpanded = false
                                     }
                                 )
@@ -134,7 +135,7 @@ fun AddPlayerDialog(
                     onExpandedChange = { yearExpanded = !yearExpanded }
                 ) {
                     OutlinedTextField(
-                        value = academicYear,
+                        value = formState.academicYear,
                         onValueChange = { },
                         readOnly = true,
                         label = { Text("Academic Year") },
@@ -148,11 +149,11 @@ fun AddPlayerDialog(
                         expanded = yearExpanded,
                         onDismissRequest = { yearExpanded = false }
                     ) {
-                        AcademicYear.values().forEach { year ->
+                        PlayerFormOptions.academicYears.forEach { year ->
                             DropdownMenuItem(
-                                text = { Text(year.displayName) },
+                                text = { Text(year) },
                                 onClick = {
-                                    academicYear = year.displayName
+                                    formState = formState.reduce(PlayerFormEvent.AcademicYearSelected(year))
                                     yearExpanded = false
                                 }
                             )
@@ -174,20 +175,20 @@ fun AddPlayerDialog(
                     
                     Button(
                         onClick = {
-                            if (name.isNotBlank() && number.isNotBlank() && position.isNotBlank()) {
+                            formState.submission()?.let { submission ->
                                 val player = Player(
                                     id = UUID.randomUUID().toString(),
-                                    name = name.trim(),
-                                    number = number.trim(),
-                                    position = position.trim(),
-                                    team = team,
-                                    academicYear = academicYear,
+                                    name = submission.name,
+                                    number = submission.number,
+                                    position = submission.position,
+                                    team = submission.teamName,
+                                    academicYear = submission.academicYear,
                                     addedBy = currentUser
                                 )
                                 onAdd(player)
                             }
                         },
-                        enabled = name.isNotBlank() && number.isNotBlank() && position.isNotBlank()
+                        enabled = formState.canSubmit
                     ) {
                         Text("Add Player")
                     }
@@ -206,11 +207,9 @@ fun EditPlayerDialog(
     hideTeamField: Boolean = false, // New parameter to hide team field in team context
     availableTeams: List<String> = listOf("Red Team", "Blue Team", "Green Team", "Yellow Team")
 ) {
-    var name by remember { mutableStateOf(player.name) }
-    var number by remember { mutableStateOf(player.number) }
-    var position by remember { mutableStateOf(player.position) }
-    var team by remember { mutableStateOf(player.team) }
-    var academicYear by remember { mutableStateOf(player.academicYear) }
+    var formState by remember(player) {
+        mutableStateOf(PlayerFormState.forEditing(player.toProfile()))
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -229,8 +228,8 @@ fun EditPlayerDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
+                    value = formState.name,
+                    onValueChange = { formState = formState.reduce(PlayerFormEvent.NameChanged(it)) },
                     label = { Text("Player Name") },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -238,8 +237,8 @@ fun EditPlayerDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
-                    value = number,
-                    onValueChange = { number = it },
+                    value = formState.number,
+                    onValueChange = { formState = formState.reduce(PlayerFormEvent.NumberChanged(it)) },
                     label = { Text("Jersey Number") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                     modifier = Modifier.fillMaxWidth()
@@ -248,8 +247,8 @@ fun EditPlayerDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
-                    value = position,
-                    onValueChange = { position = it },
+                    value = formState.position,
+                    onValueChange = { formState = formState.reduce(PlayerFormEvent.PositionChanged(it)) },
                     label = { Text("Position") },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -263,7 +262,7 @@ fun EditPlayerDialog(
                         onExpandedChange = { teamExpanded = !teamExpanded }
                     ) {
                         OutlinedTextField(
-                            value = team,
+                            value = formState.teamName,
                             onValueChange = { },
                             readOnly = true,
                             label = { Text("Team") },
@@ -281,7 +280,7 @@ fun EditPlayerDialog(
                                 DropdownMenuItem(
                                     text = { Text(teamOption) },
                                     onClick = {
-                                        team = teamOption
+                                        formState = formState.reduce(PlayerFormEvent.TeamSelected(teamOption))
                                         teamExpanded = false
                                     }
                                 )
@@ -298,7 +297,7 @@ fun EditPlayerDialog(
                     onExpandedChange = { yearExpanded = !yearExpanded }
                 ) {
                     OutlinedTextField(
-                        value = academicYear,
+                        value = formState.academicYear,
                         onValueChange = { },
                         readOnly = true,
                         label = { Text("Academic Year") },
@@ -312,11 +311,11 @@ fun EditPlayerDialog(
                         expanded = yearExpanded,
                         onDismissRequest = { yearExpanded = false }
                     ) {
-                        AcademicYear.values().forEach { year ->
+                        PlayerFormOptions.academicYears.forEach { year ->
                             DropdownMenuItem(
-                                text = { Text(year.displayName) },
+                                text = { Text(year) },
                                 onClick = {
-                                    academicYear = year.displayName
+                                    formState = formState.reduce(PlayerFormEvent.AcademicYearSelected(year))
                                     yearExpanded = false
                                 }
                             )
@@ -338,18 +337,18 @@ fun EditPlayerDialog(
 
                     Button(
                         onClick = {
-                            if (name.isNotBlank() && number.isNotBlank() && position.isNotBlank()) {
+                            formState.submission()?.let { submission ->
                                 val updatedPlayer = player.copy(
-                                    name = name.trim(),
-                                    number = number.trim(),
-                                    position = position.trim(),
-                                    team = team,
-                                    academicYear = academicYear
+                                    name = submission.name,
+                                    number = submission.number,
+                                    position = submission.position,
+                                    team = submission.teamName,
+                                    academicYear = submission.academicYear
                                 )
                                 onSave(updatedPlayer)
                             }
                         },
-                        enabled = name.isNotBlank() && number.isNotBlank() && position.isNotBlank()
+                        enabled = formState.canSubmit
                     ) {
                         Text("Save Changes")
                     }
