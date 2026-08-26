@@ -29,7 +29,6 @@ import androidx.compose.ui.window.Dialog
 import com.playerid.app.data.Player
 import com.playerid.app.data.repositories.toProfile
 import com.playerid.app.domain.team.PlayerFormEvent
-import com.playerid.app.domain.team.PlayerFormOptions
 import com.playerid.app.domain.team.PlayerFormState
 import com.playerid.app.domain.team.TeamCreationEvent
 import com.playerid.app.domain.team.TeamCreationFormState
@@ -45,157 +44,31 @@ fun AddPlayerDialog(
     availableTeams: List<String> = listOf("Red Team", "Blue Team", "Green Team", "Yellow Team"),
     currentUser: String = "Unknown"
 ) {
-    var formState by remember {
+    var formState by remember(teamName) {
         mutableStateOf(PlayerFormState.forNewPlayer(teamName ?: "Red Team"))
     }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp)
-            ) {
-                Text(
-                    text = if (teamName != null) "Add New Player to $teamName" else "Add New Player",
-                    style = MaterialTheme.typography.headlineSmall
+    PlayerFormDialog(
+        title = if (teamName != null) "Add New Player to $teamName" else "Add New Player",
+        submitLabel = "Add Player",
+        formState = formState,
+        onEvent = { formState = formState.reduce(it) },
+        onDismiss = onDismiss,
+        onSubmit = { submission ->
+            onAdd(
+                Player(
+                    id = UUID.randomUUID().toString(),
+                    name = submission.name,
+                    number = submission.number,
+                    position = submission.position,
+                    team = submission.teamName,
+                    academicYear = submission.academicYear,
+                    addedBy = currentUser
                 )
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                OutlinedTextField(
-                    value = formState.name,
-                    onValueChange = { formState = formState.reduce(PlayerFormEvent.NameChanged(it)) },
-                    label = { Text("Player Name") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                OutlinedTextField(
-                    value = formState.number,
-                    onValueChange = { formState = formState.reduce(PlayerFormEvent.NumberChanged(it)) },
-                    label = { Text("Jersey Number") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                OutlinedTextField(
-                    value = formState.position,
-                    onValueChange = { formState = formState.reduce(PlayerFormEvent.PositionChanged(it)) },
-                    label = { Text("Position") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                if (teamName == null) {
-                    var teamExpanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(
-                        expanded = teamExpanded,
-                        onExpandedChange = { teamExpanded = !teamExpanded }
-                    ) {
-                        OutlinedTextField(
-                            value = formState.teamName,
-                            onValueChange = { },
-                            readOnly = true,
-                            label = { Text("Team") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = teamExpanded) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor()
-                        )
-                        
-                        ExposedDropdownMenu(
-                            expanded = teamExpanded,
-                            onDismissRequest = { teamExpanded = false }
-                        ) {
-                            availableTeams.forEach { teamOption ->
-                                DropdownMenuItem(
-                                    text = { Text(teamOption) },
-                                    onClick = {
-                                        formState = formState.reduce(PlayerFormEvent.TeamSelected(teamOption))
-                                        teamExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                var yearExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = yearExpanded,
-                    onExpandedChange = { yearExpanded = !yearExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = formState.academicYear,
-                        onValueChange = { },
-                        readOnly = true,
-                        label = { Text("Academic Year") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = yearExpanded) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor()
-                    )
-                    
-                    ExposedDropdownMenu(
-                        expanded = yearExpanded,
-                        onDismissRequest = { yearExpanded = false }
-                    ) {
-                        PlayerFormOptions.academicYears.forEach { year ->
-                            DropdownMenuItem(
-                                text = { Text(year) },
-                                onClick = {
-                                    formState = formState.reduce(PlayerFormEvent.AcademicYearSelected(year))
-                                    yearExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(24.dp))
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel")
-                    }
-                    
-                    Spacer(modifier = Modifier.width(8.dp))
-                    
-                    Button(
-                        onClick = {
-                            formState.submission()?.let { submission ->
-                                val player = Player(
-                                    id = UUID.randomUUID().toString(),
-                                    name = submission.name,
-                                    number = submission.number,
-                                    position = submission.position,
-                                    team = submission.teamName,
-                                    academicYear = submission.academicYear,
-                                    addedBy = currentUser
-                                )
-                                onAdd(player)
-                            }
-                        },
-                        enabled = formState.canSubmit
-                    ) {
-                        Text("Add Player")
-                    }
-                }
-            }
-        }
-    }
+            )
+        },
+        showTeamField = teamName == null,
+        availableTeams = availableTeams
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -211,151 +84,26 @@ fun EditPlayerDialog(
         mutableStateOf(PlayerFormState.forEditing(player.toProfile()))
     }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp)
-            ) {
-                Text(
-                    text = "Edit Player",
-                    style = MaterialTheme.typography.headlineSmall
+    PlayerFormDialog(
+        title = "Edit Player",
+        submitLabel = "Save Changes",
+        formState = formState,
+        onEvent = { formState = formState.reduce(it) },
+        onDismiss = onDismiss,
+        onSubmit = { submission ->
+            onSave(
+                player.copy(
+                    name = submission.name,
+                    number = submission.number,
+                    position = submission.position,
+                    team = submission.teamName,
+                    academicYear = submission.academicYear
                 )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = formState.name,
-                    onValueChange = { formState = formState.reduce(PlayerFormEvent.NameChanged(it)) },
-                    label = { Text("Player Name") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = formState.number,
-                    onValueChange = { formState = formState.reduce(PlayerFormEvent.NumberChanged(it)) },
-                    label = { Text("Jersey Number") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = formState.position,
-                    onValueChange = { formState = formState.reduce(PlayerFormEvent.PositionChanged(it)) },
-                    label = { Text("Position") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                if (!hideTeamField) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    var teamExpanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(
-                        expanded = teamExpanded,
-                        onExpandedChange = { teamExpanded = !teamExpanded }
-                    ) {
-                        OutlinedTextField(
-                            value = formState.teamName,
-                            onValueChange = { },
-                            readOnly = true,
-                            label = { Text("Team") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = teamExpanded) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor()
-                        )
-
-                        ExposedDropdownMenu(
-                            expanded = teamExpanded,
-                            onDismissRequest = { teamExpanded = false }
-                        ) {
-                            availableTeams.forEach { teamOption ->
-                                DropdownMenuItem(
-                                    text = { Text(teamOption) },
-                                    onClick = {
-                                        formState = formState.reduce(PlayerFormEvent.TeamSelected(teamOption))
-                                        teamExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                var yearExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = yearExpanded,
-                    onExpandedChange = { yearExpanded = !yearExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = formState.academicYear,
-                        onValueChange = { },
-                        readOnly = true,
-                        label = { Text("Academic Year") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = yearExpanded) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor()
-                    )
-
-                    ExposedDropdownMenu(
-                        expanded = yearExpanded,
-                        onDismissRequest = { yearExpanded = false }
-                    ) {
-                        PlayerFormOptions.academicYears.forEach { year ->
-                            DropdownMenuItem(
-                                text = { Text(year) },
-                                onClick = {
-                                    formState = formState.reduce(PlayerFormEvent.AcademicYearSelected(year))
-                                    yearExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel")
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Button(
-                        onClick = {
-                            formState.submission()?.let { submission ->
-                                val updatedPlayer = player.copy(
-                                    name = submission.name,
-                                    number = submission.number,
-                                    position = submission.position,
-                                    team = submission.teamName,
-                                    academicYear = submission.academicYear
-                                )
-                                onSave(updatedPlayer)
-                            }
-                        },
-                        enabled = formState.canSubmit
-                    ) {
-                        Text("Save Changes")
-                    }
-                }
-            }
-        }
-    }
+            )
+        },
+        showTeamField = !hideTeamField,
+        availableTeams = availableTeams
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
