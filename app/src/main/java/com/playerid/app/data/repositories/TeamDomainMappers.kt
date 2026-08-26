@@ -1,10 +1,12 @@
 package com.playerid.app.data.repositories
 
 import com.playerid.app.data.Player
+import com.playerid.app.data.GameSchedule
 import com.playerid.app.data.Team
 import com.playerid.app.data.UserTeamSubscription
 import com.playerid.app.data.teamsnap.TeamSnapSyncStatus
 import com.playerid.app.domain.team.PlayerProfile
+import com.playerid.app.domain.team.GameScheduleProfile
 import com.playerid.app.domain.team.TeamProfile
 import com.playerid.app.domain.team.TeamSubscription
 
@@ -95,4 +97,34 @@ fun TeamSubscription.toEntity() = UserTeamSubscription(
     teamName = teamName,
     subscribedAt = subscribedAt,
     isActive = isActive
+)
+
+fun GameSchedule.toProfile() = GameScheduleProfile(
+    id = id,
+    sportSeasonId = sportSeasonId,
+    opponentName = opponentName,
+    gameLabel = gameLabel,
+    scheduledStartMs = scheduledStartMs,
+    scheduledEndMs = scheduledEndMs,
+    locationName = locationName,
+    locationLat = locationLat,
+    locationLng = locationLng,
+    source = source,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
+
+fun GameScheduleProfile.toEntity() = GameSchedule(
+    id = id,
+    sportSeasonId = sportSeasonId,
+    opponentName = opponentName,
+    gameLabel = gameLabel,
+    scheduledStartMs = scheduledStartMs,
+    scheduledEndMs = scheduledEndMs,
+    locationName = locationName,
+    locationLat = locationLat,
+    locationLng = locationLng,
+    source = source,
+    createdAt = createdAt,
+    updatedAt = updatedAt
 )

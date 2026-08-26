@@ -9,10 +9,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import com.playerid.app.data.*
 import com.playerid.app.data.repositories.RoomTeamRosterRepository
 import com.playerid.app.data.repositories.RoomTeamSubscriptionRepository
+import com.playerid.app.data.repositories.RoomScheduleStorageRepository
 import com.playerid.app.data.repositories.toEntity
 import com.playerid.app.domain.team.TeamSubscription
 import com.playerid.app.domain.team.TeamSubscriptionService
@@ -28,6 +30,7 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     private val teamSubscriptionRepository = RoomTeamSubscriptionRepository(subscriptionDao)
     private val teamSubscriptionService = TeamSubscriptionService(teamSubscriptionRepository)
     private val memoryOrganizationDao = database.memoryOrganizationDao()
+    private val scheduleStorageRepository = RoomScheduleStorageRepository(memoryOrganizationDao)
     private val prefs = application.getSharedPreferences("team_selection", Context.MODE_PRIVATE)
 
     private val _kidOptions = MutableStateFlow(listOf("Tyson", "Brooklyn"))
@@ -68,7 +71,9 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     val allTeamNames: StateFlow<List<String>> = _allTeamNames.asStateFlow()
 
     fun getGamesForTeam(teamName: String): Flow<List<GameSchedule>> =
-        memoryOrganizationDao.getGamesForTeam(teamName)
+        scheduleStorageRepository.observeGamesForTeam(teamName).map { games ->
+            games.map { it.toEntity() }
+        }
 
     init {
         viewModelScope.launch {

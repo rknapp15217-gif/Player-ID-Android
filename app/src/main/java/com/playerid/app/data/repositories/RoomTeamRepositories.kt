@@ -1,6 +1,7 @@
 package com.playerid.app.data.repositories
 
 import com.playerid.app.data.PlayerDao
+import com.playerid.app.data.MemoryOrganizationDao
 import com.playerid.app.data.TeamDao
 import com.playerid.app.data.UserTeamSubscriptionDao
 import com.playerid.app.domain.team.PlayerProfile
@@ -8,6 +9,8 @@ import com.playerid.app.domain.team.TeamProfile
 import com.playerid.app.domain.team.TeamRosterRepository
 import com.playerid.app.domain.team.TeamSubscription
 import com.playerid.app.domain.team.TeamSubscriptionRepository
+import com.playerid.app.domain.team.GameScheduleProfile
+import com.playerid.app.domain.team.ScheduleStorageRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -67,4 +70,13 @@ class RoomTeamSubscriptionRepository(
     override suspend fun unsubscribe(userId: String, teamName: String) {
         subscriptionDao.unsubscribeFromTeam(userId, teamName)
     }
+}
+
+class RoomScheduleStorageRepository(
+    private val memoryOrganizationDao: MemoryOrganizationDao
+) : ScheduleStorageRepository {
+    override fun observeGamesForTeam(teamName: String): Flow<List<GameScheduleProfile>> =
+        memoryOrganizationDao.getGamesForTeam(teamName).map { games ->
+            games.map { it.toProfile() }
+        }
 }
