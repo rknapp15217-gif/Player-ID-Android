@@ -110,6 +110,9 @@ import com.playerid.app.domain.team.TeamSelectionEvent
 import com.playerid.app.domain.team.TeamSelectionItem
 import com.playerid.app.domain.team.TeamSelectionState
 import com.playerid.app.domain.team.TeamImportSource
+import com.playerid.app.domain.team.TeamManagementDialog
+import com.playerid.app.domain.team.TeamManagementEvent
+import com.playerid.app.domain.team.TeamManagementState
 import com.playerid.app.domain.team.initialTeamSelectionState
 import com.playerid.app.domain.team.TeamDetailNavigationEvent
 import com.playerid.app.domain.team.TeamDetailPage
@@ -435,17 +438,10 @@ fun TeamManagementView(
         }.toMap())
     }
     
-    // Dialog states
-    var showAddPlayerDialog by remember { mutableStateOf(false) }
-    var editingPlayer by remember { mutableStateOf<Player?>(null) }
+    var managementState by remember(teamName) { mutableStateOf(TeamManagementState()) }
     var showDeletePlayerDialog by remember { mutableStateOf(false) }
     var playerToDelete by remember { mutableStateOf<Player?>(null) }
-    var showLeaveTeamDialog by remember { mutableStateOf(false) }
-    var showTeamActions by remember { mutableStateOf(false) }
-    var showInviteDialog by remember { mutableStateOf(false) }
     var showOcrImportDialog by remember { mutableStateOf(false) }
-    var showImportRosterOptions by remember { mutableStateOf(false) }
-    var showImportScheduleOptions by remember { mutableStateOf(false) }
     var detailPage by rememberSaveable(teamName, openRosterInitially) {
         mutableStateOf(initialTeamDetailPage(openRosterInitially))
     }
@@ -472,36 +468,40 @@ fun TeamManagementView(
         }
     }
 
-    if (showImportRosterOptions) {
+    if (managementState.activeDialog == TeamManagementDialog.ImportRoster) {
         TeamImportOptionsDialog(
             title = stringResource(R.string.import_roster),
             helpText = stringResource(R.string.import_roster_help),
             sourceLabel = { source -> importSourceLabel(source) },
             sourceIcon = { source -> ImportSourceIcon(source) },
             onSourceSelected = { source ->
-                showImportRosterOptions = false
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
                 when (source) {
                     TeamImportSource.Screenshot -> rosterImagePicker.launch("image/*")
                     TeamImportSource.App -> onNavigateToAppImport(teamName, true)
                     TeamImportSource.Website -> onNavigateToWebImport(teamName)
                 }
             },
-            onDismiss = { showImportRosterOptions = false },
+            onDismiss = {
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
+            },
             closeLabel = stringResource(R.string.close)
         )
     }
 
-    if (showImportScheduleOptions) {
+    if (managementState.activeDialog == TeamManagementDialog.ImportSchedule) {
         TeamImportOptionsDialog(
             title = "Import schedule",
             helpText = "Choose where to import the team schedule from.",
             sourceLabel = { source -> importSourceLabel(source) },
             sourceIcon = { source -> ImportSourceIcon(source) },
             onSourceSelected = { source ->
-                showImportScheduleOptions = false
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
                 onNavigateToScheduleImport(teamName, source.routeKey)
             },
-            onDismiss = { showImportScheduleOptions = false },
+            onDismiss = {
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
+            },
             closeLabel = stringResource(R.string.close)
         )
     }
@@ -534,12 +534,32 @@ fun TeamManagementView(
                 }
             },
             onRoster = { detailPage = detailPage.reduce(TeamDetailNavigationEvent.RosterSelected) },
-            onImportRoster = { showImportRosterOptions = true },
+            onImportRoster = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.ImportRoster)
+                )
+            },
             onSchedule = { detailPage = detailPage.reduce(TeamDetailNavigationEvent.ScheduleSelected) },
-            onImportSchedule = { showImportScheduleOptions = true },
-            onInvite = { showInviteDialog = true },
-            onSettings = { showTeamActions = true },
-            onLeave = { showLeaveTeamDialog = true },
+            onImportSchedule = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.ImportSchedule)
+                )
+            },
+            onInvite = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.InviteTeam)
+                )
+            },
+            onSettings = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.TeamSettings)
+                )
+            },
+            onLeave = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.LeaveTeam)
+                )
+            },
             backIcon = {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             },
@@ -588,14 +608,26 @@ fun TeamManagementView(
                     .searchQuery
             },
             onBack = { detailPage = detailPage.reduce(TeamDetailNavigationEvent.OverviewSelected) },
-            onAdd = { showAddPlayerDialog = true },
-            onImport = { showImportRosterOptions = true },
+            onAdd = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.AddPlayer)
+                )
+            },
+            onImport = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.ImportRoster)
+                )
+            },
             playerPhotoUris = playerPhotoUris,
             onPhotoSelected = { player, uri ->
                 playerPhotoPrefs.edit().putString(player.id, uri.toString()).apply()
                 playerPhotoUris = playerPhotoUris + (player.id to uri.toString())
             },
-            onEdit = { editingPlayer = it },
+            onEdit = { player ->
+                managementState = managementState.reduce(
+                    TeamManagementEvent.EditPlayerRequested(player.id)
+                )
+            },
             onToggleFavorite = { player ->
                 favoritePlayerIds = rosterListState
                     .reduce(RosterListEvent.FavoriteToggled(player.id))
@@ -608,12 +640,20 @@ fun TeamManagementView(
             search = scheduleSearch,
             onSearchChange = { scheduleSearch = it },
             onBack = { detailPage = detailPage.reduce(TeamDetailNavigationEvent.OverviewSelected) },
-            onAdd = { showImportScheduleOptions = true },
-            onImport = { showImportScheduleOptions = true }
+            onAdd = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.ImportSchedule)
+                )
+            },
+            onImport = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.ImportSchedule)
+                )
+            }
         )
     }
 
-    if (showTeamActions) {
+    if (managementState.activeDialog == TeamManagementDialog.TeamSettings) {
         selectedTeamMeta?.let { team ->
             EditTeamSettingsDialog(
                 teamName = teamName,
@@ -621,7 +661,9 @@ fun TeamManagementView(
                 initialAwayColor = team.awayColor,
                 initialHomeJerseyColor = team.homeJerseyColor,
                 initialAwayJerseyColor = team.awayJerseyColor,
-                onDismiss = { showTeamActions = false },
+                onDismiss = {
+                    managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
+                },
                 onSave = { newName, newHome, newAway, newHomeJersey, newAwayJersey ->
                     teamViewModel.updateTeamSettings(
                         currentName = teamName,
@@ -631,36 +673,40 @@ fun TeamManagementView(
                         homeJerseyColor = newHomeJersey,
                         awayJerseyColor = newAwayJersey
                     )
-                    showTeamActions = false
+                    managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
                 }
             )
         }
     }
 
     // Dialogs
-    if (showAddPlayerDialog) {
+    if (managementState.activeDialog == TeamManagementDialog.AddPlayer) {
         val availableTeams by teamViewModel.availableTeams.collectAsState()
         AddPlayerDialog(
             teamName = teamName,
-            onDismiss = { showAddPlayerDialog = false },
+            onDismiss = {
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
+            },
             onAdd = { player ->
                 playerViewModel.addPlayer(player, teamViewModel.getCurrentUser())
-                showAddPlayerDialog = false
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
             },
             availableTeams = availableTeams.map { it.name },
             currentUser = teamViewModel.getCurrentUser()
         )
     }
     
-    editingPlayer?.let { player ->
+    managementState.editingPlayerId?.let(displayPlayersById::get)?.let { player ->
         val availableTeams by teamViewModel.availableTeams.collectAsState()
         EditPlayerDialog(
             player = player,
             hideTeamField = true, // Hide team field since we're in team context
-            onDismiss = { editingPlayer = null },
+            onDismiss = {
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
+            },
             onSave = { updatedPlayer ->
                 playerViewModel.updatePlayer(updatedPlayer)
-                editingPlayer = null
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
             },
             availableTeams = availableTeams.map { it.name }
         )
@@ -682,24 +728,26 @@ fun TeamManagementView(
         )
     }
 
-    if (showLeaveTeamDialog) {
+    if (managementState.activeDialog == TeamManagementDialog.LeaveTeam) {
         DeleteTeamDialog(
             teamName = teamName,
             onDismiss = {
-                showLeaveTeamDialog = false
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
             },
             onDelete = {
                 teamViewModel.unsubscribeFromTeam(teamName)
-                showLeaveTeamDialog = false
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
                 onClearTeam()
             }
         )
     }
 
-    if (showInviteDialog) {
+    if (managementState.activeDialog == TeamManagementDialog.InviteTeam) {
         InviteTeamDialog(
             teamName = teamName,
-            onDismiss = { showInviteDialog = false }
+            onDismiss = {
+                managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
+            }
         )
     }
 
