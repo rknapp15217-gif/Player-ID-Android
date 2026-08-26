@@ -49,7 +49,7 @@ android {
     }
     
     composeOptions {
-        kotlinCompilerExtensionVersion = '1.5.1'
+        kotlinCompilerExtensionVersion = '1.5.4'
     }
 
     androidResources {
@@ -71,6 +71,7 @@ android {
 }
 
 dependencies {
+    implementation project(':shared')
     implementation 'androidx.core:core-ktx:1.13.0'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.0'
     implementation 'androidx.activity:activity:1.9.0'

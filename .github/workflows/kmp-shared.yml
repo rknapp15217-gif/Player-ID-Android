@@ -1,0 +1,52 @@
+name: KMP Shared
+
+on:
+  pull_request:
+    paths:
+      - "shared/**"
+      - "app/**"
+      - "*.gradle"
+      - "gradle/**"
+      - ".github/workflows/kmp-shared.yml"
+  push:
+    paths:
+      - "shared/**"
+      - "app/**"
+      - "*.gradle"
+      - "gradle/**"
+      - ".github/workflows/kmp-shared.yml"
+  workflow_dispatch:
+
+jobs:
+  android-shared:
+    name: Shared and Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Validate shared boundaries and Android compilation
+        run: sh gradlew :shared:testDebugUnitTest :shared:checkCommonMainBoundaries :app:compileDebugKotlin --stacktrace
+
+  ios-shared:
+    name: iOS Shared Framework
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test iOS simulator target
+        run: sh gradlew :shared:iosSimulatorArm64Test --stacktrace
+      - name: Link iOS simulator framework
+        run: sh gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --stacktrace
+      - name: Upload shared framework
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayerIDShared-debug-iosSimulatorArm64
+          path: shared/build/bin/iosSimulatorArm64/debugFramework/PlayerIDShared.framework

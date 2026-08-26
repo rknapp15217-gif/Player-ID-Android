@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "PlayerID"
 include ':app'
+include ':shared'

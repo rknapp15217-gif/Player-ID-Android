@@ -1,0 +1,96 @@
+plugins {
+    id 'org.jetbrains.kotlin.multiplatform'
+    id 'com.android.library'
+    id 'org.jetbrains.compose'
+}
+
+kotlin {
+    androidTarget()
+
+    if (System.getProperty('os.name').toLowerCase().contains('mac')) {
+        iosX64()
+        iosArm64()
+        iosSimulatorArm64()
+
+        targets.withType(org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget).configureEach {
+            binaries.framework {
+                baseName = 'PlayerIDShared'
+                isStatic = true
+            }
+        }
+    }
+
+    sourceSets {
+        commonMain {
+            dependencies {
+                implementation compose.runtime
+                implementation compose.ui
+            }
+        }
+        commonTest {
+            dependencies {
+                implementation kotlin('test')
+            }
+        }
+    }
+}
+
+android {
+    namespace 'com.playerid.shared'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 26
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose true
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion '1.5.4'
+    }
+}
+
+def forbiddenCommonImports = [
+    'import android.',
+    'import androidx.camera.',
+    'import androidx.media3.',
+    'import androidx.room.',
+    'import com.google.mlkit.',
+    'import kotlinx.parcelize.',
+    'import platform.'
+]
+
+tasks.register('checkCommonMainBoundaries') {
+    group = 'verification'
+    description = 'Rejects platform framework imports from commonMain.'
+    def commonSources = fileTree('src/commonMain/kotlin') { include '**/*.kt' }
+    inputs.files(commonSources)
+
+    doLast {
+        def violations = []
+        commonSources.files.each { sourceFile ->
+            sourceFile.readLines().eachWithIndex { line, index ->
+                if (forbiddenCommonImports.any { line.trim().startsWith(it) }) {
+                    violations.add("${sourceFile}:${index + 1}: ${line.trim()}")
+                }
+            }
+        }
+
+        if (!violations.isEmpty()) {
+            throw new GradleException(
+                "Platform imports are not allowed in shared commonMain:\n${violations.join('\n')}"
+            )
+        }
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('checkCommonMainBoundaries')
+}

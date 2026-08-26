@@ -343,9 +343,9 @@ fun AppRosterImportScreen(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    if (!candidate.academicYear.isNullOrBlank()) {
+                                    candidate.academicYear?.takeIf(String::isNotBlank)?.let { academicYear ->
                                         Text(
-                                            candidate.academicYear,
+                                            academicYear,
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )

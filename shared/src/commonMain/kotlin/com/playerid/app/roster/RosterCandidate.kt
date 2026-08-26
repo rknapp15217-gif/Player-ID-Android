@@ -7,3 +7,8 @@ data class RosterCandidate(
     val graduationYear: String?,
     val academicYear: String?
 )
+
+data class RosterOcrResult(
+    val candidates: List<RosterCandidate>,
+    val rawLines: List<String>
+)
