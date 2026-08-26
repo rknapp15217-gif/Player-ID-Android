@@ -25,6 +25,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Team detail page selection and overview/roster/schedule transitions now live in a tested shared reducer. Android retains saveable Compose state and navigation callbacks.
 - Team overview rendering now lives in shared Compose. Android maps the assigned `Player` to `PlayerProfile` and injects Material icons, the assigned-player picker, and navigation/dialog callbacks.
 - Team schedule search, upcoming/past partitioning, ordering, portable date/time label formatting, and Compose rendering now live in shared code. Android maps `GameSchedule`, supplies locale symbols and each instant's UTC offset, and injects icons/import callbacks.
+- Roster and schedule import-source options now render through one shared dialog and portable source enum. Android supplies localized labels/icons and retains image picking plus app/website navigation effects.
 - Join Team subscription exclusion, search reduction, and dialog rendering now live in shared code. Android maps ViewModel flows to display items, supplies localized labels/icons, and retains the subscription side effect.
 - Invite Team capability decisions, options/QR/NFC transitions, and dialog rendering now live in shared code. Android retains invite-link encoding, SMS/settings/share intents, QR bitmap generation, NFC foreground dispatch, and icon/content slots.
 - Team Selection deep links, selected/created team state, dialog transitions, roster-opening rules, and page rendering now live in shared code. Android maps Room-backed teams to display items, serializes state for restoration, supplies localized icons/labels, and retains ViewModel, subscription, and TeamSnap side effects.
@@ -84,7 +85,6 @@ Move Camera and video processing last. They have the largest platform surface an
 
 ## Next Safe Extractions
 
-- Replace Android `SimpleDateFormat` schedule labels with a tested platform-neutral clock, locale, and time-zone policy.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 - Schedule parsing after replacing `java.time` with `kotlinx-datetime` or injecting a platform-neutral clock/time-zone policy.
 

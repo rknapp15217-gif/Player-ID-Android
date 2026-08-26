@@ -61,7 +61,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -73,9 +72,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -112,6 +109,7 @@ import com.playerid.app.domain.team.TeamSelectionDialog
 import com.playerid.app.domain.team.TeamSelectionEvent
 import com.playerid.app.domain.team.TeamSelectionItem
 import com.playerid.app.domain.team.TeamSelectionState
+import com.playerid.app.domain.team.TeamImportSource
 import com.playerid.app.domain.team.initialTeamSelectionState
 import com.playerid.app.domain.team.TeamDetailNavigationEvent
 import com.playerid.app.domain.team.TeamDetailPage
@@ -131,6 +129,7 @@ import com.playerid.app.ui.team.InviteTeamDialog as SharedInviteTeamDialog
 import com.playerid.app.ui.team.TeamOverviewDestination
 import com.playerid.app.ui.team.TeamOverviewPage
 import com.playerid.app.ui.team.TeamSelectionPage
+import com.playerid.app.ui.team.TeamImportOptionsDialog
 import com.playerid.app.ui.theme.*
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
@@ -474,116 +473,36 @@ fun TeamManagementView(
     }
 
     if (showImportRosterOptions) {
-        AlertDialog(
-            onDismissRequest = { showImportRosterOptions = false },
-            title = { Text(stringResource(R.string.import_roster)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = stringResource(R.string.import_roster_help),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    OutlinedButton(
-                        onClick = {
-                            showImportRosterOptions = false
-                            rosterImagePicker.launch("image/*")
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Start,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.CloudDownload, contentDescription = stringResource(R.string.from_screenshot))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.from_screenshot))
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            showImportRosterOptions = false
-                            onNavigateToAppImport(teamName, true)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Start,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.PhoneAndroid, contentDescription = stringResource(R.string.from_app))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.from_app))
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            showImportRosterOptions = false
-                            onNavigateToWebImport(teamName)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Start,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Language, contentDescription = stringResource(R.string.from_website))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.from_website))
-                        }
-                    }
+        TeamImportOptionsDialog(
+            title = stringResource(R.string.import_roster),
+            helpText = stringResource(R.string.import_roster_help),
+            sourceLabel = { source -> importSourceLabel(source) },
+            sourceIcon = { source -> ImportSourceIcon(source) },
+            onSourceSelected = { source ->
+                showImportRosterOptions = false
+                when (source) {
+                    TeamImportSource.Screenshot -> rosterImagePicker.launch("image/*")
+                    TeamImportSource.App -> onNavigateToAppImport(teamName, true)
+                    TeamImportSource.Website -> onNavigateToWebImport(teamName)
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showImportRosterOptions = false }) {
-                    Text(stringResource(R.string.close))
-                }
-            }
+            onDismiss = { showImportRosterOptions = false },
+            closeLabel = stringResource(R.string.close)
         )
     }
 
     if (showImportScheduleOptions) {
-        AlertDialog(
-            onDismissRequest = { showImportScheduleOptions = false },
-            title = { Text("Import schedule") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Choose where to import the team schedule from.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    listOf(
-                        Triple("screenshot", Icons.Default.CloudDownload, stringResource(R.string.from_screenshot)),
-                        Triple("app", Icons.Default.PhoneAndroid, stringResource(R.string.from_app)),
-                        Triple("website", Icons.Default.Language, stringResource(R.string.from_website))
-                    ).forEach { (source, icon, label) ->
-                        OutlinedButton(
-                            onClick = {
-                                showImportScheduleOptions = false
-                                onNavigateToScheduleImport(teamName, source)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Start,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(icon, contentDescription = label)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(label)
-                            }
-                        }
-                    }
-                }
+        TeamImportOptionsDialog(
+            title = "Import schedule",
+            helpText = "Choose where to import the team schedule from.",
+            sourceLabel = { source -> importSourceLabel(source) },
+            sourceIcon = { source -> ImportSourceIcon(source) },
+            onSourceSelected = { source ->
+                showImportScheduleOptions = false
+                onNavigateToScheduleImport(teamName, source.routeKey)
             },
-            confirmButton = {
-                TextButton(onClick = { showImportScheduleOptions = false }) { Text(stringResource(R.string.close)) }
-            }
+            onDismiss = { showImportScheduleOptions = false },
+            closeLabel = stringResource(R.string.close)
         )
     }
 
@@ -1355,6 +1274,23 @@ private fun parseTeamColor(hex: String?, fallback: Color): Color {
     } catch (_: Exception) {
         fallback
     }
+}
+
+@Composable
+private fun importSourceLabel(source: TeamImportSource): String = when (source) {
+    TeamImportSource.Screenshot -> stringResource(R.string.from_screenshot)
+    TeamImportSource.App -> stringResource(R.string.from_app)
+    TeamImportSource.Website -> stringResource(R.string.from_website)
+}
+
+@Composable
+private fun ImportSourceIcon(source: TeamImportSource) {
+    val icon = when (source) {
+        TeamImportSource.Screenshot -> Icons.Default.CloudDownload
+        TeamImportSource.App -> Icons.Default.PhoneAndroid
+        TeamImportSource.Website -> Icons.Default.Language
+    }
+    Icon(icon, contentDescription = importSourceLabel(source))
 }
 
 private val TeamActionBlue = Color(0xFF0A66FF)
