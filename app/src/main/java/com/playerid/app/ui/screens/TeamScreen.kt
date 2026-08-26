@@ -113,7 +113,7 @@ import com.playerid.app.ui.dialogs.DeletePlayerDialog
 import com.playerid.app.ui.dialogs.EditPlayerDialog
 import com.playerid.app.ui.dialogs.EditTeamSettingsDialog
 import com.playerid.app.ui.components.*
-import com.playerid.app.ui.roster.RosterPlayerRow
+import com.playerid.app.ui.roster.RosterPage
 import com.playerid.app.ui.theme.*
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
@@ -1015,34 +1015,27 @@ private fun TeamRosterPage(
         }
         photoPlayer = null
     }
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
-        item { TeamPageHeader("Roster", onBack, onAdd) }
-        item {
-            OutlinedTextField(
-                value = search,
-                onValueChange = onSearchChange,
-                placeholder = { Text("Search players") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-            )
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("$totalCount players", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = onImport) {
-                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp), tint = TeamActionBlue)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Import roster", color = TeamActionBlue)
-                }
-            }
-        }
-        items(players, key = { it.id }) { player ->
-            RosterPlayerRow(
-                player = player.toProfile(),
-                onClick = { onEdit(player) },
-                leadingContent = {
+    val playersById = remember(players) { players.associateBy { it.id } }
+    RosterPage(
+        state = RosterListState(
+            teamName = players.firstOrNull()?.team.orEmpty(),
+            players = players.map { it.toProfile() },
+            searchQuery = search,
+            favoritePlayerIds = favoritePlayerIds
+        ),
+        totalCount = totalCount,
+        onSearchChange = onSearchChange,
+        onBack = onBack,
+        onAdd = onAdd,
+        onImport = onImport,
+        onPlayerClick = { profile -> playersById[profile.id]?.let(onEdit) },
+        backIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") },
+        addIcon = { Icon(Icons.Default.Add, contentDescription = "Add") },
+        searchIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        importIcon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = TeamActionBlue) },
+        addPlayerIcon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
+        playerLeadingContent = { profile ->
+            playersById[profile.id]?.let { player ->
                 PlayerPhotoAvatar(
                     photoUri = playerPhotoUris[player.id],
                     contentDescription = "Upload photo for ${player.name}",
@@ -1051,8 +1044,10 @@ private fun TeamRosterPage(
                         photoPicker.launch(arrayOf("image/*"))
                     }
                 )
-                },
-                trailingContent = {
+            }
+        },
+        playerTrailingContent = { profile ->
+            playersById[profile.id]?.let { player ->
                     IconButton(onClick = { onToggleFavorite(player) }) {
                         Icon(
                             Icons.Default.Star,
@@ -1060,20 +1055,9 @@ private fun TeamRosterPage(
                             tint = if (player.id in favoritePlayerIds) Color(0xFFFFB300) else MaterialTheme.colorScheme.outline
                         )
                     }
-                }
-            )
-        }
-        if (players.isEmpty()) {
-            item { Text("No players found", modifier = Modifier.fillMaxWidth().padding(32.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        item {
-            TextButton(onClick = onAdd, modifier = Modifier.padding(vertical = 8.dp)) {
-                Icon(Icons.Default.PersonAdd, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Add player")
             }
         }
-    }
+    )
 }
 
 @Composable
