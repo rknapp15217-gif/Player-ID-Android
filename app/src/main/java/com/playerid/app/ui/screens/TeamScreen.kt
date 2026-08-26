@@ -113,6 +113,7 @@ import com.playerid.app.ui.dialogs.DeletePlayerDialog
 import com.playerid.app.ui.dialogs.EditPlayerDialog
 import com.playerid.app.ui.dialogs.EditTeamSettingsDialog
 import com.playerid.app.ui.components.*
+import com.playerid.app.ui.roster.RosterPlayerRow
 import com.playerid.app.ui.theme.*
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
@@ -1038,10 +1039,10 @@ private fun TeamRosterPage(
             }
         }
         items(players, key = { it.id }) { player ->
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable { onEdit(player) }.padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            RosterPlayerRow(
+                player = player.toProfile(),
+                onClick = { onEdit(player) },
+                leadingContent = {
                 PlayerPhotoAvatar(
                     photoUri = playerPhotoUris[player.id],
                     contentDescription = "Upload photo for ${player.name}",
@@ -1050,21 +1051,17 @@ private fun TeamRosterPage(
                         photoPicker.launch(arrayOf("image/*"))
                     }
                 )
-                Spacer(Modifier.width(12.dp))
-                Text(player.number, modifier = Modifier.width(32.dp), fontWeight = FontWeight.SemiBold)
-                Column(Modifier.weight(1f)) {
-                    Text(player.name, fontWeight = FontWeight.Medium)
-                    Text(player.position, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                trailingContent = {
+                    IconButton(onClick = { onToggleFavorite(player) }) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = "Favorite player",
+                            tint = if (player.id in favoritePlayerIds) Color(0xFFFFB300) else MaterialTheme.colorScheme.outline
+                        )
+                    }
                 }
-                IconButton(onClick = { onToggleFavorite(player) }) {
-                    Icon(
-                        Icons.Default.Star,
-                        contentDescription = "Favorite player",
-                        tint = if (player.id in favoritePlayerIds) Color(0xFFFFB300) else MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+            )
         }
         if (players.isEmpty()) {
             item { Text("No players found", modifier = Modifier.fillMaxWidth().padding(32.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
