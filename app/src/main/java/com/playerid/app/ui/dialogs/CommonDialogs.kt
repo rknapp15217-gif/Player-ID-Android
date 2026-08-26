@@ -31,6 +31,8 @@ import com.playerid.app.data.repositories.toProfile
 import com.playerid.app.domain.team.PlayerFormEvent
 import com.playerid.app.domain.team.PlayerFormState
 import com.playerid.app.domain.team.TeamCreationOptions
+import com.playerid.app.domain.team.teamHexToHue
+import com.playerid.app.domain.team.teamHueToHex
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -519,7 +521,7 @@ private fun TeamColorWheelPicker(
     selectedColorHex: String,
     onColorSelected: (String) -> Unit
 ) {
-    var hue by remember(selectedColorHex) { mutableStateOf(hexToHue(selectedColorHex)) }
+    var hue by remember(selectedColorHex) { mutableStateOf(teamHexToHue(selectedColorHex)) }
 
     Column {
         if (label.isNotBlank()) {
@@ -540,7 +542,7 @@ private fun TeamColorWheelPicker(
         }
 
         val selectedColor = remember(hue) {
-            Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.9f, 0.95f)))
+            Color(android.graphics.Color.parseColor(teamHueToHex(hue)))
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -555,7 +557,7 @@ private fun TeamColorWheelPicker(
                                 kotlin.math.atan2((p.y - center.y).toDouble(), (p.x - center.x).toDouble())
                             ).toFloat()
                             hue = (angle + 360f + 90f) % 360f
-                            onColorSelected(hueToHex(hue))
+                            onColorSelected(teamHueToHex(hue))
                         }
                     }
             ) {
@@ -581,20 +583,5 @@ private fun TeamColorWheelPicker(
 
             Text(selectedColorHex, style = MaterialTheme.typography.labelMedium)
         }
-    }
-}
-
-private fun hueToHex(hue: Float): String {
-    val colorInt = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.9f, 0.95f))
-    return String.format("#%06X", 0xFFFFFF and colorInt)
-}
-
-private fun hexToHue(hex: String): Float {
-    return try {
-        val hsv = FloatArray(3)
-        android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(hex), hsv)
-        hsv[0]
-    } catch (_: Exception) {
-        210f
     }
 }
