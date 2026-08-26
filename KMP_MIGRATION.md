@@ -14,6 +14,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - `.github/workflows/kmp-shared.yml` compiles and tests the iOS simulator framework on a GitHub macOS runner, so Apple-target regressions can be caught before local Mac hardware is available.
 - Shared production code now includes team matching, roster text parsing, tracking math, native service contracts, brand colors, and reusable vector icons.
 - Shared team-domain profiles and repository contracts now sit in front of Android Room adapters. `TeamSubscriptionService` owns the onboarding rule that replaces all existing subscriptions with exactly one normalized team.
+- Create Team form values, option lists, reducer events, duplicate matching, and normalized submission now live in `commonMain`; the Android dialog retains only transient Compose visibility state and rendering.
 - Compose Multiplatform `1.5.10` runs on the conservative Kotlin `1.9.20` baseline; Android uses Compose compiler `1.5.4`.
 
 ## Dependency Rule
@@ -70,8 +71,8 @@ Move Camera and video processing last. They have the largest platform surface an
 
 ## Next Safe Extractions
 
-- Move roster screen state and events onto `TeamProfile`, `PlayerProfile`, and the shared repositories while preserving the current Android ViewModel facade during the transition.
-- Move Create Team and roster UI components that depend only on shared models, Compose, and the shared color system.
+- Move roster list/detail state and events onto `TeamProfile`, `PlayerProfile`, and the shared repositories while preserving the current Android ViewModel facade during the transition.
+- Move the Create Team dialog rendering and roster UI components that depend only on shared models, Compose, and the shared color system.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 - Schedule parsing after replacing `java.time` with `kotlinx-datetime` or injecting a platform-neutral clock/time-zone policy.
 

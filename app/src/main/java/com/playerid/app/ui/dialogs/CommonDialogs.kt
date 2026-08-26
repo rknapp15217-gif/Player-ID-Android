@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.playerid.app.data.AcademicYear
 import com.playerid.app.data.Player
+import com.playerid.app.domain.team.TeamCreationEvent
+import com.playerid.app.domain.team.TeamCreationFormState
+import com.playerid.app.domain.team.TeamCreationOptions
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -363,32 +366,14 @@ fun AddTeamDialog(
     onAdd: (String, String, String, String, String, String) -> Unit,
     existingTeams: List<String> = emptyList()
 ) {
-    var teamName by remember { mutableStateOf("") }
-    var selectedSport by remember { mutableStateOf("Soccer") }
-    var selectedHomeJerseyColorHex by remember { mutableStateOf("#1976D2") }
-    var selectedAwayJerseyColorHex by remember { mutableStateOf("#FFFFFF") }
+    var formState by remember { mutableStateOf(TeamCreationFormState()) }
     var activeColorTarget by remember { mutableStateOf<String?>(null) }
     var sportDropdownExpanded by remember { mutableStateOf(false) }
-    val presetColors = listOf(
-        "Navy" to "#0B3D91",
-        "Royal" to "#1976D2",
-        "Red" to "#E53E3E",
-        "Maroon" to "#7A0019",
-        "Green" to "#059669",
-        "Black" to "#111827",
-        "White" to "#FFFFFF",
-        "Gray" to "#9CA3AF",
-        "Gold" to "#D4AF37",
-        "Orange" to "#EA580C",
-        "Purple" to "#7C3AED",
-        "Teal" to "#0D9488"
-    )
-    val sports = listOf("Soccer", "Basketball", "Hockey", "Baseball", "Football", "Lacrosse", "Volleyball", "Other")
+    val presetColors = TeamCreationOptions.presetColors
+    val sports = TeamCreationOptions.sports
     
-    val similarTeams = remember(teamName, existingTeams) {
-        if (teamName.isNotBlank() && existingTeams.isNotEmpty()) {
-            com.playerid.app.utils.TeamSimilarityUtil.findSimilarTeams(teamName, existingTeams)
-        } else emptyList()
+    val similarTeams = remember(formState.teamName, existingTeams) {
+        formState.similarTeams(existingTeams)
     }
 
     AlertDialog(
@@ -397,8 +382,12 @@ fun AddTeamDialog(
         text = {
             Column {
                 OutlinedTextField(
-                    value = teamName,
-                    onValueChange = { teamName = it },
+                    value = formState.teamName,
+                    onValueChange = {
+                        formState = formState.reduce(
+                            TeamCreationEvent.TeamNameChanged(it)
+                        )
+                    },
                     label = { Text("Team Name") },
                     supportingText = {
                         if (similarTeams.isNotEmpty()) {
@@ -418,7 +407,7 @@ fun AddTeamDialog(
                     onExpandedChange = { sportDropdownExpanded = !sportDropdownExpanded }
                 ) {
                     OutlinedTextField(
-                        value = selectedSport,
+                        value = formState.sport,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Sport") },
@@ -435,7 +424,9 @@ fun AddTeamDialog(
                             DropdownMenuItem(
                                 text = { Text(sport) },
                                 onClick = {
-                                    selectedSport = sport
+                                    formState = formState.reduce(
+                                        TeamCreationEvent.SportSelected(sport)
+                                    )
                                     sportDropdownExpanded = false
                                 }
                             )
@@ -455,8 +446,8 @@ fun AddTeamDialog(
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(
-                        "Home Jersey" to selectedHomeJerseyColorHex,
-                        "Away Jersey" to selectedAwayJerseyColorHex
+                        "Home Jersey" to formState.homeJerseyColor,
+                        "Away Jersey" to formState.awayJerseyColor
                     ).forEach { (label, colorHex) ->
                         val swatchColor = Color(android.graphics.Color.parseColor(colorHex))
                         Row(
@@ -489,15 +480,19 @@ fun AddTeamDialog(
                     TeamColorPickerField(
                         label = "Select $target Color",
                         selectedColorHex = if (target == "Home Jersey") {
-                            selectedHomeJerseyColorHex
+                            formState.homeJerseyColor
                         } else {
-                            selectedAwayJerseyColorHex
+                            formState.awayJerseyColor
                         },
                         onColorSelected = { selectedHex ->
-                            if (target == "Home Jersey") {
-                                selectedHomeJerseyColorHex = selectedHex
+                            formState = if (target == "Home Jersey") {
+                                formState.reduce(
+                                    TeamCreationEvent.HomeJerseyColorSelected(selectedHex)
+                                )
                             } else {
-                                selectedAwayJerseyColorHex = selectedHex
+                                formState.reduce(
+                                    TeamCreationEvent.AwayJerseyColorSelected(selectedHex)
+                                )
                             }
                             activeColorTarget = null
                         },
@@ -544,18 +539,18 @@ fun AddTeamDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (teamName.isNotBlank()) {
+                    formState.submission()?.let { submission ->
                         onAdd(
-                            teamName,
-                            selectedSport,
-                            selectedHomeJerseyColorHex,
-                            selectedAwayJerseyColorHex,
-                            selectedHomeJerseyColorHex,
-                            selectedAwayJerseyColorHex
+                            submission.teamName,
+                            submission.sport,
+                            submission.homeJerseyColor,
+                            submission.awayJerseyColor,
+                            submission.homeJerseyColor,
+                            submission.awayJerseyColor
                         )
                     }
                 },
-                enabled = teamName.isNotBlank()
+                enabled = formState.canSubmit
             ) {
                 Text(if (similarTeams.isNotEmpty()) "Create Anyway" else "Create Team")
             }
