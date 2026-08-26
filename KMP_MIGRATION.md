@@ -25,6 +25,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Team detail page selection and overview/roster/schedule transitions now live in a tested shared reducer. Android retains saveable Compose state and navigation callbacks.
 - Team overview rendering now lives in shared Compose. Android maps the assigned `Player` to `PlayerProfile` and injects Material icons, the assigned-player picker, and navigation/dialog callbacks.
 - Team schedule search, upcoming/past partitioning, ordering, and Compose rendering now live in shared code. Android maps `GameSchedule` to display items, formats localized date/time labels, and injects icons/import callbacks.
+- Join Team subscription exclusion, search reduction, and dialog rendering now live in shared code. Android maps ViewModel flows to display items, supplies localized labels/icons, and retains the subscription side effect.
 - Compose Multiplatform `1.5.10` runs on the conservative Kotlin `1.9.20` baseline; Android uses Compose compiler `1.5.4`.
 
 ## Dependency Rule
@@ -82,6 +83,7 @@ Move Camera and video processing last. They have the largest platform surface an
 ## Next Safe Extractions
 
 - Replace Android `SimpleDateFormat` schedule labels with a tested platform-neutral clock, locale, and time-zone policy.
+- Move Invite Team menu state and platform-neutral rendering into shared Compose while keeping SMS intents, QR bitmap generation, and NFC operations in Android adapters.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 - Schedule parsing after replacing `java.time` with `kotlinx-datetime` or injecting a platform-neutral clock/time-zone policy.
 

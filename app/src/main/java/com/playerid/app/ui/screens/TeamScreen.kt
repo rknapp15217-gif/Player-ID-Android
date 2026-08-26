@@ -105,6 +105,7 @@ import com.playerid.app.domain.team.RosterListState
 import com.playerid.app.domain.team.ScheduleGameItem
 import com.playerid.app.domain.team.ScheduleListEvent
 import com.playerid.app.domain.team.ScheduleListState
+import com.playerid.app.domain.team.JoinTeamItem
 import com.playerid.app.domain.team.TeamDetailNavigationEvent
 import com.playerid.app.domain.team.TeamDetailPage
 import com.playerid.app.domain.team.initialTeamDetailPage
@@ -118,6 +119,7 @@ import com.playerid.app.ui.dialogs.EditTeamSettingsDialog
 import com.playerid.app.ui.components.*
 import com.playerid.app.ui.roster.RosterPage
 import com.playerid.app.ui.team.SchedulePage
+import com.playerid.app.ui.team.JoinTeamDialog as SharedJoinTeamDialog
 import com.playerid.app.ui.team.TeamOverviewDestination
 import com.playerid.app.ui.team.TeamOverviewPage
 import com.playerid.app.ui.theme.*
@@ -420,98 +422,39 @@ fun JoinTeamDialog(
     subscribedTeams: List<com.playerid.app.data.Team>,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val availableTeams by teamViewModel.availableTeams.collectAsState()
     val teamsWithStats by teamViewModel.teamsWithStats.collectAsState()
-    var searchQuery by remember { mutableStateOf("") }
-
-    val subscribedNames = remember(subscribedTeams) { subscribedTeams.map { it.name }.toSet() }
-    val filteredTeams = remember(availableTeams, searchQuery, subscribedNames) {
-        availableTeams
-            .filter { it.name !in subscribedNames }
-            .filter { it.name.contains(searchQuery, ignoreCase = true) }
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 600.dp)
-                .wrapContentHeight(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(stringResource(R.string.join_a_team), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Check, contentDescription = stringResource(R.string.close), modifier = Modifier.size(18.dp))
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text(stringResource(R.string.search_teams)) },
-                    leadingIcon = { Icon(Icons.Default.PeopleAlt, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                if (filteredTeams.isEmpty()) {
-                    Text(
-                        text = if (searchQuery.isEmpty()) stringResource(R.string.no_other_teams_available) else stringResource(R.string.no_teams_match, searchQuery),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(vertical = 16.dp)
-                    )
-                } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(filteredTeams, key = { it.name }) { team ->
-                            val stats = teamsWithStats.find { it.name == team.name }
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = parseTeamColor(team.color, fallback = Color(0xFF1976D2)).copy(alpha = 0.10f)
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(team.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                                        if (stats != null) {
-                                            Text(
-                                                "${stats.playerCount} players",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                    Button(onClick = {
-                                        teamViewModel.subscribeToTeam(team.name)
-                                        onDismiss()
-                                    }) {
-                                        Text(stringResource(R.string.join))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    val playerCounts = remember(teamsWithStats) { teamsWithStats.associate { it.name to it.playerCount } }
+    val joinTeamItems = remember(availableTeams, playerCounts) {
+        availableTeams.map { team ->
+            JoinTeamItem(
+                name = team.name,
+                colorHex = team.color,
+                playerCount = playerCounts[team.name]
+            )
         }
     }
+    SharedJoinTeamDialog(
+        teams = joinTeamItems,
+        subscribedTeamNames = subscribedTeams.map { it.name }.toSet(),
+        onDismiss = onDismiss,
+        onJoin = { teamName ->
+            teamViewModel.subscribeToTeam(teamName)
+            onDismiss()
+        },
+        closeIcon = {
+            Icon(Icons.Default.Check, contentDescription = stringResource(R.string.close), modifier = Modifier.size(18.dp))
+        },
+        searchIcon = {
+            Icon(Icons.Default.PeopleAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+        },
+        title = stringResource(R.string.join_a_team),
+        searchPlaceholder = stringResource(R.string.search_teams),
+        noOtherTeamsText = stringResource(R.string.no_other_teams_available),
+        noTeamsMatchText = { query -> context.getString(R.string.no_teams_match, query) },
+        joinLabel = stringResource(R.string.join)
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
