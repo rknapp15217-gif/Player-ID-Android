@@ -11,6 +11,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import com.playerid.app.data.*
+import com.playerid.app.data.repositories.RoomTeamRosterRepository
+import com.playerid.app.data.repositories.RoomTeamSubscriptionRepository
+import com.playerid.app.data.repositories.toEntity
+import com.playerid.app.domain.team.TeamSubscription
+import com.playerid.app.domain.team.TeamSubscriptionService
 import java.util.UUID
 
 class TeamViewModel(application: Application) : AndroidViewModel(application) {
@@ -19,6 +24,9 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     private val teamDao = database.teamDao()
     private val playerDao = database.playerDao()
     private val subscriptionDao = database.userTeamSubscriptionDao()
+    private val teamRepository = RoomTeamRosterRepository(teamDao, playerDao)
+    private val teamSubscriptionRepository = RoomTeamSubscriptionRepository(subscriptionDao)
+    private val teamSubscriptionService = TeamSubscriptionService(teamSubscriptionRepository)
     private val memoryOrganizationDao = database.memoryOrganizationDao()
     private val prefs = application.getSharedPreferences("team_selection", Context.MODE_PRIVATE)
 
@@ -80,8 +88,8 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadTeamsFromDatabase() {
         viewModelScope.launch {
-            teamDao.getAllActiveTeams().collect { teams ->
-                _availableTeams.value = teams
+            teamRepository.observeActiveTeams().collect { teams ->
+                _availableTeams.value = teams.map { it.toEntity() }
             }
         }
     }
@@ -111,7 +119,7 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun restoreLastSelectedTeamIfAvailable() {
         if (_selectedTeam.value != null) return
         val lastTeam = prefs.getString(KEY_LAST_SELECTED_TEAM, null) ?: "North Allegheny Lacrosse"
-        val team = teamDao.getTeamByName(lastTeam)
+        val team = teamRepository.findTeam(lastTeam)
         if (team != null) {
             selectTeam(lastTeam)
         }
@@ -119,8 +127,8 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadSubscribedTeams() {
         viewModelScope.launch {
-            subscriptionDao.getUserSubscribedTeams(currentUser).collect { teams ->
-                _subscribedTeams.value = teams
+            teamSubscriptionRepository.observeSubscribedTeams(currentUser).collect { teams ->
+                _subscribedTeams.value = teams.map { it.toEntity() }
             }
         }
 
@@ -522,12 +530,13 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
     // Team subscription management
     fun subscribeToTeam(teamName: String) {
         viewModelScope.launch {
-            val subscription = UserTeamSubscription(
-                userId = currentUser,
-                teamName = teamName,
-                subscribedAt = System.currentTimeMillis()
+            teamSubscriptionRepository.subscribe(
+                TeamSubscription(
+                    userId = currentUser,
+                    teamName = teamName,
+                    subscribedAt = System.currentTimeMillis()
+                )
             )
-            subscriptionDao.subscribeToTeam(subscription)
 
             // Set as selected team after subscribing
             selectTeam(teamName)
@@ -539,20 +548,17 @@ class TeamViewModel(application: Application) : AndroidViewModel(application) {
         if (normalizedTeam.isEmpty()) return
         selectTeam(normalizedTeam)
         viewModelScope.launch {
-            subscriptionDao.clearUserSubscriptions(currentUser)
-            subscriptionDao.subscribeToTeam(
-                UserTeamSubscription(
-                    userId = currentUser,
-                    teamName = normalizedTeam,
-                    subscribedAt = System.currentTimeMillis()
-                )
+            teamSubscriptionService.replaceWithTeam(
+                userId = currentUser,
+                teamName = normalizedTeam,
+                subscribedAt = System.currentTimeMillis()
             )
         }
     }
 
     fun unsubscribeFromTeam(teamName: String) {
         viewModelScope.launch {
-            subscriptionDao.unsubscribeFromTeam(currentUser, teamName)
+            teamSubscriptionRepository.unsubscribe(currentUser, teamName)
 
             // Clear selection if unsubscribed from selected team
             if (_selectedTeam.value == teamName) {
