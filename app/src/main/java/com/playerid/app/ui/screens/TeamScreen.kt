@@ -103,6 +103,9 @@ import android.graphics.BitmapFactory
 import com.playerid.app.R
 import com.playerid.app.data.Player
 import com.playerid.app.data.GameSchedule
+import com.playerid.app.data.repositories.toProfile
+import com.playerid.app.domain.team.RosterListEvent
+import com.playerid.app.domain.team.RosterListState
 import com.playerid.app.ui.dialogs.AddPlayerDialog
 import com.playerid.app.ui.dialogs.AddTeamDialog
 import com.playerid.app.ui.dialogs.DeleteTeamDialog
@@ -542,6 +545,7 @@ fun TeamManagementView(
                 .thenBy { it.number }
         )
     }
+    val displayPlayersById = remember(displayPlayers) { displayPlayers.associateBy { it.id } }
     val context = LocalContext.current
     val playerPhotoPrefs = remember { context.getSharedPreferences("player_photos", android.content.Context.MODE_PRIVATE) }
     var playerPhotoUris by remember(teamName, displayPlayers) {
@@ -567,6 +571,14 @@ fun TeamManagementView(
     var rosterSearch by rememberSaveable(teamName) { mutableStateOf("") }
     var scheduleSearch by rememberSaveable(teamName) { mutableStateOf("") }
     var favoritePlayerIds by rememberSaveable(teamName) { mutableStateOf(setOf<String>()) }
+    val rosterListState = remember(teamName, displayPlayers, rosterSearch, favoritePlayerIds) {
+        RosterListState(
+            teamName = teamName,
+            players = displayPlayers.map { it.toProfile() },
+            searchQuery = rosterSearch,
+            favoritePlayerIds = favoritePlayerIds
+        )
+    }
     val teamGames by remember(teamName) { teamViewModel.getGamesForTeam(teamName) }
         .collectAsState(initial = emptyList())
     var ocrImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -727,13 +739,17 @@ fun TeamManagementView(
             onLeave = { showLeaveTeamDialog = true }
         )
         TeamDetailPage.Roster -> TeamRosterPage(
-            players = displayPlayers.filter {
-                rosterSearch.isBlank() || it.name.contains(rosterSearch, true) || it.number.contains(rosterSearch, true)
+            players = rosterListState.visiblePlayers.mapNotNull { visiblePlayer ->
+                displayPlayersById[visiblePlayer.id]
             },
             totalCount = teamPlayers.size,
-            search = rosterSearch,
-            favoritePlayerIds = favoritePlayerIds,
-            onSearchChange = { rosterSearch = it },
+            search = rosterListState.searchQuery,
+            favoritePlayerIds = rosterListState.favoritePlayerIds,
+            onSearchChange = { query ->
+                rosterSearch = rosterListState
+                    .reduce(RosterListEvent.SearchQueryChanged(query))
+                    .searchQuery
+            },
             onBack = { detailPage = TeamDetailPage.Overview },
             onAdd = { showAddPlayerDialog = true },
             onImport = { showImportRosterOptions = true },
@@ -744,7 +760,9 @@ fun TeamManagementView(
             },
             onEdit = { editingPlayer = it },
             onToggleFavorite = { player ->
-                favoritePlayerIds = if (player.id in favoritePlayerIds) favoritePlayerIds - player.id else favoritePlayerIds + player.id
+                favoritePlayerIds = rosterListState
+                    .reduce(RosterListEvent.FavoriteToggled(player.id))
+                    .favoritePlayerIds
             }
         )
         TeamDetailPage.Schedule -> TeamSchedulePage(
