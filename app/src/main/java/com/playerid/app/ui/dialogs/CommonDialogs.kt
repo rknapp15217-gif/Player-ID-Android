@@ -30,8 +30,6 @@ import com.playerid.app.data.Player
 import com.playerid.app.data.repositories.toProfile
 import com.playerid.app.domain.team.PlayerFormEvent
 import com.playerid.app.domain.team.PlayerFormState
-import com.playerid.app.domain.team.TeamCreationEvent
-import com.playerid.app.domain.team.TeamCreationFormState
 import com.playerid.app.domain.team.TeamCreationOptions
 import java.util.*
 
@@ -113,199 +111,40 @@ fun AddTeamDialog(
     onAdd: (String, String, String, String, String, String) -> Unit,
     existingTeams: List<String> = emptyList()
 ) {
-    var formState by remember { mutableStateOf(TeamCreationFormState()) }
-    var activeColorTarget by remember { mutableStateOf<String?>(null) }
-    var sportDropdownExpanded by remember { mutableStateOf(false) }
-    val presetColors = TeamCreationOptions.presetColors
-    val sports = TeamCreationOptions.sports
-    
-    val similarTeams = remember(formState.teamName, existingTeams) {
-        formState.similarTeams(existingTeams)
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add New Team") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = formState.teamName,
-                    onValueChange = {
-                        formState = formState.reduce(
-                            TeamCreationEvent.TeamNameChanged(it)
-                        )
-                    },
-                    label = { Text("Team Name") },
-                    supportingText = {
-                        if (similarTeams.isNotEmpty()) {
-                            Text(
-                                "⚠️ Similar teams found - check before creating",
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    },
-                    isError = similarTeams.isNotEmpty()
-                )
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                ExposedDropdownMenuBox(
-                    expanded = sportDropdownExpanded,
-                    onExpandedChange = { sportDropdownExpanded = !sportDropdownExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = formState.sport,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Sport") },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = sportDropdownExpanded)
-                        },
-                        modifier = Modifier.menuAnchor()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = sportDropdownExpanded,
-                        onDismissRequest = { sportDropdownExpanded = false }
-                    ) {
-                        sports.forEach { sport ->
-                            DropdownMenuItem(
-                                text = { Text(sport) },
-                                onClick = {
-                                    formState = formState.reduce(
-                                        TeamCreationEvent.SportSelected(sport)
-                                    )
-                                    sportDropdownExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = "Colors",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        "Home Jersey" to formState.homeJerseyColor,
-                        "Away Jersey" to formState.awayJerseyColor
-                    ).forEach { (label, colorHex) ->
-                        val swatchColor = Color(android.graphics.Color.parseColor(colorHex))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(label)
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .background(swatchColor, CircleShape)
-                                    .border(
-                                        width = if (activeColorTarget == label) 3.dp else 1.dp,
-                                        color = if (activeColorTarget == label) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                        shape = CircleShape
-                                    )
-                                    .clickable {
-                                        activeColorTarget = if (activeColorTarget == label) null else label
-                                    }
-                            )
-                        }
-                    }
-                }
-
-                activeColorTarget?.let { target ->
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TeamColorPickerField(
-                        label = "Select $target Color",
-                        selectedColorHex = if (target == "Home Jersey") {
-                            formState.homeJerseyColor
-                        } else {
-                            formState.awayJerseyColor
-                        },
-                        onColorSelected = { selectedHex ->
-                            formState = if (target == "Home Jersey") {
-                                formState.reduce(
-                                    TeamCreationEvent.HomeJerseyColorSelected(selectedHex)
-                                )
-                            } else {
-                                formState.reduce(
-                                    TeamCreationEvent.AwayJerseyColorSelected(selectedHex)
-                                )
-                            }
-                            activeColorTarget = null
-                        },
-                        presetColors = presetColors,
-                        showHexValue = false
-                    )
-                }
-                
-                // Show similar teams warning
-                if (similarTeams.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp)
-                        ) {
-                            Text(
-                                "Similar teams already exist:",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            similarTeams.take(3).forEach { similarTeam ->
-                                Text(
-                                    "• ${similarTeam.name} (${(similarTeam.similarity * 100).toInt()}% match)",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            if (similarTeams.size > 3) {
-                                Text(
-                                    "... and ${similarTeams.size - 3} more",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+    TeamCreationDialog(
+        existingTeams = existingTeams,
+        onDismiss = onDismiss,
+        onSubmit = { submission ->
+            onAdd(
+                submission.teamName,
+                submission.sport,
+                submission.homeJerseyColor,
+                submission.awayJerseyColor,
+                submission.homeJerseyColor,
+                submission.awayJerseyColor
+            )
         },
-        confirmButton = {
-            Button(
-                onClick = {
-                    formState.submission()?.let { submission ->
-                        onAdd(
-                            submission.teamName,
-                            submission.sport,
-                            submission.homeJerseyColor,
-                            submission.awayJerseyColor,
-                            submission.homeJerseyColor,
-                            submission.awayJerseyColor
-                        )
-                    }
-                },
-                enabled = formState.canSubmit
-            ) {
-                Text(if (similarTeams.isNotEmpty()) "Create Anyway" else "Create Team")
-            }
+        colorSwatch = { colorHex, selected, onClick ->
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(Color(android.graphics.Color.parseColor(colorHex)), CircleShape)
+                    .border(
+                        width = if (selected) 3.dp else 1.dp,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        shape = CircleShape
+                    )
+                    .clickable(onClick = onClick)
+            )
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
+        colorPicker = { label, selectedColorHex, onColorSelected ->
+            TeamColorPickerField(
+                label = label,
+                selectedColorHex = selectedColorHex,
+                onColorSelected = onColorSelected,
+                presetColors = TeamCreationOptions.presetColors,
+                showHexValue = false
+            )
         }
     )
 }
