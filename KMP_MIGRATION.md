@@ -25,7 +25,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Team detail page selection and overview/roster/schedule transitions now live in a tested shared reducer. Android retains saveable Compose state and navigation callbacks.
 - Team overview rendering now lives in shared Compose. Android maps the assigned `Player` to `PlayerProfile` and injects Material icons, the assigned-player picker, and navigation/dialog callbacks.
 - Team schedule search, upcoming/past partitioning, ordering, portable date/time label formatting, and Compose rendering now live in shared code. Android maps `GameSchedule`, supplies locale symbols and each instant's UTC offset, and injects icons/import callbacks.
-- Schedule import entries and CSV parsing now live in shared code with portable timezone handling. Android retains free-form website/OCR parsing and maps shared entries into Room-backed schedules.
+- Schedule import entries plus CSV and free-form website/OCR parsing now live in shared code with portable timezone handling. Android maps shared entries into Room-backed schedules.
 - Roster and schedule import-source options now render through one shared dialog and portable source enum. Android supplies localized labels/icons and retains image picking plus app/website navigation effects.
 - Team management now uses one tested shared dialog coordinator for add/edit player, settings, leave, invite, roster import, and schedule import transitions. Android maps edit-player IDs to Room entities and retains each dialog's ViewModel, picker, and navigation effects.
 - Join Team subscription exclusion, search reduction, and dialog rendering now live in shared code. Android maps ViewModel flows to display items, supplies localized labels/icons, and retains the subscription side effect.
@@ -88,7 +88,7 @@ Move Camera and video processing last. They have the largest platform surface an
 ## Next Safe Extractions
 
 - Screen state after its Android services are replaced by the existing shared service contracts.
-- Move the remaining free-form website/OCR schedule parser after replacing its JVM `DateTimeFormatter` usage with portable parsing.
+- Remove the unused JVM schedule parser compatibility copy after the shared parser has soaked in production.
 
 Do not move `Player`, `Team`, or `GameSchedule` directly yet: current definitions combine domain data with Room and Parcelable annotations.
 

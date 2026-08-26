@@ -60,8 +60,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.playerid.app.memory.parseScheduleText
 import com.playerid.app.domain.team.ScheduleImportEntry
+import com.playerid.app.domain.team.parseScheduleText
 import com.playerid.app.capture.AppRosterCaptureRepository
 import com.playerid.app.capture.CaptureContent
 import com.playerid.app.capture.RosterApp

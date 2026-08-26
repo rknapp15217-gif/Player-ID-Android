@@ -1,6 +1,6 @@
 package com.playerid.app
 
-import com.playerid.app.memory.parseScheduleText
+import com.playerid.app.domain.team.parseScheduleText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

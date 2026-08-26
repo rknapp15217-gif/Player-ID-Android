@@ -466,7 +466,7 @@ private data class MemoryPromptGroupAccumulator(
     val memoryIds: MutableList<String>
 )
 
-fun parseScheduleText(rawText: String): List<ScheduleImportEntry> {
+private fun parseScheduleTextLegacy(rawText: String): List<ScheduleImportEntry> {
     val csvEntries = parseScheduleCsv(rawText)
     if (csvEntries.isNotEmpty()) return csvEntries
 
