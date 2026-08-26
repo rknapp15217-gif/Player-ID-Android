@@ -1,6 +1,5 @@
 package com.playerid.app.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
@@ -89,8 +88,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -118,6 +115,8 @@ import com.playerid.app.ui.dialogs.EditPlayerDialog
 import com.playerid.app.ui.dialogs.EditTeamSettingsDialog
 import com.playerid.app.ui.components.*
 import com.playerid.app.ui.roster.RosterPage
+import com.playerid.app.ui.team.TeamOverviewDestination
+import com.playerid.app.ui.team.TeamOverviewPage
 import com.playerid.app.ui.theme.*
 import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
@@ -714,7 +713,9 @@ fun TeamManagementView(
             seasonLabel = selectedTeamMeta?.description?.takeIf { it.isNotBlank() } ?: selectedTeamMeta?.sport.orEmpty(),
             homeColor = homeColor,
             assignedKid = assignedKid,
-            assignedPlayer = teamPlayers.firstOrNull { it.name.contains(assignedKid, ignoreCase = true) },
+            assignedPlayer = teamPlayers
+                .firstOrNull { it.name.contains(assignedKid, ignoreCase = true) }
+                ?.toProfile(),
             playerCount = teamPlayers.size,
             gameCount = teamGames.size,
             onBack = onClearTeam,
@@ -739,7 +740,41 @@ fun TeamManagementView(
             onImportSchedule = { showImportScheduleOptions = true },
             onInvite = { showInviteDialog = true },
             onSettings = { showTeamActions = true },
-            onLeave = { showLeaveTeamDialog = true }
+            onLeave = { showLeaveTeamDialog = true },
+            backIcon = {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            },
+            assignedPlayerTrailingIcon = {
+                Icon(Icons.Default.ChevronRight, contentDescription = "Change assigned player")
+            },
+            destinationIcon = { destination ->
+                val icon = when (destination) {
+                    TeamOverviewDestination.Roster -> Icons.Default.Groups
+                    TeamOverviewDestination.Schedule -> Icons.Default.CalendarMonth
+                    TeamOverviewDestination.Invite -> Icons.Default.Share
+                    TeamOverviewDestination.Settings -> Icons.Default.Settings
+                }
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            destinationTrailingIcon = { destination ->
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = "Open ${destination.name}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            leaveIcon = {
+                Icon(
+                    Icons.AutoMirrored.Filled.ExitToApp,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
         )
         TeamDetailPage.Roster -> TeamRosterPage(
             players = rosterListState.visiblePlayers.mapNotNull { visiblePlayer ->
@@ -871,123 +906,6 @@ fun TeamManagementView(
         )
     }
 
-}
-
-@Composable
-private fun TeamOverviewPage(
-    teamName: String,
-    seasonLabel: String,
-    homeColor: Color,
-    assignedKid: String,
-    assignedPlayer: Player?,
-    playerCount: Int,
-    gameCount: Int,
-    onBack: () -> Unit,
-    onAssignedKidClick: () -> Unit,
-    kidPicker: @Composable () -> Unit,
-    onRoster: () -> Unit,
-    onImportRoster: () -> Unit,
-    onSchedule: () -> Unit,
-    onImportSchedule: () -> Unit,
-    onInvite: () -> Unit,
-    onSettings: () -> Unit,
-    onLeave: () -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item { TeamPageHeader(title = "Teams", onBack = onBack) }
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.size(64.dp).background(homeColor, RoundedCornerShape(8.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = teamName.split(" ").mapNotNull { it.firstOrNull()?.toString() }.take(2).joinToString(""),
-                        color = if (homeColor.luminance() > 0.5f) Color.Black else Color.White,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(teamName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    if (seasonLabel.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(seasonLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        }
-        item { TeamSectionLabel("MY PLAYER") }
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onAssignedKidClick),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
-            ) {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TeamAvatar(number = assignedPlayer?.number ?: assignedKid.take(1), color = homeColor)
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(assignedPlayer?.name ?: assignedKid, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            if (assignedPlayer == null) "Assigned to this team" else "#${assignedPlayer.number}  ${assignedPlayer.position}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Icon(Icons.Default.ChevronRight, contentDescription = "Change assigned player")
-                    kidPicker()
-                }
-            }
-        }
-        item { TeamSectionLabel("TEAM") }
-        item {
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                TeamDestinationRow(Icons.Default.Groups, "Roster", "$playerCount players", onRoster)
-                TextButton(onClick = onImportRoster, modifier = Modifier.padding(start = 52.dp)) {
-                    Text("Import roster", color = TeamActionBlue)
-                }
-                HorizontalDivider()
-                TeamDestinationRow(Icons.Default.CalendarMonth, "Schedule", "$gameCount games", onSchedule)
-                TextButton(onClick = onImportSchedule, modifier = Modifier.padding(start = 52.dp)) {
-                    Text("Import schedule", color = TeamActionBlue)
-                }
-            }
-        }
-        item { TeamSectionLabel("SHARING") }
-        item {
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                TeamDestinationRow(Icons.Default.Share, "Invite parents & coaches", "Give others access to this team", onInvite)
-            }
-        }
-        item { TeamSectionLabel("MANAGEMENT") }
-        item {
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                TeamDestinationRow(Icons.Default.Settings, "Team settings", "Team name, colors and notifications", onSettings)
-            }
-        }
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onLeave),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.25f))
-            ) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
-                    Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text("Leave Team", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(5.dp))
-                        Text("You will no longer have access to the shared roster, schedule and team content.", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -1146,27 +1064,6 @@ private fun TeamPageHeader(title: String, onBack: () -> Unit, onAdd: (() -> Unit
 @Composable
 private fun TeamSectionLabel(text: String) {
     Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, start = 4.dp))
-}
-
-@Composable
-private fun TeamDestinationRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(2.dp))
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Icon(Icons.Default.ChevronRight, contentDescription = "Open $title", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun TeamAvatar(number: String, color: Color) {
-    Box(Modifier.size(48.dp).background(color, CircleShape), contentAlignment = Alignment.Center) {
-        Text(number, fontWeight = FontWeight.Bold, color = if (color.luminance() > 0.5f) Color.Black else Color.White)
-    }
 }
 
 @Composable
