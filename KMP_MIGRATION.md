@@ -92,7 +92,6 @@ Move Camera and video processing last. They have the largest platform surface an
 
 - Move schedule import construction and memory-to-game matching behind shared services while keeping IDs, timestamps, and native media candidates injected.
 - Screen state after its Android services are replaced by the existing shared service contracts.
-- Remove the unused JVM schedule parser compatibility copy after the shared parser has soaked in production.
 
 Do not move `Player`, `Team`, or `GameSchedule` directly yet: current definitions combine domain data with Room and Parcelable annotations.
 
