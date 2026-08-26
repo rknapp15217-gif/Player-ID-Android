@@ -6,6 +6,7 @@ on:
       - "shared/**"
       - "app/**"
       - "*.gradle"
+      - "gradle.properties"
       - "gradle/**"
       - ".github/workflows/kmp-shared.yml"
   push:
@@ -13,6 +14,7 @@ on:
       - "shared/**"
       - "app/**"
       - "*.gradle"
+      - "gradle.properties"
       - "gradle/**"
       - ".github/workflows/kmp-shared.yml"
   workflow_dispatch:
