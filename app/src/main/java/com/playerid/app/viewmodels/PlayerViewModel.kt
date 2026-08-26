@@ -8,6 +8,10 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.playerid.app.data.*
+import com.playerid.app.data.repositories.RoomTeamRosterRepository
+import com.playerid.app.data.repositories.toEntity
+import com.playerid.app.data.repositories.toProfile
+import com.playerid.app.domain.team.TeamRosterService
 import com.playerid.app.roster.RosterCandidate
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -24,6 +28,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     private val database = PlayerDatabase.getDatabase(application)
     private val playerDao = database.playerDao()
     private val teamDao = database.teamDao()
+    private val teamRosterService = TeamRosterService(
+        RoomTeamRosterRepository(teamDao, playerDao)
+    )
     
     private var tts: TextToSpeech? = null
     private var isTtsReady = false
@@ -80,6 +87,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     )
 
     val allPlayers = playerDao.getAllActivePlayers()
+
+    fun observeTeamRoster(teamName: String): Flow<List<Player>> =
+        teamRosterService.observeRoster(teamName).map { players ->
+            players.map { it.toEntity() }
+        }
     
     val filteredPlayers = combine(
         allPlayers,
@@ -531,34 +543,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     ) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
-            for (candidate in candidates) {
-                val existing = playerDao.getPlayerByNumber(candidate.number, teamName)
-                val candidateYear = candidate.academicYear?.takeIf { it.isNotBlank() }
-                val candidatePosition = candidate.position.takeIf { it.isNotBlank() }
-                if (existing != null) {
-                    val updated = existing.copy(
-                        name = candidate.name,
-                        position = candidatePosition ?: existing.position,
-                        academicYear = candidateYear ?: existing.academicYear,
-                        updatedAt = now,
-                        addedBy = addedBy
-                    )
-                    playerDao.updatePlayer(updated)
-                } else {
-                    val player = Player(
-                        id = UUID.randomUUID().toString(),
-                        number = candidate.number,
-                        name = candidate.name,
-                        position = candidatePosition ?: "",
-                        team = teamName,
-                        academicYear = candidateYear ?: "Unknown",
-                        addedBy = addedBy,
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                    playerDao.insertPlayer(player)
-                }
-            }
+            teamRosterService.importRoster(
+                teamName = teamName,
+                candidates = candidates,
+                addedBy = addedBy,
+                newPlayerIds = candidates.map { UUID.randomUUID().toString() },
+                timestamp = now
+            )
         }
     }
 
@@ -570,26 +561,24 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     
     fun addPlayer(player: Player, addedBy: String = "Unknown") {
         viewModelScope.launch {
-            val newPlayer = player.copy(
-                id = UUID.randomUUID().toString(),
+            teamRosterService.addPlayer(
+                player = player.toProfile(),
+                playerId = UUID.randomUUID().toString(),
                 addedBy = addedBy,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis()
             )
-            playerDao.insertPlayer(newPlayer)
         }
     }
 
     fun updatePlayer(player: Player) {
         viewModelScope.launch {
-            val updatedPlayer = player.copy(updatedAt = System.currentTimeMillis())
-            playerDao.updatePlayer(updatedPlayer)
+            teamRosterService.updatePlayer(player.toProfile(), System.currentTimeMillis())
         }
     }
     
     fun deletePlayer(player: Player) {
         viewModelScope.launch {
-            playerDao.deletePlayer(player)
+            teamRosterService.deletePlayer(player.id)
         }
     }
 

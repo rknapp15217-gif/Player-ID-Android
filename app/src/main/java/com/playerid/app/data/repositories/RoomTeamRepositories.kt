@@ -24,6 +24,9 @@ class RoomTeamRosterRepository(
     override suspend fun findTeam(teamName: String): TeamProfile? =
         teamDao.getTeamByName(teamName)?.toProfile()
 
+    override suspend fun findPlayer(teamName: String, number: String): PlayerProfile? =
+        playerDao.getPlayerByNumber(number, teamName)?.toProfile()
+
     override suspend fun saveTeam(team: TeamProfile) {
         teamDao.insertTeam(team.toEntity())
     }
@@ -32,8 +35,16 @@ class RoomTeamRosterRepository(
         playerDao.insertPlayer(player.toEntity())
     }
 
+    override suspend fun updatePlayer(player: PlayerProfile) {
+        playerDao.updatePlayer(player.toEntity())
+    }
+
     override suspend fun savePlayers(players: List<PlayerProfile>) {
         playerDao.insertPlayers(players.map { it.toEntity() })
+    }
+
+    override suspend fun deletePlayer(playerId: String) {
+        playerDao.deletePlayerById(playerId)
     }
 }
 

@@ -525,10 +525,8 @@ fun TeamManagementView(
     }
     val homeColor = parseTeamColor(selectedTeamMeta?.color, fallback = Color(0xFF1976D2))
 
-    val allPlayers by playerViewModel.allPlayers.collectAsState(initial = emptyList())
-    val teamPlayers = remember(allPlayers, teamName) {
-        allPlayers.filter { it.team == teamName }
-    }
+    val teamPlayers by remember(teamName) { playerViewModel.observeTeamRoster(teamName) }
+        .collectAsState(initial = emptyList())
     val kidOptions by teamViewModel.kidOptions.collectAsState()
     var assignedKid by remember(teamName) {
         mutableStateOf(teamViewModel.getAssignedKidForTeam(teamName) ?: "Tyson")

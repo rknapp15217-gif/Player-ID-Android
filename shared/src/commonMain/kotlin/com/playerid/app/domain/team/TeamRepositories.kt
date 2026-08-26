@@ -6,9 +6,12 @@ interface TeamRosterRepository {
     fun observeActiveTeams(): Flow<List<TeamProfile>>
     fun observePlayers(teamName: String): Flow<List<PlayerProfile>>
     suspend fun findTeam(teamName: String): TeamProfile?
+    suspend fun findPlayer(teamName: String, number: String): PlayerProfile?
     suspend fun saveTeam(team: TeamProfile)
     suspend fun savePlayer(player: PlayerProfile)
+    suspend fun updatePlayer(player: PlayerProfile)
     suspend fun savePlayers(players: List<PlayerProfile>)
+    suspend fun deletePlayer(playerId: String)
 }
 
 interface TeamSubscriptionRepository {
