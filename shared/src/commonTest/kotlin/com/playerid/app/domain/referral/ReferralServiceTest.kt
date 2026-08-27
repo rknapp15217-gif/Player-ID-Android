@@ -24,7 +24,21 @@ class ReferralServiceTest {
 
         assertEquals(5, service.referralData.value.totalReferrals)
         assertTrue(service.hasEarnedFreeYear())
+        assertTrue(service.referralProgress.value.canClaimReward)
         assertEquals(1f, service.referralProgress.value.progressPercentage)
+
+        assertTrue(service.claimFreeYear())
+        assertTrue(service.referralData.value.freeYearUsed)
+        assertFalse(service.referralProgress.value.canClaimReward)
+        assertTrue(service.hasEarnedFreeYear())
+    }
+
+    @Test
+    fun freeYearCannotBeClaimedBeforeItIsEarned() {
+        val service = ReferralService(MemoryStorage()) { "ABC123" }
+
+        assertFalse(service.claimFreeYear())
+        assertFalse(service.referralData.value.freeYearUsed)
     }
 
     @Test

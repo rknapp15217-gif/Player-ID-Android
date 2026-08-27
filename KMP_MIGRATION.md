@@ -101,7 +101,7 @@ Move Camera and video processing last. They have the largest platform surface an
 
 - Audit remaining Android ViewModels for platform-neutral reducers and repository orchestration that can move without changing native media/camera boundaries.
 - Screen state after its Android services are replaced by the existing shared service contracts.
-- Define the referral reward lifecycle before changing the legacy `earned`/`used` claim semantics; the current extraction intentionally preserves existing behavior.
+- Persist a referral free-year expiration date when native billing is implemented; the current policy tracks earned and claimed/in-use states but does not yet expire the entitlement.
 
 Do not move `Player`, `Team`, or `GameSchedule` directly yet: current definitions combine domain data with Room and Parcelable annotations.
 

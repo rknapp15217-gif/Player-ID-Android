@@ -78,7 +78,7 @@ class ReferralService(
     }
 
     fun hasEarnedFreeYear(): Boolean =
-        mutableData.value.freeYearEarned && !mutableData.value.freeYearUsed
+        mutableData.value.freeYearEarned
 
     fun getReferralLink(): String = "https://spotr.app/invite/${userReferralCode()}"
 
@@ -118,7 +118,7 @@ class ReferralService(
             currentReferrals = data.totalReferrals,
             targetReferrals = REFERRALS_NEEDED_FOR_FREE_YEAR,
             progressPercentage = (data.totalReferrals.toFloat() / REFERRALS_NEEDED_FOR_FREE_YEAR).coerceAtMost(1f),
-            canClaimReward = data.totalReferrals >= REFERRALS_NEEDED_FOR_FREE_YEAR && !data.freeYearEarned
+            canClaimReward = data.freeYearEarned && !data.freeYearUsed
         )
     }
 
