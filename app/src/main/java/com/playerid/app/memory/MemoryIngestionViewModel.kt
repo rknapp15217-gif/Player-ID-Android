@@ -6,15 +6,16 @@ import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.playerid.app.data.MediaIngestionState
-import com.playerid.app.data.MemoryItem
 import com.playerid.app.data.PlayerDatabase
 import com.playerid.app.data.repositories.RoomScheduleStorageRepository
-import com.playerid.app.data.repositories.toProfile
 import com.playerid.app.domain.team.GameScheduleProfile
-import com.playerid.app.domain.team.MemoryGameMatcher
+import com.playerid.app.domain.team.MemoryIngestionCandidate
+import com.playerid.app.domain.team.MemoryIngestionService
 import com.playerid.app.domain.team.MemoryReviewService
 import com.playerid.app.domain.team.ScheduleImportEntry
 import com.playerid.app.domain.team.ScheduleImportService
+import com.playerid.app.platform.MediaKind
+import com.playerid.app.platform.MediaReference
 import com.playerid.app.utils.MediaPermissionHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,7 +34,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
     private val database = PlayerDatabase.getDatabase(application)
     private val memoryDao = database.memoryOrganizationDao()
     private val scheduleStorageRepository = RoomScheduleStorageRepository(memoryDao)
-    private val memoryGameMatcher = MemoryGameMatcher()
+    private val memoryIngestionService = MemoryIngestionService(scheduleStorageRepository)
     private val memoryReviewService = MemoryReviewService(scheduleStorageRepository)
     private val scheduleImportService = ScheduleImportService(scheduleStorageRepository)
     private val teamDao = database.teamDao()
@@ -75,83 +76,31 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
                     return@launch
                 }
 
-                val toInsert = mutableListOf<MemoryItem>()
-                val grouped = linkedMapOf<String, MemoryPromptGroupAccumulator>()
-                var maxDateAdded = state.lastScannedDateAddedMs
-
-                for (candidate in newMedia) {
-                    maxDateAdded = maxOf(maxDateAdded, candidate.dateAddedMs)
-                    val existing = scheduleStorageRepository.findMemoryByMediaIdentifier(candidate.contentUri)
-                    if (existing != null) continue
-
-                    val bestMatch = memoryGameMatcher.findBestMatch(
-                        dateTakenMs = candidate.dateTakenMs,
-                        latitude = candidate.latitude,
-                        longitude = candidate.longitude,
-                        games = games
-                    )
-
-                    val isLikelySports = looksLikeSportsMedia(candidate)
-                    if (bestMatch == null && !isLikelySports) continue
-
-                    val shouldIncludePrompt = bestMatch != null && bestMatch.score >= 0.55
-                    val itemId = UUID.randomUUID().toString()
-                    val memory = MemoryItem(
-                        id = itemId,
-                        contentUri = candidate.contentUri,
-                        mediaStoreId = candidate.mediaStoreId,
-                        mimeType = candidate.mimeType,
-                        displayName = candidate.displayName,
-                        dateTakenMs = candidate.dateTakenMs,
-                        dateAddedMs = candidate.dateAddedMs,
-                        bucketName = candidate.bucketName,
-                        width = candidate.width,
-                        height = candidate.height,
-                        durationMs = candidate.durationMs,
-                        latitude = candidate.latitude,
-                        longitude = candidate.longitude,
-                        sportSeasonId = if (shouldIncludePrompt) bestMatch?.game?.sportSeasonId else null,
-                        gameScheduleId = if (shouldIncludePrompt) bestMatch?.game?.id else null,
-                        categorizationSource = if (shouldIncludePrompt) "auto_schedule_pending" else "unassigned",
-                        autoScore = bestMatch?.score ?: 0.0,
-                        needsReview = true
-                    )
-                    toInsert.add(memory)
-
-                    if (shouldIncludePrompt) {
-                        val key = bestMatch!!.game.id
-                        val existingGroup = grouped[key]
-                        if (existingGroup == null) {
-                            grouped[key] = MemoryPromptGroupAccumulator(
-                                gameId = bestMatch.game.id,
-                                label = formatPromptLabel(bestMatch.game),
-                                count = 1,
-                                memoryIds = mutableListOf(itemId)
-                            )
-                        } else {
-                            existingGroup.count += 1
-                            existingGroup.memoryIds.add(itemId)
-                        }
-                    }
-                }
-
-                if (toInsert.isNotEmpty()) {
-                    scheduleStorageRepository.saveMemories(toInsert.map { it.toProfile() })
-                }
+                val candidates = newMedia.map { it.toIngestionCandidate() }
+                val ingestionResult = memoryIngestionService.ingest(
+                    candidates = candidates,
+                    candidateIds = List(candidates.size) { UUID.randomUUID().toString() },
+                    games = games,
+                    previousMaxDateAddedMs = state.lastScannedDateAddedMs,
+                    timestamp = now
+                )
 
                 memoryDao.upsertIngestionState(
                     MediaIngestionState(
                         key = "default",
-                        lastScannedDateAddedMs = maxDateAdded,
+                        lastScannedDateAddedMs = ingestionResult.maxDateAddedMs,
                         lastScannedAtMs = now
                     )
                 )
 
-                if (grouped.isNotEmpty()) {
-                    val groups = grouped.values
-                        .sortedByDescending { it.count }
-                        .map { MemoryScanPromptGroup(label = it.label, count = it.count) }
-                    val ids = grouped.values.flatMap { it.memoryIds }
+                if (ingestionResult.groups.isNotEmpty()) {
+                    val groups = ingestionResult.groups.map { group ->
+                        MemoryScanPromptGroup(
+                            label = formatPromptLabel(group.game),
+                            count = group.memoryIds.size
+                        )
+                    }
+                    val ids = ingestionResult.groups.flatMap { it.memoryIds }
                     _pendingPrompt.value = MemoryScanPrompt(
                         totalCount = ids.size,
                         groups = groups,
@@ -304,15 +253,6 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
         return items
     }
 
-    private fun looksLikeSportsMedia(candidate: MediaCandidate): Boolean {
-        val text = "${candidate.displayName} ${candidate.bucketName.orEmpty()}".lowercase(Locale.US)
-        val sportsKeywords = listOf(
-            "game", "match", "tourney", "tournament", "lacrosse", "soccer", "football",
-            "basketball", "baseball", "hockey", "volleyball", "athletics", "practice"
-        )
-        return sportsKeywords.any { text.contains(it) }
-    }
-
     private fun formatPromptLabel(game: GameScheduleProfile): String {
         val date = LocalDateTime.ofInstant(
             java.time.Instant.ofEpochMilli(game.scheduledStartMs),
@@ -348,11 +288,22 @@ private data class MediaCandidate(
     val durationMs: Long?,
     val latitude: Double?,
     val longitude: Double?
-)
-
-private data class MemoryPromptGroupAccumulator(
-    val gameId: String,
-    val label: String,
-    var count: Int,
-    val memoryIds: MutableList<String>
-)
+) {
+    fun toIngestionCandidate() = MemoryIngestionCandidate(
+        media = MediaReference(
+            identifier = contentUri,
+            kind = if (mimeType.startsWith("video/")) MediaKind.VIDEO else MediaKind.IMAGE,
+            mimeType = mimeType
+        ),
+        platformMediaId = mediaStoreId,
+        displayName = displayName,
+        dateTakenMs = dateTakenMs,
+        dateAddedMs = dateAddedMs,
+        bucketName = bucketName,
+        width = width,
+        height = height,
+        durationMs = durationMs,
+        latitude = latitude,
+        longitude = longitude
+    )
+}

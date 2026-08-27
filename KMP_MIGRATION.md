@@ -31,6 +31,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Memory browsing reads now expose portable metadata and `MediaReference` through the same shared repository boundary. Android maps opaque identifiers back to Room entities and retains MediaStore decoding and permissions.
 - Memory ingestion hierarchy, schedule, deduplication, and media mutations now use the shared storage repository. Accept/skip review behavior is shared and tested; Android retains MediaStore discovery and its native scan checkpoint.
 - Memory-to-game matching now uses a tested shared scorer with portable schedule profiles, preserving the existing time window, midpoint decay, distance bands, and score weighting.
+- Memory ingestion reduction now shares deduplication, matching thresholds, portable memory construction, persistence, prompt grouping, and scan-watermark calculation. Android retains MediaStore queries, permission handling, localized prompt labels, and checkpoint storage.
 - Roster and schedule import-source options now render through one shared dialog and portable source enum. Android supplies localized labels/icons and retains image picking plus app/website navigation effects.
 - Team management now uses one tested shared dialog coordinator for add/edit player, settings, leave, invite, roster import, and schedule import transitions. Android maps edit-player IDs to Room entities and retains each dialog's ViewModel, picker, and navigation effects.
 - Join Team subscription exclusion, search reduction, and dialog rendering now live in shared code. Android maps ViewModel flows to display items, supplies localized labels/icons, and retains the subscription side effect.
@@ -92,7 +93,7 @@ Move Camera and video processing last. They have the largest platform surface an
 
 ## Next Safe Extractions
 
-- Move ingestion scan reduction and prompt grouping behind shared services while keeping MediaStore queries and scan checkpoints native.
+- Move memory browsing hierarchy state behind a shared state holder while keeping bitmap/video thumbnail loading native.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 
 Do not move `Player`, `Team`, or `GameSchedule` directly yet: current definitions combine domain data with Room and Parcelable annotations.
