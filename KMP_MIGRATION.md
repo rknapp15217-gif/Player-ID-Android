@@ -12,6 +12,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - `commonTest` validates behavior once for every platform.
 - iOS targets are enabled automatically on macOS; Windows continues to build the Android target without requiring Xcode.
 - `.github/workflows/kmp-shared.yml` compiles and tests the iOS simulator framework on a GitHub macOS runner, so Apple-target regressions can be caught before local Mac hardware is available.
+- `iosApp` is a thin SwiftUI lifecycle host around a shared `ComposeUIViewController`. Its Xcode build phase embeds `PlayerIDShared`, and CI compiles the unsigned simulator application.
 - Shared production code now includes team matching, roster text parsing, tracking math, native service contracts, brand colors, and reusable vector icons.
 - Shared team-domain profiles and repository contracts now sit in front of Android Room adapters. `TeamSubscriptionService` owns the onboarding rule that replaces all existing subscriptions with exactly one normalized team.
 - Create Team form values, option lists, reducer events, duplicate matching, normalized submission, and Compose rendering now live in `commonMain`; Android preserves only its existing callback adapter.
@@ -93,7 +94,7 @@ iosApp
 6. Adopt a single cross-platform database schema. Evaluate SQLDelight before changing the existing Room database.
 7. Move platform-neutral Compose screens and components to shared UI.
 8. Wrap camera, playback, export, OCR, speech, contacts, notifications, and media-library access behind platform interfaces.
-9. On a Mac, add the minimal Xcode `iosApp` host and implement iOS adapters.
+9. Implement iOS adapters in the existing minimal Xcode `iosApp` host.
 
 Move Camera and video processing last. They have the largest platform surface and should consume stable shared workflows rather than define them.
 
@@ -130,8 +131,8 @@ Every extraction should pass shared tests and the Android compile before the nex
 
 - Use a Mac with the current Xcode command-line tools.
 - Open the repository on macOS so Gradle configures `iosX64`, `iosArm64`, and `iosSimulatorArm64`.
-- Create `iosApp` as a thin Xcode host; do not recreate shared screens in SwiftUI.
-- Embed the generated `PlayerIDShared` framework or configure direct Gradle/Xcode integration.
+- Open the existing `iosApp/iosApp.xcodeproj`; do not recreate shared screens in SwiftUI.
+- Keep the existing Gradle/Xcode framework build phase that embeds `PlayerIDShared`.
 - Add bundle ID, signing team, permission descriptions, entitlements, icons, and App Store metadata.
 - Implement AVFoundation camera, AVKit playback, Vision OCR, Photos media selection, speech, contacts, and background-task adapters.
 - Provide screenshot/photo import on iOS where Android currently uses unrestricted MediaProjection capture.

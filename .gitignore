@@ -55,6 +55,11 @@ build/
 ehthumbs.db
 Thumbs.db
 
+# Xcode user and build state
+xcuserdata/
+*.xcuserstate
+DerivedData/
+
 # Python
 __pycache__/
 *.py[cod]

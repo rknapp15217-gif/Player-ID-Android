@@ -5,6 +5,7 @@ on:
     paths:
       - "shared/**"
       - "app/**"
+      - "iosApp/**"
       - "*.gradle"
       - "gradle.properties"
       - "gradle/**"
@@ -13,6 +14,7 @@ on:
     paths:
       - "shared/**"
       - "app/**"
+      - "iosApp/**"
       - "*.gradle"
       - "gradle.properties"
       - "gradle/**"
@@ -47,6 +49,8 @@ jobs:
         run: sh gradlew :shared:iosSimulatorArm64Test --stacktrace
       - name: Link iOS simulator framework
         run: sh gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --stacktrace
+      - name: Build iOS simulator host
+        run: xcodebuild -project iosApp/iosApp.xcodeproj -scheme PlayerID -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
       - name: Upload shared framework
         uses: actions/upload-artifact@v4
         with:
