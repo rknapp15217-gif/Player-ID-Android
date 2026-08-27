@@ -3,6 +3,12 @@ package com.playerid.app.subscription
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.playerid.app.domain.subscription.canAccessAdvancedFeatures
+import com.playerid.app.domain.subscription.canRecordVideo
+import com.playerid.app.domain.subscription.referralStatus
+import com.playerid.app.domain.subscription.statusAfterTrialCheck
+import com.playerid.app.domain.subscription.trialDaysRemaining
+import com.playerid.app.domain.subscription.trialMessage
 import com.playerid.app.referral.ReferralManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,17 +33,11 @@ class SubscriptionManager(private val context: Context) {
     
     // Features that require subscription
     fun canRecordVideo(): Boolean {
-        // Check if user has referral free year first
-        if (referralManager.hasEarnedFreeYear()) {
-            return true
-        }
-        
-        return when (_subscriptionStatus.value) {
-            SubscriptionStatus.FREE_TRIAL -> _trialDaysRemaining.value > 0
-            SubscriptionStatus.SUBSCRIBED -> true
-            SubscriptionStatus.REFERRAL_FREE_YEAR -> true
-            SubscriptionStatus.EXPIRED -> false
-        }
+        return canRecordVideo(
+            _subscriptionStatus.value,
+            _trialDaysRemaining.value,
+            referralManager.hasEarnedFreeYear()
+        )
     }
     
     fun canExportVideo(): Boolean {
@@ -49,9 +49,10 @@ class SubscriptionManager(private val context: Context) {
     }
     
     fun canAccessAdvancedFeatures(): Boolean {
-        return _subscriptionStatus.value == SubscriptionStatus.SUBSCRIBED || 
-               _subscriptionStatus.value == SubscriptionStatus.REFERRAL_FREE_YEAR ||
-               referralManager.hasEarnedFreeYear()
+        return canAccessAdvancedFeatures(
+            _subscriptionStatus.value,
+            referralManager.hasEarnedFreeYear()
+        )
     }
     
     fun processReferralReward(): Boolean {
@@ -64,12 +65,7 @@ class SubscriptionManager(private val context: Context) {
     }
     
     fun getReferralStatus(): String {
-        val referralData = referralManager.referralData.value
-        return when {
-            referralData.freeYearEarned && !referralData.freeYearUsed -> "🎉 Free year available to claim!"
-            referralData.freeYearUsed -> "✅ Using referral free year"
-            else -> "Refer ${5 - referralData.totalReferrals} more friends for a free year!"
-        }
+        return referralStatus(referralManager.referralData.value)
     }
     
     fun checkTrialStatus() {
@@ -77,14 +73,9 @@ class SubscriptionManager(private val context: Context) {
         // For now, simulate trial countdown
         val trialStartDate = getTrialStartDate()
         val currentDate = Date()
-        val daysSinceStart = ((currentDate.time - trialStartDate.time) / (1000 * 60 * 60 * 24)).toInt()
-        val daysRemaining = maxOf(0, 14 - daysSinceStart)
-        
+        val daysRemaining = trialDaysRemaining(trialStartDate.time, currentDate.time)
         _trialDaysRemaining.value = daysRemaining
-        
-        if (daysRemaining <= 0 && _subscriptionStatus.value == SubscriptionStatus.FREE_TRIAL) {
-            _subscriptionStatus.value = SubscriptionStatus.EXPIRED
-        }
+        _subscriptionStatus.value = statusAfterTrialCheck(_subscriptionStatus.value, daysRemaining)
     }
     
     fun showPaywall() {
@@ -117,22 +108,11 @@ class SubscriptionManager(private val context: Context) {
     }
     
     fun getTrialMessage(): String {
-        val days = _trialDaysRemaining.value
-        return when {
-            days > 7 -> "Free trial: $days days remaining"
-            days > 3 -> "Trial ending soon: $days days left"
-            days > 0 -> "Last chance: $days day${if (days == 1) "" else "s"} remaining"
-            else -> "Trial expired - Subscribe to continue"
-        }
+        return trialMessage(_trialDaysRemaining.value)
     }
 }
 
-enum class SubscriptionStatus {
-    FREE_TRIAL,
-    SUBSCRIBED,
-    REFERRAL_FREE_YEAR,
-    EXPIRED
-}
+typealias SubscriptionStatus = com.playerid.app.domain.subscription.SubscriptionStatus
 
 class SubscriptionViewModel(private val subscriptionManager: SubscriptionManager) : ViewModel() {
     

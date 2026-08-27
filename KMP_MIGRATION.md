@@ -36,6 +36,8 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Memory ingestion reduction now shares deduplication, matching thresholds, portable memory construction, persistence, prompt grouping, and scan-watermark calculation. Android retains MediaStore queries, permission handling, localized prompt labels, and checkpoint storage.
 - Camera opponent restoration TTL and current-game selection now use portable shared rules with explicit timezone IDs. Android retains SharedPreferences, current-clock injection, and camera UI effects.
 - Voice capture/team-switch/jersey/fuzzy-name command decisions now live in a tested shared processor over `PlayerProfile`. Android retains speech recognition, Room snapshots, TextToSpeech, recording actions, and lifecycle state.
+- Referral codes, progress, milestones, links/messages, and reward mutations now live in a tested shared service behind `ReferralStorage`. Android preserves the existing `ReferralManager` API through a SharedPreferences adapter; an iOS host can supply its own storage implementation.
+- Subscription access rules, trial countdown/status transitions, and referral/trial messages now live in tested shared policy functions. Android retains paywall state, lifecycle wiring, and the future Google Play Billing integration; iOS should retain StoreKit behind the same policy boundary.
 - Roster and schedule import-source options now render through one shared dialog and portable source enum. Android supplies localized labels/icons and retains image picking plus app/website navigation effects.
 - Team management now uses one tested shared dialog coordinator for add/edit player, settings, leave, invite, roster import, and schedule import transitions. Android maps edit-player IDs to Room entities and retains each dialog's ViewModel, picker, and navigation effects.
 - Join Team subscription exclusion, search reduction, and dialog rendering now live in shared code. Android maps ViewModel flows to display items, supplies localized labels/icons, and retains the subscription side effect.
@@ -99,6 +101,7 @@ Move Camera and video processing last. They have the largest platform surface an
 
 - Audit remaining Android ViewModels for platform-neutral reducers and repository orchestration that can move without changing native media/camera boundaries.
 - Screen state after its Android services are replaced by the existing shared service contracts.
+- Define the referral reward lifecycle before changing the legacy `earned`/`used` claim semantics; the current extraction intentionally preserves existing behavior.
 
 Do not move `Player`, `Team`, or `GameSchedule` directly yet: current definitions combine domain data with Room and Parcelable annotations.
 
@@ -108,6 +111,7 @@ On Windows or macOS:
 
 ```powershell
 .\gradlew.bat :shared:testDebugUnitTest
+.\gradlew.bat :shared:checkCommonMainBoundaries
 .\gradlew.bat :app:compileDebugKotlin
 ```
 

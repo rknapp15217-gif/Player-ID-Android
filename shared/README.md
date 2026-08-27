@@ -11,6 +11,8 @@ This is the Kotlin Multiplatform module for behavior that must remain identical 
 
 `commonMain` also owns the first Compose Multiplatform UI assets: the product color tokens and reusable moment-tag and Goat vector icons. Their packages are unchanged, so Android consumes them directly from this module and iOS receives the same definitions in `PlayerIDShared.framework`.
 
+Referral behavior is exposed through `ReferralService` and the portable `ReferralStorage` contract. Subscription feature access, trial calculation, and status/message rules are pure shared policy; platform hosts retain preferences/keychain adapters and native billing integrations.
+
 The iOS targets are declared only when Gradle runs on macOS. This keeps Windows Android development operational while the GitHub `KMP Shared` workflow validates the Apple simulator framework.
 
 ## Rules
