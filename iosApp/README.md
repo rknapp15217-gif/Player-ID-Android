@@ -36,3 +36,5 @@ Before App Store distribution, add the required usage descriptions and entitleme
 - Subscription purchase and restore: StoreKit
 
 The current host proves framework embedding and shared Compose rendering. Native service adapters should implement the narrow contracts under `shared/src/commonMain/kotlin/com/playerid/app/platform`; do not duplicate shared reducers, parsers, policy, or Compose screens in SwiftUI.
+
+General key-value persistence is available through `NSUserDefaultsPreferencesStore`. Referral persistence uses `NSUserDefaultsReferralStorage`, which can be passed directly to `ReferralService`.
