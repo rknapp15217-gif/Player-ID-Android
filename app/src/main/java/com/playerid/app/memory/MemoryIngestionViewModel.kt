@@ -14,6 +14,8 @@ import com.playerid.app.data.SportSeason
 import com.playerid.app.data.repositories.RoomScheduleStorageRepository
 import com.playerid.app.data.repositories.toEntity
 import com.playerid.app.data.repositories.toProfile
+import com.playerid.app.domain.team.GameScheduleProfile
+import com.playerid.app.domain.team.MemoryGameMatcher
 import com.playerid.app.domain.team.MemoryReviewService
 import com.playerid.app.domain.team.ScheduleImportEntry
 import com.playerid.app.utils.MediaPermissionHelper
@@ -28,10 +30,6 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.Locale
 import java.util.UUID
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 private const val DEFAULT_CHILD_ID = "default-child"
 
@@ -40,6 +38,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
     private val database = PlayerDatabase.getDatabase(application)
     private val memoryDao = database.memoryOrganizationDao()
     private val scheduleStorageRepository = RoomScheduleStorageRepository(memoryDao)
+    private val memoryGameMatcher = MemoryGameMatcher()
     private val memoryReviewService = MemoryReviewService(scheduleStorageRepository)
     private val teamDao = database.teamDao()
 
@@ -69,7 +68,6 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
                 val state = memoryDao.getIngestionState() ?: MediaIngestionState()
                 val games = scheduleStorageRepository
                     .findGamesSince(now - 1000L * 60L * 60L * 24L * 90L)
-                    .map { it.toEntity() }
                 if (games.isEmpty()) {
                     memoryDao.upsertIngestionState(state.copy(lastScannedAtMs = now))
                     return@launch
@@ -90,7 +88,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
                     val existing = scheduleStorageRepository.findMemoryByMediaIdentifier(candidate.contentUri)
                     if (existing != null) continue
 
-                    val bestMatch = findBestGameMatch(
+                    val bestMatch = memoryGameMatcher.findBestMatch(
                         dateTakenMs = candidate.dateTakenMs,
                         latitude = candidate.latitude,
                         longitude = candidate.longitude,
@@ -343,60 +341,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
         return sportsKeywords.any { text.contains(it) }
     }
 
-    private fun findBestGameMatch(
-        dateTakenMs: Long,
-        latitude: Double?,
-        longitude: Double?,
-        games: List<GameSchedule>
-    ): GameMatchResult? {
-        var best: GameMatchResult? = null
-        for (game in games) {
-            val score = scoreGameMatch(dateTakenMs, latitude, longitude, game)
-            if (best == null || score > best.score) {
-                best = GameMatchResult(game = game, score = score)
-            }
-        }
-        return best
-    }
-
-    private fun scoreGameMatch(
-        dateTakenMs: Long,
-        latitude: Double?,
-        longitude: Double?,
-        game: GameSchedule
-    ): Double {
-        val preWindowMs = 1000L * 60L * 60L * 3L
-        val postWindowMs = 1000L * 60L * 60L * 4L
-        val inWindow = dateTakenMs in (game.scheduledStartMs - preWindowMs)..(game.scheduledEndMs + postWindowMs)
-
-        val timeScore = if (inWindow) {
-            val midpoint = (game.scheduledStartMs + game.scheduledEndMs) / 2L
-            val deltaHours = kotlin.math.abs(dateTakenMs - midpoint) / (1000.0 * 60.0 * 60.0)
-            (1.0 - (deltaHours / 6.0)).coerceIn(0.0, 1.0)
-        } else {
-            0.0
-        }
-
-        val locationScore = if (
-            latitude != null && longitude != null &&
-            game.locationLat != null && game.locationLng != null
-        ) {
-            val km = haversineKm(latitude, longitude, game.locationLat, game.locationLng)
-            when {
-                km <= 1.0 -> 1.0
-                km <= 5.0 -> 0.8
-                km <= 15.0 -> 0.55
-                km <= 30.0 -> 0.35
-                else -> 0.0
-            }
-        } else {
-            0.0
-        }
-
-        return (timeScore * 0.75) + (locationScore * 0.25)
-    }
-
-    private fun formatPromptLabel(game: GameSchedule): String {
+    private fun formatPromptLabel(game: GameScheduleProfile): String {
         val date = LocalDateTime.ofInstant(
             java.time.Instant.ofEpochMilli(game.scheduledStartMs),
             ZoneId.systemDefault()
@@ -405,18 +350,6 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
         return "${game.gameLabel.ifBlank { "vs ${game.opponentName}" }} on $month ${date.dayOfMonth}"
     }
 
-    private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val earthRadiusKm = 6371.0
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val startLat = Math.toRadians(lat1)
-        val endLat = Math.toRadians(lat2)
-
-        val a = sin(dLat / 2) * sin(dLat / 2) +
-            sin(dLon / 2) * sin(dLon / 2) * cos(startLat) * cos(endLat)
-        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        return earthRadiusKm * c
-    }
 }
 
 data class MemoryScanPrompt(
@@ -443,11 +376,6 @@ private data class MediaCandidate(
     val durationMs: Long?,
     val latitude: Double?,
     val longitude: Double?
-)
-
-private data class GameMatchResult(
-    val game: GameSchedule,
-    val score: Double
 )
 
 private data class MemoryPromptGroupAccumulator(
