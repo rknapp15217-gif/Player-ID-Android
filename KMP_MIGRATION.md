@@ -26,6 +26,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Team overview rendering now lives in shared Compose. Android maps the assigned `Player` to `PlayerProfile` and injects Material icons, the assigned-player picker, and navigation/dialog callbacks.
 - Team schedule search, upcoming/past partitioning, ordering, portable date/time label formatting, and Compose rendering now live in shared code. Android maps `GameSchedule`, supplies locale symbols and each instant's UTC offset, and injects icons/import callbacks.
 - Schedule import entries plus CSV and free-form website/OCR parsing now live in shared code with portable timezone handling. Android maps shared entries into Room-backed schedules.
+- Schedule import hierarchy/game construction and persistence orchestration now live in a tested shared service. Android injects team sport, local calendar year, UUIDs, and timestamps.
 - Child, season, and game-schedule hierarchy reads now pass through shared profiles/repository contracts backed by an Android Room adapter. TeamViewModel and MemoryBrowsingViewModel preserve their existing entity APIs while the hierarchy storage boundary becomes implementable by an iOS host.
 - Memory browsing reads now expose portable metadata and `MediaReference` through the same shared repository boundary. Android maps opaque identifiers back to Room entities and retains MediaStore decoding and permissions.
 - Memory ingestion hierarchy, schedule, deduplication, and media mutations now use the shared storage repository. Accept/skip review behavior is shared and tested; Android retains MediaStore discovery and its native scan checkpoint.
@@ -91,7 +92,7 @@ Move Camera and video processing last. They have the largest platform surface an
 
 ## Next Safe Extractions
 
-- Move schedule import construction behind a shared service while keeping IDs, timestamps, and team metadata injected.
+- Move ingestion scan reduction and prompt grouping behind shared services while keeping MediaStore queries and scan checkpoints native.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 
 Do not move `Player`, `Team`, or `GameSchedule` directly yet: current definitions combine domain data with Room and Parcelable annotations.

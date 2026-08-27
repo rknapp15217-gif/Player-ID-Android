@@ -5,19 +5,16 @@ import android.net.Uri
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.playerid.app.data.ChildProfile
-import com.playerid.app.data.GameSchedule
 import com.playerid.app.data.MediaIngestionState
 import com.playerid.app.data.MemoryItem
 import com.playerid.app.data.PlayerDatabase
-import com.playerid.app.data.SportSeason
 import com.playerid.app.data.repositories.RoomScheduleStorageRepository
-import com.playerid.app.data.repositories.toEntity
 import com.playerid.app.data.repositories.toProfile
 import com.playerid.app.domain.team.GameScheduleProfile
 import com.playerid.app.domain.team.MemoryGameMatcher
 import com.playerid.app.domain.team.MemoryReviewService
 import com.playerid.app.domain.team.ScheduleImportEntry
+import com.playerid.app.domain.team.ScheduleImportService
 import com.playerid.app.utils.MediaPermissionHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,8 +28,6 @@ import java.time.ZoneId
 import java.util.Locale
 import java.util.UUID
 
-private const val DEFAULT_CHILD_ID = "default-child"
-
 class MemoryIngestionViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = PlayerDatabase.getDatabase(application)
@@ -40,6 +35,7 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
     private val scheduleStorageRepository = RoomScheduleStorageRepository(memoryDao)
     private val memoryGameMatcher = MemoryGameMatcher()
     private val memoryReviewService = MemoryReviewService(scheduleStorageRepository)
+    private val scheduleImportService = ScheduleImportService(scheduleStorageRepository)
     private val teamDao = database.teamDao()
 
     private val _pendingPrompt = MutableStateFlow<MemoryScanPrompt?>(null)
@@ -197,12 +193,6 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
             }
 
             val team = teamDao.getTeamByName(teamName)
-            val childProfile = ChildProfile(
-                id = DEFAULT_CHILD_ID,
-                displayName = "My Child"
-            )
-            scheduleStorageRepository.saveChild(childProfile.toProfile())
-
             val firstYear = entries.minByOrNull { it.startMs }?.let {
                 LocalDateTime.ofInstant(
                     java.time.Instant.ofEpochMilli(it.startMs),
@@ -210,34 +200,16 @@ class MemoryIngestionViewModel(application: Application) : AndroidViewModel(appl
                 ).year
             } ?: LocalDate.now().year
 
-            val season = scheduleStorageRepository.findActiveSeasonForTeam(teamName)?.toEntity() ?: SportSeason(
-                id = "season-${teamName.lowercase(Locale.US).replace(" ", "-")}-${firstYear}",
-                childId = DEFAULT_CHILD_ID,
-                sportName = team?.sport ?: "Unknown Sport",
-                seasonLabel = "$firstYear Season",
-                teamName = teamName
-            )
-            scheduleStorageRepository.saveSeason(season.toProfile())
-
             val now = System.currentTimeMillis()
-            val games = entries.map { entry ->
-                GameSchedule(
-                    id = UUID.randomUUID().toString(),
-                    sportSeasonId = season.id,
-                    opponentName = entry.opponent,
-                    gameLabel = entry.gameLabel.ifBlank { "vs ${entry.opponent}" },
-                    scheduledStartMs = entry.startMs,
-                    scheduledEndMs = entry.endMs,
-                    locationName = entry.locationName,
-                    locationLat = entry.latitude,
-                    locationLng = entry.longitude,
-                    source = "uploaded",
-                    createdAt = now,
-                    updatedAt = now
-                )
-            }
-            scheduleStorageRepository.saveGames(games.map { it.toProfile() })
-            withContext(Dispatchers.Main) { onComplete(games.size) }
+            val importedCount = scheduleImportService.import(
+                teamName = teamName,
+                sportName = team?.sport ?: "Unknown Sport",
+                entries = entries,
+                gameIds = List(entries.size) { UUID.randomUUID().toString() },
+                seasonYear = firstYear,
+                timestamp = now
+            )
+            withContext(Dispatchers.Main) { onComplete(importedCount) }
         }
     }
 
