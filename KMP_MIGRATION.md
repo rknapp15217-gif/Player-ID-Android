@@ -30,6 +30,7 @@ Keep product behavior in one codebase. Android and iOS hosts should contain only
 - Child, season, and game-schedule hierarchy reads now pass through shared profiles/repository contracts backed by an Android Room adapter. TeamViewModel and MemoryBrowsingViewModel preserve their existing entity APIs while the hierarchy storage boundary becomes implementable by an iOS host.
 - Memory browsing reads now expose portable metadata and `MediaReference` through the same shared repository boundary. Android maps opaque identifiers back to Room entities and retains MediaStore decoding and permissions.
 - Memory browsing hierarchy selection, descendant clearing, and flow collection now live in a shared state holder that cancels stale child/season/game collectors. The Android ViewModel preserves its existing Room-entity flows for the current screen.
+- Memory browsing navigation chrome, transitions, hierarchy lists, cards, empty states, and media grid now render in shared Compose. Android injects date labels, the back icon, and native `ContentResolver` thumbnail decoding.
 - Memory ingestion hierarchy, schedule, deduplication, and media mutations now use the shared storage repository. Accept/skip review behavior is shared and tested; Android retains MediaStore discovery and its native scan checkpoint.
 - Memory-to-game matching now uses a tested shared scorer with portable schedule profiles, preserving the existing time window, midpoint decay, distance bands, and score weighting.
 - Memory ingestion reduction now shares deduplication, matching thresholds, portable memory construction, persistence, prompt grouping, and scan-watermark calculation. Android retains MediaStore queries, permission handling, localized prompt labels, and checkpoint storage.
@@ -94,7 +95,7 @@ Move Camera and video processing last. They have the largest platform surface an
 
 ## Next Safe Extractions
 
-- Move the platform-neutral memory browsing layout to shared Compose while injecting native thumbnail rendering.
+- Audit remaining Android ViewModels for platform-neutral reducers and repository orchestration that can move without changing native media/camera boundaries.
 - Screen state after its Android services are replaced by the existing shared service contracts.
 
 Do not move `Player`, `Team`, or `GameSchedule` directly yet: current definitions combine domain data with Room and Parcelable annotations.

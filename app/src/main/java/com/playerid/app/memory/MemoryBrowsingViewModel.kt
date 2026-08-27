@@ -11,7 +11,10 @@ import com.playerid.app.data.SportSeason
 import com.playerid.app.data.repositories.RoomScheduleStorageRepository
 import com.playerid.app.data.repositories.toEntity
 import com.playerid.app.data.repositories.toProfile
+import com.playerid.app.domain.team.ChildProfileRecord
+import com.playerid.app.domain.team.GameScheduleProfile
 import com.playerid.app.domain.team.MemoryBrowsingStateHolder
+import com.playerid.app.domain.team.SportSeasonProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +25,7 @@ class MemoryBrowsingViewModel(application: Application) : AndroidViewModel(appli
     private val memoryDao = PlayerDatabase.getDatabase(application).memoryOrganizationDao()
     private val scheduleStorageRepository = RoomScheduleStorageRepository(memoryDao)
     private val stateHolder = MemoryBrowsingStateHolder(scheduleStorageRepository, viewModelScope)
+    val browsingState = stateHolder.state
 
     private val _children = MutableStateFlow<List<ChildProfile>>(emptyList())
     val children: StateFlow<List<ChildProfile>> = _children.asStateFlow()
@@ -65,13 +69,19 @@ class MemoryBrowsingViewModel(application: Application) : AndroidViewModel(appli
         stateHolder.selectChild(child.toProfile())
     }
 
+    fun selectChildProfile(child: ChildProfileRecord) = stateHolder.selectChild(child)
+
     fun selectSeason(season: SportSeason) {
         stateHolder.selectSeason(season.toProfile())
     }
 
+    fun selectSeasonProfile(season: SportSeasonProfile) = stateHolder.selectSeason(season)
+
     fun selectGame(game: GameSchedule) {
         stateHolder.selectGame(game.toProfile())
     }
+
+    fun selectGameProfile(game: GameScheduleProfile) = stateHolder.selectGame(game)
 
     fun getSeasonTitle(season: SportSeason): String {
         return buildString {
