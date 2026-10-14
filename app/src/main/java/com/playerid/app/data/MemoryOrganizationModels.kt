@@ -1,6 +1,7 @@
 package com.playerid.app.data
 
 import androidx.room.Entity
+import androidx.room.Embedded
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -95,6 +96,14 @@ data class MemoryItem(
     val reviewedAtMs: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
+)
+
+data class TeamPhotoMemory(
+    @Embedded val memory: MemoryItem,
+    val opponentName: String?,
+    val scheduledStartMs: Long?,
+    val seasonLabel: String,
+    val childName: String
 )
 
 @Entity(tableName = "media_ingestion_state")

@@ -36,6 +36,7 @@ import com.playerid.app.domain.team.InviteTeamState
 @Composable
 fun InviteTeamDialog(
     teamName: String,
+    optionsTitle: String = "Invite to $teamName",
     nfcAvailable: Boolean,
     nfcEnabled: Boolean,
     onDismiss: () -> Unit,
@@ -76,7 +77,7 @@ fun InviteTeamDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             when (state.page) {
-                                InviteTeamPage.Options -> "Invite to $teamName"
+                                InviteTeamPage.Options -> optionsTitle
                                 InviteTeamPage.QrCode -> "Scan QR Code"
                                 InviteTeamPage.Nfc -> "Tap to Share via NFC"
                             },

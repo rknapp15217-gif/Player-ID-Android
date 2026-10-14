@@ -1,5 +1,7 @@
 package com.playerid.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
@@ -63,6 +65,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -71,13 +74,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -87,6 +93,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -94,6 +101,9 @@ import androidx.compose.ui.window.Dialog
 import android.widget.Toast
 import android.content.Intent
 import android.graphics.BitmapFactory
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.playerid.app.R
 import com.playerid.app.data.Player
 import com.playerid.app.data.GameSchedule
@@ -138,6 +148,8 @@ import com.playerid.app.viewmodels.PlayerViewModel
 import com.playerid.app.viewmodels.TeamViewModel
 import com.playerid.app.data.teamsnap.TeamSnapRepository
 import com.playerid.app.roster.RosterCandidate
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -156,7 +168,8 @@ fun TeamScreen(
     teamSnapRepository: TeamSnapRepository? = null,
     onNavigateToWebImport: (String) -> Unit = {},
     onNavigateToAppImport: (String, Boolean) -> Unit = { _, _ -> },
-    onNavigateToScheduleImport: (String, String) -> Unit = { _, _ -> }
+    onNavigateToScheduleImport: (String, String) -> Unit = { _, _ -> },
+    onNavigateToContactImport: (String, String) -> Unit = { _, _ -> }
 ) {
     TeamSelectionView(
         teamViewModel = teamViewModel,
@@ -168,7 +181,8 @@ fun TeamScreen(
         teamSnapRepository = teamSnapRepository,
         onNavigateToWebImport = onNavigateToWebImport,
         onNavigateToAppImport = onNavigateToAppImport,
-        onNavigateToScheduleImport = onNavigateToScheduleImport
+        onNavigateToScheduleImport = onNavigateToScheduleImport,
+        onNavigateToContactImport = onNavigateToContactImport
     )
 }
 
@@ -184,7 +198,8 @@ fun TeamSelectionView(
     teamSnapRepository: TeamSnapRepository? = null,
     onNavigateToWebImport: (String) -> Unit,
     onNavigateToAppImport: (String, Boolean) -> Unit,
-    onNavigateToScheduleImport: (String, String) -> Unit
+    onNavigateToScheduleImport: (String, String) -> Unit,
+    onNavigateToContactImport: (String, String) -> Unit
 ) {
     val context = LocalContext.current
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
@@ -242,7 +257,9 @@ fun TeamSelectionView(
             onNavigateToWebImport = onNavigateToWebImport,
             onNavigateToAppImport = onNavigateToAppImport,
             onNavigateToScheduleImport = onNavigateToScheduleImport,
-            openRosterInitially = selectionState.shouldOpenRoster(openRosterInitially)
+            onNavigateToContactImport = onNavigateToContactImport,
+            openRosterInitially = selectionState.shouldOpenRoster(openRosterInitially),
+            startSetupInitially = selectionState.createdTeamName == selectionState.selectedTeamName
         )
     } else {
         TeamSelectionPage(
@@ -305,7 +322,7 @@ fun TeamSelectionView(
                     awayJerseyColor = awayJerseyColor
                 )
                 selectionState = selectionState.reduce(
-                    TeamSelectionEvent.TeamCreated(teamName, openRosterAfterCreate)
+                    TeamSelectionEvent.TeamCreated(teamName, true)
                 )
                 if (openRosterAfterCreate) {
                     teamViewModel.replaceSubscriptionsWithTeam(teamName)
@@ -403,7 +420,9 @@ fun TeamManagementView(
     onNavigateToWebImport: (String) -> Unit,
     onNavigateToAppImport: (String, Boolean) -> Unit,
     onNavigateToScheduleImport: (String, String) -> Unit,
-    openRosterInitially: Boolean = false
+    onNavigateToContactImport: (String, String) -> Unit,
+    openRosterInitially: Boolean = false,
+    startSetupInitially: Boolean = false
 ) {
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
     val selectedTeamMeta = remember(subscribedTeams, teamName) {
@@ -431,6 +450,9 @@ fun TeamManagementView(
     }
     val displayPlayersById = remember(displayPlayers) { displayPlayers.associateBy { it.id } }
     val context = LocalContext.current
+    val playerMemoryCounts by produceState<Map<String, Int>>(emptyMap(), teamName) {
+        value = loadPlayerMemoryCounts(context, teamName)
+    }
     val playerPhotoPrefs = remember { context.getSharedPreferences("player_photos", android.content.Context.MODE_PRIVATE) }
     var playerPhotoUris by remember(teamName, displayPlayers) {
         mutableStateOf(displayPlayers.mapNotNull { player ->
@@ -439,6 +461,22 @@ fun TeamManagementView(
     }
     
     var managementState by remember(teamName) { mutableStateOf(TeamManagementState()) }
+    var showTeamSetup by rememberSaveable(teamName, startSetupInitially) {
+        mutableStateOf(startSetupInitially)
+    }
+    var teamContacts by remember(teamName) { mutableStateOf(loadTeamContacts(context, teamName)) }
+    var showContactImportDialog by remember { mutableStateOf(false) }
+    var showManualContactDialog by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, teamName) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                teamContacts = loadTeamContacts(context, teamName)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var showDeletePlayerDialog by remember { mutableStateOf(false) }
     var playerToDelete by remember { mutableStateOf<Player?>(null) }
     var showOcrImportDialog by remember { mutableStateOf(false) }
@@ -466,6 +504,59 @@ fun TeamManagementView(
             ocrImageUri = uri
             showOcrImportDialog = true
         }
+    }
+    val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri ->
+        val contact = uri?.let { readSelectedContact(context, it) }
+        if (contact != null) {
+            teamContacts = saveTeamContact(context, teamName, teamContacts, contact)
+        }
+    }
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            contactPicker.launch(null)
+        } else {
+            Toast.makeText(context, "Contacts permission is needed to import contact details", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    if (showContactImportDialog) {
+        ContactImportOptionsDialog(
+            onScreenshot = {
+                showContactImportDialog = false
+                onNavigateToContactImport(teamName, "screenshot")
+            },
+            onApp = {
+                showContactImportDialog = false
+                com.playerid.app.capture.AppRosterCaptureRepository.clearContacts()
+                onNavigateToContactImport(teamName, "app")
+            },
+            onDeviceContact = {
+                showContactImportDialog = false
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                    contactPicker.launch(null)
+                } else {
+                    contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                }
+            },
+            onManualContact = {
+                showContactImportDialog = false
+                showManualContactDialog = true
+            },
+            onDismiss = { showContactImportDialog = false }
+        )
+    }
+
+    if (showManualContactDialog) {
+        ManualTeamContactDialog(
+            players = displayPlayers,
+            onSave = { contact ->
+                teamContacts = saveTeamContact(context, teamName, teamContacts, contact)
+                showManualContactDialog = false
+            },
+            onDismiss = { showManualContactDialog = false }
+        )
     }
 
     if (managementState.activeDialog == TeamManagementDialog.ImportRoster) {
@@ -506,7 +597,26 @@ fun TeamManagementView(
         )
     }
 
-    when (detailPage) {
+    if (showTeamSetup) {
+        TeamSetupWorkflow(
+            teamName = teamName,
+            rosterCount = teamPlayers.size,
+            gameCount = teamGames.size,
+            contactCount = teamContacts.size,
+            onImportRoster = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.ImportRoster)
+                )
+            },
+            onImportSchedule = {
+                managementState = managementState.reduce(
+                    TeamManagementEvent.DialogRequested(TeamManagementDialog.ImportSchedule)
+                )
+            },
+            onImportContacts = { showContactImportDialog = true },
+            onFinish = { showTeamSetup = false }
+        )
+    } else when (detailPage) {
         TeamDetailPage.Overview -> TeamOverviewPage(
             teamName = teamName,
             seasonLabel = selectedTeamMeta?.description?.takeIf { it.isNotBlank() } ?: selectedTeamMeta?.sport.orEmpty(),
@@ -602,6 +712,7 @@ fun TeamManagementView(
             totalCount = teamPlayers.size,
             search = rosterListState.searchQuery,
             favoritePlayerIds = rosterListState.favoritePlayerIds,
+            playerMemoryCounts = playerMemoryCounts,
             onSearchChange = { query ->
                 rosterSearch = rosterListState
                     .reduce(RosterListEvent.SearchQueryChanged(query))
@@ -698,11 +809,28 @@ fun TeamManagementView(
     
     managementState.editingPlayerId?.let(displayPlayersById::get)?.let { player ->
         val availableTeams by teamViewModel.availableTeams.collectAsState()
+        val playerContact = teamContacts.firstOrNull {
+            player.id in it.linkedPlayerIds || it.displayName.equals(player.name, ignoreCase = true)
+        }
         EditPlayerDialog(
             player = player,
             hideTeamField = true, // Hide team field since we're in team context
+            showContactFields = true,
+            initialContactPhone = playerContact?.phoneNumber.orEmpty(),
+            initialContactEmail = playerContact?.email.orEmpty(),
             onDismiss = {
                 managementState = managementState.reduce(TeamManagementEvent.DialogDismissed)
+            },
+            onContactSave = { updatedName, phone, email ->
+                teamContacts = upsertPlayerContact(
+                    context = context,
+                    teamName = teamName,
+                    playerId = player.id,
+                    originalPlayerName = player.name,
+                    updatedPlayerName = updatedName,
+                    phone = phone,
+                    email = email
+                )
             },
             onSave = { updatedPlayer ->
                 playerViewModel.updatePlayer(updatedPlayer)
@@ -759,6 +887,7 @@ private fun TeamRosterPage(
     totalCount: Int,
     search: String,
     favoritePlayerIds: Set<String>,
+    playerMemoryCounts: Map<String, Int>,
     onSearchChange: (String) -> Unit,
     onBack: () -> Unit,
     onAdd: () -> Unit,
@@ -813,6 +942,22 @@ private fun TeamRosterPage(
         },
         playerTrailingContent = { profile ->
             playersById[profile.id]?.let { player ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val memoryCount = playerMemoryCounts[player.name.trim().lowercase(Locale.getDefault())] ?: 0
+                    if (memoryCount > 0) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "$memoryCount ${if (memoryCount == 1) "memory" else "memories"}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
                     IconButton(onClick = { onToggleFavorite(player) }) {
                         Icon(
                             Icons.Default.Star,
@@ -820,6 +965,7 @@ private fun TeamRosterPage(
                             tint = if (player.id in favoritePlayerIds) Color(0xFFFFB300) else MaterialTheme.colorScheme.outline
                         )
                     }
+                }
             }
         }
     )
@@ -890,6 +1036,7 @@ private fun TeamSchedulePage(
 @Composable
 fun InviteTeamDialog(
     teamName: String,
+    optionsTitle: String = "Invite to $teamName",
     onDismiss: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -916,6 +1063,7 @@ fun InviteTeamDialog(
     val nfcEnabled = nfcAdapter?.isEnabled == true
     SharedInviteTeamDialog(
         teamName = teamName,
+        optionsTitle = optionsTitle,
         nfcAvailable = nfcAvailable,
         nfcEnabled = nfcEnabled,
         onDismiss = onDismiss,
@@ -1195,6 +1343,29 @@ private suspend fun loadRecordedVideosForTeam(context: android.content.Context, 
     }
 }
 
+private suspend fun loadPlayerMemoryCounts(
+    context: android.content.Context,
+    teamName: String
+): Map<String, Int> = withContext(Dispatchers.IO) {
+    val kidPrefs = context.getSharedPreferences("video_kid_names", android.content.Context.MODE_PRIVATE)
+    val reelPrefs = context.getSharedPreferences("reel_clip_ids_v1", android.content.Context.MODE_PRIVATE)
+
+    loadRecordedVideosForTeam(context, teamName)
+        .asSequence()
+        .filterNot { video -> reelPrefs.contains(video.id) || reelPrefs.contains(video.filePath) }
+        .mapNotNull { video ->
+            val filePath = android.net.Uri.parse(video.filePath).path
+            (kidPrefs.getString(video.id, null)
+                ?: kidPrefs.getString(video.filePath, null)
+                ?: filePath?.let { kidPrefs.getString(it, null) })
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?.lowercase(Locale.getDefault())
+        }
+        .groupingBy { it }
+        .eachCount()
+}
+
 private suspend fun cleanupTeamClips(context: android.content.Context, teamName: String): Int {
     return withContext(Dispatchers.IO) {
         val logTag = "TeamHighlights"
@@ -1384,4 +1555,305 @@ private fun PlayerPhotoAvatar(
             )
         }
     }
+}
+
+@Composable
+private fun TeamSetupWorkflow(
+    teamName: String,
+    rosterCount: Int,
+    gameCount: Int,
+    contactCount: Int,
+    onImportRoster: () -> Unit,
+    onImportSchedule: () -> Unit,
+    onImportContacts: () -> Unit,
+    onFinish: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Set up $teamName",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "You are the first parent here. Would you like to help set up the roster, schedule, and team contacts?",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        TeamSetupStep(
+            icon = Icons.Default.Groups,
+            title = "Roster",
+            detail = if (rosterCount > 0) "$rosterCount players added" else "Import players from a screenshot, app, or website",
+            complete = rosterCount > 0,
+            actionLabel = if (rosterCount > 0) "Add more" else "Import roster",
+            onClick = onImportRoster
+        )
+        TeamSetupStep(
+            icon = Icons.Default.CalendarMonth,
+            title = "Schedule",
+            detail = if (gameCount > 0) "$gameCount games added" else "Import games from a screenshot, app, or website",
+            complete = gameCount > 0,
+            actionLabel = if (gameCount > 0) "Add more" else "Import schedule",
+            onClick = onImportSchedule
+        )
+        TeamSetupStep(
+            icon = Icons.Default.PeopleAlt,
+            title = "Contacts",
+            detail = if (contactCount > 0) "$contactCount contacts added" else "Add coaches, managers, and parents",
+            complete = contactCount > 0,
+            actionLabel = if (contactCount > 0) "Add more" else "Import contacts",
+            onClick = onImportContacts
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
+            Text(if (rosterCount + gameCount + contactCount > 0) "Finish setup" else "Set up later")
+        }
+    }
+}
+
+@Composable
+private fun TeamSetupStep(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    detail: String,
+    complete: Boolean,
+    actionLabel: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    if (complete) {
+                        Icon(Icons.Default.Check, contentDescription = "Complete", tint = Color(0xFF238636), modifier = Modifier.size(18.dp))
+                    }
+                }
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Button(onClick = onClick) { Text(actionLabel) }
+        }
+    }
+}
+
+@Composable
+private fun ContactImportOptionsDialog(
+    onScreenshot: () -> Unit,
+    onApp: () -> Unit,
+    onDeviceContact: () -> Unit,
+    onManualContact: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Import team contacts") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Choose a source for coaches, managers, or parents.")
+                Button(onClick = onScreenshot, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Import from screenshot")
+                }
+                Button(onClick = onApp, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.PhoneAndroid, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Import from team app")
+                }
+                Button(onClick = onDeviceContact, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.PhoneAndroid, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Choose from phone contacts")
+                }
+                Button(onClick = onManualContact, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.PersonAdd, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Enter contact manually")
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { Button(onClick = onDismiss) { Text("Close") } }
+    )
+}
+
+@Composable
+private fun ManualTeamContactDialog(
+    players: List<Player>,
+    onSave: (SelectedContact) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var phone by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
+    var linkedPlayerIds by rememberSaveable { mutableStateOf(setOf<String>()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add team contact") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone") }, singleLine = true)
+                OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, singleLine = true)
+                Text("Players", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                    items(players, key = { it.id }) { player ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = player.id in linkedPlayerIds,
+                                onCheckedChange = { checked ->
+                                    linkedPlayerIds = if (checked) linkedPlayerIds + player.id else linkedPlayerIds - player.id
+                                }
+                            )
+                            Text("#${player.number} ${player.name}")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = name.isNotBlank() && (phone.isNotBlank() || email.isNotBlank()) && linkedPlayerIds.isNotEmpty(),
+                onClick = {
+                    onSave(
+                        SelectedContact(
+                            name.trim(),
+                            phone.trim().ifBlank { null },
+                            email.trim().ifBlank { null },
+                            linkedPlayerIds
+                        )
+                    )
+                }
+            ) { Text("Add") }
+        },
+        dismissButton = { Button(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+internal fun loadTeamContacts(context: android.content.Context, teamName: String): List<SelectedContact> {
+    val encoded = context.getSharedPreferences("team_contacts", android.content.Context.MODE_PRIVATE)
+        .getString(teamName, null) ?: return emptyList()
+    return runCatching {
+        val array = JSONArray(encoded)
+        List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            SelectedContact(
+                displayName = item.getString("name"),
+                phoneNumber = item.optString("phone").ifBlank { null },
+                email = item.optString("email").ifBlank { null },
+                linkedPlayerIds = item.optJSONArray("playerIds")?.let { playerIds ->
+                    buildSet {
+                        for (index in 0 until playerIds.length()) {
+                            playerIds.optString(index).takeIf(String::isNotBlank)?.let(::add)
+                        }
+                    }
+                }.orEmpty()
+            )
+        }
+    }.getOrDefault(emptyList())
+}
+
+private fun saveTeamContact(
+    context: android.content.Context,
+    teamName: String,
+    existing: List<SelectedContact>,
+    contact: SelectedContact
+): List<SelectedContact> {
+    val existingIndex = existing.indexOfFirst { it.cacheKey == contact.cacheKey }
+    val updated = if (existingIndex >= 0) {
+        existing.toMutableList().apply {
+            val saved = this[existingIndex]
+            this[existingIndex] = contact.copy(linkedPlayerIds = saved.linkedPlayerIds + contact.linkedPlayerIds)
+        }
+    } else {
+        existing + contact
+    }
+    persistTeamContacts(context, teamName, updated)
+    return updated
+}
+
+private fun persistTeamContacts(
+    context: android.content.Context,
+    teamName: String,
+    contacts: List<SelectedContact>
+) {
+    val encoded = JSONArray().apply {
+        contacts.forEach { item ->
+            put(JSONObject().apply {
+                put("name", item.displayName)
+                put("phone", item.phoneNumber.orEmpty())
+                put("email", item.email.orEmpty())
+                put("playerIds", JSONArray(item.linkedPlayerIds.toList()))
+            })
+        }
+    }.toString()
+    context.getSharedPreferences("team_contacts", android.content.Context.MODE_PRIVATE)
+        .edit()
+        .putString(teamName, encoded)
+        .apply()
+}
+
+private fun upsertPlayerContact(
+    context: android.content.Context,
+    teamName: String,
+    playerId: String,
+    originalPlayerName: String,
+    updatedPlayerName: String,
+    phone: String,
+    email: String
+): List<SelectedContact> {
+    val contacts = loadTeamContacts(context, teamName).toMutableList()
+    val existingIndex = contacts.indexOfFirst {
+        playerId in it.linkedPlayerIds || it.displayName.equals(originalPlayerName, ignoreCase = true)
+    }
+    if (phone.isBlank() && email.isBlank()) {
+        if (existingIndex >= 0) {
+            val guardian = contacts[existingIndex]
+            val remainingPlayerIds = guardian.linkedPlayerIds - playerId
+            if (remainingPlayerIds.isEmpty()) contacts.removeAt(existingIndex)
+            else contacts[existingIndex] = guardian.copy(linkedPlayerIds = remainingPlayerIds)
+        }
+    } else {
+        val updated = SelectedContact(
+            displayName = updatedPlayerName,
+            phoneNumber = phone.ifBlank { null },
+            email = email.ifBlank { null },
+            linkedPlayerIds = setOf(playerId)
+        )
+        val matchingGuardianIndex = contacts.indexOfFirst { it.cacheKey == updated.cacheKey }
+        when {
+            matchingGuardianIndex >= 0 -> {
+                val guardian = contacts[matchingGuardianIndex]
+                contacts[matchingGuardianIndex] = guardian.copy(linkedPlayerIds = guardian.linkedPlayerIds + playerId)
+                if (existingIndex >= 0 && existingIndex != matchingGuardianIndex) contacts.removeAt(existingIndex)
+            }
+            existingIndex >= 0 -> contacts[existingIndex] = updated
+            else -> contacts += updated
+        }
+    }
+    persistTeamContacts(context, teamName, contacts)
+    return contacts
+}
+
+internal fun saveTeamContacts(
+    context: android.content.Context,
+    teamName: String,
+    contacts: List<SelectedContact>
+): List<SelectedContact> = contacts.fold(loadTeamContacts(context, teamName)) { saved, contact ->
+    saveTeamContact(context, teamName, saved, contact)
 }

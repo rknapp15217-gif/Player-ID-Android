@@ -34,8 +34,14 @@ interface MemoryOrganizationDao {
     @Query("SELECT * FROM child_profiles WHERE isActive = 1 ORDER BY displayName ASC")
     fun getActiveChildren(): Flow<List<ChildProfile>>
 
+    @Query("SELECT * FROM child_profiles WHERE displayName = :displayName COLLATE NOCASE LIMIT 1")
+    suspend fun getChildByDisplayName(displayName: String): ChildProfile?
+
     @Query("SELECT * FROM sport_seasons WHERE childId = :childId AND isActive = 1 ORDER BY seasonLabel DESC, sportName ASC")
     fun getSeasonsForChild(childId: String): Flow<List<SportSeason>>
+
+    @Query("SELECT * FROM sport_seasons WHERE teamName = :teamName AND seasonLabel = :seasonLabel AND childId = :childId LIMIT 1")
+    suspend fun getSeasonForTeamChildAndLabel(teamName: String, childId: String, seasonLabel: String): SportSeason?
 
     @Query("SELECT * FROM game_schedules WHERE sportSeasonId = :sportSeasonId ORDER BY scheduledStartMs DESC")
     fun getGamesForSeason(sportSeasonId: String): Flow<List<GameSchedule>>
@@ -48,6 +54,21 @@ interface MemoryOrganizationDao {
     """)
     fun getGamesForTeam(teamName: String): Flow<List<GameSchedule>>
 
+    @Query("""
+        SELECT * FROM game_schedules
+        WHERE sportSeasonId = :seasonId
+            AND opponentName = :opponentName COLLATE NOCASE
+            AND scheduledStartMs >= :dayStartMs
+            AND scheduledStartMs < :dayEndMs
+        LIMIT 1
+    """)
+    suspend fun getGameForSeasonOpponentOnDay(
+        seasonId: String,
+        opponentName: String,
+        dayStartMs: Long,
+        dayEndMs: Long
+    ): GameSchedule?
+
     @Query("SELECT * FROM game_schedules WHERE sportSeasonId = :sportSeasonId ORDER BY scheduledStartMs DESC")
     suspend fun getGamesForSeasonSnapshot(sportSeasonId: String): List<GameSchedule>
 
@@ -57,6 +78,23 @@ interface MemoryOrganizationDao {
     @Query("SELECT * FROM memory_items WHERE gameScheduleId = :gameId ORDER BY dateTakenMs DESC")
     fun getMemoryForGame(gameId: String): Flow<List<MemoryItem>>
 
+    @Query("""
+        SELECT memory_items.*, game_schedules.opponentName AS opponentName,
+            game_schedules.scheduledStartMs AS scheduledStartMs,
+            sport_seasons.seasonLabel AS seasonLabel,
+            child_profiles.displayName AS childName
+        FROM memory_items
+        INNER JOIN sport_seasons ON sport_seasons.id = memory_items.sportSeasonId
+        INNER JOIN child_profiles ON child_profiles.id = sport_seasons.childId
+        LEFT JOIN game_schedules ON game_schedules.id = memory_items.gameScheduleId
+        WHERE sport_seasons.teamName IN (:teamNames)
+            AND sport_seasons.isActive = 1
+            AND memory_items.mimeType LIKE 'image/%'
+            AND memory_items.needsReview = 0
+        ORDER BY memory_items.dateTakenMs DESC
+    """)
+    suspend fun getAcceptedPhotosForTeams(teamNames: List<String>): List<TeamPhotoMemory>
+
     @Query("SELECT * FROM memory_items WHERE needsReview = 1 ORDER BY autoScore ASC, dateTakenMs DESC")
     fun getNeedsReviewMemory(): Flow<List<MemoryItem>>
 
@@ -65,6 +103,9 @@ interface MemoryOrganizationDao {
 
     @Query("SELECT * FROM memory_items WHERE id IN (:ids)")
     suspend fun getMemoryItemsByIds(ids: List<String>): List<MemoryItem>
+
+    @Query("SELECT contentUri FROM memory_items")
+    suspend fun getAllMemoryContentUris(): List<String>
 
     @Query("DELETE FROM memory_items WHERE id IN (:ids)")
     suspend fun deleteMemoryItemsByIds(ids: List<String>)

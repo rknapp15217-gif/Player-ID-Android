@@ -20,3 +20,14 @@ internal fun findCurrentScheduledGame(
         timeZoneId = zoneId.id
     )?.toEntity()
 }
+
+internal fun upcomingScheduledOpponentNames(
+    games: List<GameSchedule>,
+    nowMs: Long
+): List<String> = games.asSequence()
+    .filter { it.scheduledEndMs >= nowMs }
+    .sortedBy { it.scheduledStartMs }
+    .map { it.opponentName.trim() }
+    .filter { it.isNotBlank() }
+    .distinctBy { it.lowercase() }
+    .toList()

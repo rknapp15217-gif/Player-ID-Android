@@ -5,7 +5,6 @@
 )
 package com.playerid.app.ui.screens
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -16,11 +15,13 @@ import androidx.compose.animation.core.tween
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.provider.MediaStore
 import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import android.util.Size
+import android.view.OrientationEventListener
 import android.view.WindowManager
 import com.playerid.app.data.Player
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -39,6 +40,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -69,12 +71,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
@@ -83,6 +89,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.animation.animateColorAsState
@@ -95,6 +102,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.playerid.app.BuildConfig
 import com.playerid.app.R
 import com.playerid.app.ar.JerseyDetectionManager
 import com.playerid.app.ui.composables.PlayerBubblesOverlay
@@ -149,13 +157,32 @@ enum class CameraFeature {
     CAPTURE_PAST
 }
 
-fun startCamera(
+private object CameraSessionState {
+    var hasOpenedGameSetup = false
+}
+
+private data class BoundCameraUseCases(
+    val camera: Camera,
+    val preview: androidx.camera.core.Preview,
+    val videoCapture: VideoCapture<Recorder>,
+    val imageCapture: androidx.camera.core.ImageCapture,
+    val imageAnalysis: androidx.camera.core.ImageAnalysis
+) {
+    fun updateTargetRotation(rotation: Int) {
+        preview.targetRotation = rotation
+        videoCapture.targetRotation = rotation
+        imageCapture.targetRotation = rotation
+        imageAnalysis.targetRotation = rotation
+    }
+}
+
+private fun startCamera(
     context: Context,
     lifecycleOwner: LifecycleOwner,
     previewView: PreviewView,
     analyzer: com.playerid.app.ar.JerseyDetectionManager,
     recordingManager: com.playerid.app.utils.RecordingManager,
-    onCameraReady: (androidx.camera.core.Camera, androidx.camera.core.ImageCapture) -> Unit
+    onCameraReady: (BoundCameraUseCases) -> Unit
 ) {
     val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(context)
     val cameraExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -201,7 +228,13 @@ fun startCamera(
                     imageCapture,
                     imageAnalyzer
                 )
-                onCameraReady(camera, imageCapture)
+                BoundCameraUseCases(
+                    camera = camera,
+                    preview = preview,
+                    videoCapture = videoCapture,
+                    imageCapture = imageCapture,
+                    imageAnalysis = imageAnalyzer
+                ).also(onCameraReady)
             } catch (e: Exception) {
                 android.util.Log.e("CameraScreen", "Binding failed", e)
             }
@@ -238,16 +271,42 @@ fun CameraScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val configuration = LocalConfiguration.current
+    var cameraTargetRotation by remember { mutableIntStateOf(android.view.Surface.ROTATION_0) }
+    DisposableEffect(context) {
+        val activity = context as? Activity
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        val orientationListener = object : OrientationEventListener(context) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                cameraTargetRotation = when (orientation) {
+                    in 45..134 -> android.view.Surface.ROTATION_270
+                    in 135..224 -> android.view.Surface.ROTATION_180
+                    in 225..314 -> android.view.Surface.ROTATION_90
+                    else -> android.view.Surface.ROTATION_0
+                }
+            }
+        }
+        if (orientationListener.canDetectOrientation()) {
+            orientationListener.enable()
+        }
+        onDispose {
+            orientationListener.disable()
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
     val cameraPermissionsState = rememberMultiplePermissionsState(
         permissions = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
     )
 
     val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     val trackedPlayersWithInfo by viewModel.detectedPlayersWithInfo.collectAsState()
     val selectedTeamByTeamVm by teamViewModel.selectedTeam.collectAsState()
     val selectedTeam = selectedTeamByTeamVm
     var showSelectionSheet by remember { mutableStateOf(false) }
+    var hasOpenedGameSetup by remember { mutableStateOf(CameraSessionState.hasOpenedGameSetup) }
     var selectedJerseyColor by remember { mutableStateOf<String?>(null) }
     var selectedJerseyType by remember { mutableStateOf<String?>(null) }
     var selectedOpponent by rememberSaveable { mutableStateOf("") }
@@ -267,19 +326,31 @@ fun CameraScreen(
             .distinct()
             .sortedBy { it.lowercase() }
     }
-    val matchingOpponents = remember(selectedOpponent, knownOpponents) {
+    val scheduledOpponentNames = upcomingScheduledOpponentNames(
+        games = scheduledGames,
+        nowMs = System.currentTimeMillis()
+    )
+    val matchingOpponents = remember(selectedOpponent, knownOpponents, scheduledOpponentNames) {
         val query = selectedOpponent.trim()
-        if (query.isBlank()) emptyList() else knownOpponents.filter { opponent ->
+        val matchingScheduled = scheduledOpponentNames.filter { opponent ->
+            query.isNotBlank() && opponent.startsWith(query, ignoreCase = true)
+        }
+        val otherScheduled = scheduledOpponentNames.filterNot { it in matchingScheduled }
+        val matchingKnown = if (query.isBlank()) emptyList() else knownOpponents.filter { opponent ->
             opponent.equals(query, ignoreCase = true) || opponent.startsWith(query, ignoreCase = true)
-        }.sortedBy { it.length }.take(5)
+        }.sortedBy { it.length }
+        (matchingScheduled + otherScheduled + matchingKnown)
+            .distinctBy { it.lowercase() }
     }
-    LaunchedEffect(selectedOpponent, knownOpponents) {
+    LaunchedEffect(selectedOpponent, knownOpponents, scheduledOpponentNames) {
         val query = selectedOpponent.trim()
         if (query.isBlank()) {
             opponentSuggestionsExpanded = false
             return@LaunchedEffect
         }
-        val exactPrefixMatches = knownOpponents.filter { it.startsWith(query, ignoreCase = true) }
+        val exactPrefixMatches = (scheduledOpponentNames + knownOpponents)
+            .distinctBy { it.lowercase() }
+            .filter { it.startsWith(query, ignoreCase = true) }
         if (exactPrefixMatches.size == 1) {
             val match = exactPrefixMatches.first()
             if (match != query) {
@@ -290,7 +361,6 @@ fun CameraScreen(
             opponentSuggestionsExpanded = matchingOpponents.isNotEmpty()
         }
     }
-    val kidOptions by teamViewModel.kidOptions.collectAsState()
     var selectedKid by rememberSaveable { mutableStateOf("Tyson") }
     val cameraPrefs = remember(context) {
         context.getSharedPreferences("camera_preferences", Context.MODE_PRIVATE)
@@ -298,6 +368,12 @@ fun CameraScreen(
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
     val selectedTeamMeta = remember(subscribedTeams, selectedTeam) {
         subscribedTeams.firstOrNull { it.name == selectedTeam }
+    }
+    val subscribedTeamsBySport = remember(subscribedTeams) {
+        subscribedTeams
+            .groupBy { it.sport.trim().ifBlank { "Other" } }
+            .toSortedMap(String.CASE_INSENSITIVE_ORDER)
+            .mapValues { (_, teams) -> teams.sortedBy { it.name.lowercase(java.util.Locale.getDefault()) } }
     }
     val teamJerseyOptions = remember(selectedTeamMeta) {
         if (selectedTeamMeta?.name == "North Allegheny Lacrosse") {
@@ -349,6 +425,11 @@ fun CameraScreen(
     var shareTileDragOffsetX by remember { mutableStateOf(0f) }
     var selectedMomentTag by remember { mutableStateOf<MomentTag?>(null) }
     var shareSelectedPlayerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingCameraShareUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var pendingCameraSharePlayerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingCameraSharePlayers by remember { mutableStateOf<List<Player>>(emptyList()) }
+    var pendingCameraShareContact by remember { mutableStateOf<SelectedContact?>(null) }
+    var showCameraGuardianPicker by remember { mutableStateOf(false) }
     var suggestedPlayerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isLoadingSuggestions by remember { mutableStateOf(false) }
     var scanSuggestionsDone by remember { mutableStateOf(false) }
@@ -366,7 +447,23 @@ fun CameraScreen(
     var rosterHighlightedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var rosterVoiceBubble by remember { mutableStateOf<String?>(null) }
     var rosterSelectedPlayer by remember { mutableStateOf<com.playerid.app.data.Player?>(null) }
-    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    var rosterInvitePlayer by remember { mutableStateOf<com.playerid.app.data.Player?>(null) }
+    val pendingSharedMemoryCounts by produceState<Map<String, Int>>(
+        initialValue = emptyMap(),
+        key1 = shareRosterPlayers,
+        key2 = rosterDrawerOpen
+    ) {
+        val savedCounts = withContext(Dispatchers.IO) { loadPendingSharedMemoryCounts(context) }
+        value = if (BuildConfig.DEBUG) {
+            val dummyCounts = shareRosterPlayers.take(3).mapIndexed { index, player ->
+                player.name.trim().lowercase(java.util.Locale.getDefault()) to (3 - index)
+            }.toMap()
+            savedCounts + dummyCounts.mapValues { (name, count) -> maxOf(count, savedCounts[name] ?: 0) }
+        } else {
+            savedCounts
+        }
+    }
+    val screenHeight = configuration.screenHeightDp.dp
     val rosterPeekHeight = screenHeight * 0.35f
     val rosterFullHeight = screenHeight * 0.87f
     val cameraViewportBottomPadding by animateDpAsState(
@@ -612,9 +709,16 @@ fun CameraScreen(
         selectedJerseyType = defaultJersey?.first
         selectedJerseyColor = defaultJersey?.second
     }
-    // Removed obsolete recordingCompleteHandler and onVideoSaved usage
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, _ -> }
+    // A Capture Past recording is only a rolling buffer until the user explicitly saves it.
+    DisposableEffect(lifecycleOwner, capturePastMode) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP &&
+                capturePastMode &&
+                recordingManager.recordingState.value == RecordingState.RECORDING
+            ) {
+                recordingManager.stopAndDiscardRecording()
+            }
+        }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
@@ -716,7 +820,7 @@ fun CameraScreen(
     DisposableEffect(Unit) {
         onDispose {
             if (recordingManager.recordingState.value == RecordingState.RECORDING) {
-                recordingManager.stopRecording()
+                recordingManager.stopAndDiscardRecording()
             }
         }
     }
@@ -937,6 +1041,7 @@ fun CameraScreen(
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { padding ->
             var camera: Camera? by remember { mutableStateOf(null) }
+            var boundCameraUseCases by remember { mutableStateOf<BoundCameraUseCases?>(null) }
             var scaleFactor by remember { mutableStateOf(1f) }
             var minZoom by remember { mutableStateOf(1f) }
             var maxZoom by remember { mutableStateOf(8f) }
@@ -964,16 +1069,19 @@ fun CameraScreen(
                                 previewView = view,
                                 analyzer = detectionManager,
                                 recordingManager = recordingManager
-                            ) { cam: Camera, imageCaptureUseCase: androidx.camera.core.ImageCapture ->
-                                camera = cam
-                                imageCapture = imageCaptureUseCase
-                                minZoom = cam.cameraInfo.zoomState.value?.minZoomRatio ?: 1f
-                                maxZoom = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 8f
+                            ) { useCases ->
+                                boundCameraUseCases = useCases
+                                useCases.updateTargetRotation(cameraTargetRotation)
+                                camera = useCases.camera
+                                imageCapture = useCases.imageCapture
+                                minZoom = useCases.camera.cameraInfo.zoomState.value?.minZoomRatio ?: 1f
+                                maxZoom = useCases.camera.cameraInfo.zoomState.value?.maxZoomRatio ?: 8f
                                 Log.d("CameraScreen", "Camera ready callback - setting isCameraReady true")
                                 isCameraReady = true
                             }
                         }
-                    }, Modifier
+                    },
+                    modifier = Modifier
                         .fillMaxSize()
                         .padding(bottom = cameraViewportBottomPadding)
                         .pointerInput(Unit) {
@@ -985,7 +1093,10 @@ fun CameraScreen(
                                     }
                                 }
                             }
-                        }
+                        },
+                    update = {
+                        boundCameraUseCases?.updateTargetRotation(cameraTargetRotation)
+                    }
                 )
                 if (showCameraOverlay) {
                     Box(
@@ -1019,34 +1130,6 @@ fun CameraScreen(
                     )
                 }
 
-                // Recording timer
-                if (isLiveRecording) {
-                    val elapsedSeconds = (liveElapsedMs / 1000).toInt()
-                    val minutes = elapsedSeconds / 60
-                    val seconds = elapsedSeconds % 60
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 20.dp)
-                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(9.dp)
-                                .background(Color.Red, CircleShape)
-                        )
-                        Text(
-                            text = "%02d:%02d".format(minutes, seconds),
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                    }
-                }
-
                 if (isStandby) {
                     Box(
                         modifier = Modifier
@@ -1077,12 +1160,49 @@ fun CameraScreen(
                         }
                     }
                 }
-                Row(
+                val setupPillPulse by rememberInfiniteTransition(label = "setupPillPulse").animateFloat(
+                    initialValue = 0f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 850),
+                        repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                    ),
+                    label = "setupPillProgress"
+                )
+                val visibleSetupPillPulse = if (hasOpenedGameSetup) 0f else setupPillPulse
+                Column(
                     modifier = Modifier
                         .align(androidx.compose.ui.Alignment.TopStart)
-                        .padding(top = 14.dp, start = 10.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(50))
-                        .clickable { showSelectionSheet = true }
+                        .padding(top = 14.dp, start = 10.dp),
+                    horizontalAlignment = Alignment.Start,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                Row(
+                    modifier = Modifier
+                        .background(
+                            color = if (hasOpenedGameSetup) {
+                                Color.Black.copy(alpha = 0.58f)
+                            } else {
+                                Color(0xFFC65D21).copy(alpha = 0.28f + (visibleSetupPillPulse * 0.28f))
+                            },
+                            shape = RoundedCornerShape(50)
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (hasOpenedGameSetup) {
+                                Color.White.copy(alpha = 0.2f)
+                            } else {
+                                Color(0xFFFFA062).copy(alpha = 0.35f + (visibleSetupPillPulse * 0.45f))
+                            },
+                            shape = RoundedCornerShape(50)
+                        )
+                        .clickable {
+                            rosterDrawerOpen = false
+                            rosterDrawerFull = false
+                            CameraSessionState.hasOpenedGameSetup = true
+                            hasOpenedGameSetup = true
+                            showSelectionSheet = true
+                        }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1108,17 +1228,38 @@ fun CameraScreen(
                     Column(
                         verticalArrangement = Arrangement.spacedBy(1.dp)
                     ) {
-                        Text(
-                            text = if (selectedTeam != null) {
-                                if (!selectedOpponent.isNullOrBlank()) "$selectedTeam · vs $selectedOpponent"
-                                else selectedTeam
-                            } else "Select Team",
-                            color = Color.White.copy(alpha = 0.92f),
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 15.sp,
-                            maxLines = 1
-                        )
-                        if (selectedTeam != null && selectedOpponent.isNotBlank()) {
+                        if (selectedTeam != null) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                Text(
+                                    text = selectedTeam,
+                                    color = Color.White.copy(alpha = 0.92f),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 15.sp,
+                                    maxLines = 1
+                                )
+                                if (selectedOpponent.isNotBlank()) {
+                                    Box(modifier = Modifier.size(7.dp).background(Color.White.copy(alpha = 0.9f), CircleShape))
+                                    Text(
+                                        text = selectedOpponent,
+                                        color = Color.White.copy(alpha = 0.92f),
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 15.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "Select Team",
+                                color = Color.White.copy(alpha = 0.92f),
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 15.sp
+                            )
+                        }
+                        if (selectedTeam != null) {
                             Text(
                                 text = "Player: $selectedKid",
                                 color = Color.White.copy(alpha = 0.78f),
@@ -1130,10 +1271,31 @@ fun CameraScreen(
                     }
                     Icon(
                         imageVector = Icons.Default.ExpandMore,
-                        contentDescription = "Choose team, opponent, and player",
+                        contentDescription = "Choose team and opponent",
                         tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(36.dp)
                     )
+                }
+                if (isLiveRecording) {
+                    val elapsedSeconds = (liveElapsedMs / 1000).toInt()
+                    val minutes = elapsedSeconds / 60
+                    val seconds = elapsedSeconds % 60
+                    Row(
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Box(modifier = Modifier.size(7.dp).background(Color.Red, CircleShape))
+                        Text(
+                            text = "%02d:%02d".format(minutes, seconds),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
                 }
 
                 if (!isStandby && !showSelectionSheet) {
@@ -1218,7 +1380,7 @@ fun CameraScreen(
                 }
 
                 // Roster swipe-up handle strip (visible when drawer is closed)
-                if (!isStandby && !rosterDrawerOpen) {
+                if (!isStandby && !rosterDrawerOpen && !showSelectionSheet) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -1259,9 +1421,10 @@ fun CameraScreen(
                 }
 
                 // Roster Drawer
-                if (rosterDrawerOpen && !isStandby) {
+                if (rosterDrawerOpen && !isStandby && !showSelectionSheet) {
                     RosterDrawerSheet(
                         players = shareRosterPlayers,
+                        pendingSharedMemoryCounts = pendingSharedMemoryCounts,
                         isFull = rosterDrawerFull,
                         searchQuery = rosterSearchQuery,
                         highlightedIds = rosterHighlightedIds,
@@ -1272,6 +1435,7 @@ fun CameraScreen(
                         onPlayerSelect = { rosterSelectedPlayer = it },
                         onMicClick = { startListening() },
                         onExpandChange = { rosterDrawerFull = it },
+                        onInvite = { rosterInvitePlayer = it },
                         onNavigateToTeams = onNavigateToTeams,
                         onDismiss = {
                             rosterDrawerOpen = false
@@ -1280,6 +1444,14 @@ fun CameraScreen(
                             rosterSelectedPlayer = null
                             viewModel.dismissVoiceResult()
                         }
+                    )
+                }
+
+                rosterInvitePlayer?.let { player ->
+                    InviteTeamDialog(
+                        teamName = player.team,
+                        optionsTitle = "Invite to the Team - Share the Memories",
+                        onDismiss = { rosterInvitePlayer = null }
                     )
                 }
 
@@ -1310,20 +1482,34 @@ fun CameraScreen(
                         ) {
                             Column(
                                 modifier = Modifier.padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                horizontalAlignment = Alignment.Start
                             ) {
                                 val opponentBringIntoViewRequester = remember { BringIntoViewRequester() }
                                 val fieldScope = rememberCoroutineScope()
                                 var teamExpanded by remember { mutableStateOf(false) }
+                                Text(
+                                    text = "Game setup",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Text(
+                                    text = "YOUR TEAM",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = teamPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
                                 ExposedDropdownMenuBox(
                                     expanded = teamExpanded,
                                     onExpandedChange = { teamExpanded = !teamExpanded }
                                 ) {
                                     OutlinedTextField(
-                                        value = selectedTeam ?: "",
+                                        value = selectedTeamMeta?.let { team ->
+                                            "${team.sport.ifBlank { "Other" }} · ${team.name}"
+                                        }.orEmpty(),
                                         onValueChange = {},
                                         readOnly = true,
-                                        label = { Text("Select team") },
                                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = teamExpanded) },
                                         modifier = Modifier.fillMaxWidth().menuAnchor()
                                     )
@@ -1331,20 +1517,36 @@ fun CameraScreen(
                                         expanded = teamExpanded,
                                         onDismissRequest = { teamExpanded = false }
                                     ) {
-                                        subscribedTeams.forEach { team ->
-                                            DropdownMenuItem(
-                                                text = { Text(team.name) },
-                                                onClick = {
-                                                    viewModel.setSelectedTeam(team.name)
-                                                    teamViewModel.selectTeam(team.name)
-                                                    teamExpanded = false
-                                                }
+                                        subscribedTeamsBySport.forEach { (sport, teams) ->
+                                            Text(
+                                                text = sport.uppercase(java.util.Locale.getDefault()),
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold,
+                                                textDecoration = TextDecoration.Underline,
+                                                modifier = Modifier.padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 6.dp)
                                             )
+                                            teams.forEach { team ->
+                                                DropdownMenuItem(
+                                                    text = { Text(team.name) },
+                                                    contentPadding = PaddingValues(start = 28.dp, end = 12.dp),
+                                                    onClick = {
+                                                        viewModel.setSelectedTeam(team.name)
+                                                        teamViewModel.selectTeam(team.name)
+                                                        teamExpanded = false
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text("Jersey Color:", fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text(
+                                    text = "Jersey color",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     teamJerseyOptions.forEach { (label, colorHex) ->
                                         val swatch = parseCameraScreenColor(colorHex, Color.Gray)
@@ -1354,8 +1556,12 @@ fun CameraScreen(
                                                 selectedJerseyColor = colorHex
                                             },
                                             border = androidx.compose.foundation.BorderStroke(
-                                                2.dp,
-                                                if (selectedJerseyType == label) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                                1.dp,
+                                                if (selectedJerseyType == label) {
+                                                    teamPrimary.copy(alpha = 0.32f)
+                                                } else {
+                                                    MaterialTheme.colorScheme.outlineVariant
+                                                }
                                             )
                                         ) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1366,12 +1572,27 @@ fun CameraScreen(
                                                         .border(1.dp, Color.White, CircleShape)
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
-                                                Text(label)
+                                                Text(
+                                                    text = label,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Normal
+                                                )
                                             }
                                         }
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(16.dp))
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 20.dp),
+                                    thickness = 1.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant
+                                )
+                                Text(
+                                    text = "MATCHUP",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = teamPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
                                 ExposedDropdownMenuBox(
                                     expanded = opponentSuggestionsExpanded && matchingOpponents.isNotEmpty(),
                                     onExpandedChange = { if (matchingOpponents.isNotEmpty()) opponentSuggestionsExpanded = it }
@@ -1388,7 +1609,15 @@ fun CameraScreen(
                                                 }
                                             }
                                         },
-                                        label = { Text("Enter opponent name") },
+                                        label = { Text("Opponent") },
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                        keyboardActions = KeyboardActions(
+                                            onDone = {
+                                                opponentSuggestionsExpanded = false
+                                                focusManager.clearFocus()
+                                                keyboardController?.hide()
+                                            }
+                                        ),
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedBorderColor = teamPrimary,
                                             unfocusedBorderColor = teamPrimary.copy(alpha = 0.45f),
@@ -1430,48 +1659,6 @@ fun CameraScreen(
                                             )
                                         }
                                     }
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                if (selectedOpponent.isNotBlank()) {
-                                    var kidExpanded by remember { mutableStateOf(false) }
-                                    ExposedDropdownMenuBox(
-                                        expanded = kidExpanded,
-                                        onExpandedChange = { kidExpanded = !kidExpanded }
-                                    ) {
-                                        OutlinedTextField(
-                                            value = selectedKid,
-                                            onValueChange = {},
-                                            readOnly = true,
-                                            label = { Text("Select Player") },
-                                            trailingIcon = {
-                                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = kidExpanded)
-                                            },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .menuAnchor()
-                                        )
-                                        ExposedDropdownMenu(
-                                            expanded = kidExpanded,
-                                            onDismissRequest = { kidExpanded = false }
-                                        ) {
-                                            kidOptions.forEach { kidName ->
-                                                DropdownMenuItem(
-                                                    text = { Text(kidName) },
-                                                    onClick = {
-                                                        selectedKid = kidName
-                                                        teamViewModel.selectKidForTeam(selectedTeam, kidName)
-                                                        kidExpanded = false
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    Text(
-                                        text = "Enter opponent to choose player",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
                                 }
                                 Spacer(modifier = Modifier.height(24.dp))
                             }
@@ -1711,7 +1898,20 @@ fun CameraScreen(
                                 label = "Share Clip",
                                 icon = Icons.Default.Share,
                                 onClick = {
-                                    launchPersonalShareChooser(context, savedUri, "Share this moment")
+                                    val guardianContacts = selectedTeam
+                                        ?.let { loadTeamContacts(context, it) }
+                                        .orEmpty()
+                                    if (guardianContacts.isNotEmpty()) {
+                                        pendingCameraShareUri = savedUri
+                                        showCameraGuardianPicker = true
+                                    } else if (shareRosterPlayers.size <= 1) {
+                                        persistMemoryPlayerAssignments(context, savedUri, shareRosterPlayers)
+                                        launchPersonalShareChooser(context, savedUri, "Share this moment")
+                                    } else {
+                                        pendingCameraShareUri = savedUri
+                                        pendingCameraSharePlayers = shareRosterPlayers
+                                        pendingCameraSharePlayerIds = shareSelectedPlayerIds
+                                    }
                                     showPostCaptureShareDialog = false
                                     postCapturePromptUri = null
                                 },
@@ -1791,11 +1991,174 @@ fun CameraScreen(
             )
         }
     }
+
+    if (showCameraGuardianPicker && pendingCameraShareUri != null) {
+        GuardianSharePickerDialog(
+            contacts = selectedTeam?.let { loadTeamContacts(context, it) }.orEmpty(),
+            onSelect = { contact ->
+                val linkedPlayers = contact.linkedPlayerIds
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { linkedIds -> shareRosterPlayers.filter { it.id in linkedIds } }
+                    .orEmpty()
+                    .ifEmpty { shareRosterPlayers }
+                val shareUri = pendingCameraShareUri ?: return@GuardianSharePickerDialog
+                when {
+                    linkedPlayers.size <= 1 -> {
+                        persistMemoryPlayerAssignments(context, shareUri, linkedPlayers)
+                        shareVideoToPhoneContact(context, shareUri, linkedPlayers, contact)
+                        pendingCameraShareUri = null
+                    }
+                    else -> {
+                        pendingCameraShareContact = contact
+                        pendingCameraSharePlayers = linkedPlayers
+                        pendingCameraSharePlayerIds = emptySet()
+                    }
+                }
+                showCameraGuardianPicker = false
+            },
+            onDismiss = {
+                showCameraGuardianPicker = false
+                pendingCameraShareUri = null
+            }
+        )
+    }
+
+    pendingCameraShareUri?.takeIf { !showCameraGuardianPicker && pendingCameraSharePlayers.isNotEmpty() }?.let { shareUri ->
+        MemoryPlayerAssignmentDialog(
+            players = pendingCameraSharePlayers,
+            selectedPlayerIds = pendingCameraSharePlayerIds,
+            onSelectionChanged = { pendingCameraSharePlayerIds = it },
+            onDismiss = {
+                pendingCameraShareUri = null
+                pendingCameraSharePlayerIds = emptySet()
+                pendingCameraSharePlayers = emptyList()
+                pendingCameraShareContact = null
+            },
+            onContinue = {
+                val assignedPlayers = pendingCameraSharePlayers.filter { it.id in pendingCameraSharePlayerIds }
+                persistMemoryPlayerAssignments(context, shareUri, assignedPlayers)
+                pendingCameraShareContact?.let { contact ->
+                    shareVideoToPhoneContact(context, shareUri, assignedPlayers, contact)
+                } ?: launchPersonalShareChooser(context, shareUri, "Share this moment")
+                pendingCameraShareUri = null
+                pendingCameraSharePlayerIds = emptySet()
+                pendingCameraSharePlayers = emptyList()
+                pendingCameraShareContact = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun MemoryPlayerAssignmentDialog(
+    players: List<Player>,
+    selectedPlayerIds: Set<String>,
+    onSelectionChanged: (Set<String>) -> Unit,
+    onDismiss: () -> Unit,
+    onContinue: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Which player is this?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "Select everyone featured in this memory.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                players.forEach { player ->
+                    val selected = player.id in selectedPlayerIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSelectionChanged(
+                                    if (selected) selectedPlayerIds - player.id else selectedPlayerIds + player.id
+                                )
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { checked ->
+                                onSelectionChanged(
+                                    if (checked) selectedPlayerIds + player.id else selectedPlayerIds - player.id
+                                )
+                            }
+                        )
+                        Column {
+                            Text(player.name, fontWeight = FontWeight.SemiBold)
+                            Text("#${player.number}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onContinue, enabled = selectedPlayerIds.isNotEmpty()) {
+                Text("Continue to share")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun GuardianSharePickerDialog(
+    contacts: List<SelectedContact>,
+    onSelect: (SelectedContact) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Who are you sharing with?") },
+        text = {
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                items(contacts, key = { it.cacheKey }) { contact ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(contact) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Person, contentDescription = null)
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(contact.displayName, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                contact.phoneNumber ?: contact.email.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+private fun persistMemoryPlayerAssignments(context: Context, videoUri: Uri, players: List<Player>) {
+    val key = videoUri.toString()
+    context.getSharedPreferences("video_memory_player_ids", Context.MODE_PRIVATE)
+        .edit()
+        .putStringSet(key, players.mapTo(mutableSetOf()) { it.id })
+        .apply()
+    players.firstOrNull()?.let { player ->
+        context.getSharedPreferences("video_kid_names", Context.MODE_PRIVATE)
+            .edit()
+            .putString(key, player.name)
+            .apply()
+    }
 }
 
 @Composable
 private fun RosterDrawerSheet(
     players: List<com.playerid.app.data.Player>,
+    pendingSharedMemoryCounts: Map<String, Int>,
     isFull: Boolean,
     searchQuery: String,
     highlightedIds: Set<String>,
@@ -1806,6 +2169,7 @@ private fun RosterDrawerSheet(
     onPlayerSelect: (com.playerid.app.data.Player?) -> Unit,
     onMicClick: () -> Unit,
     onExpandChange: (Boolean) -> Unit,
+    onInvite: (com.playerid.app.data.Player) -> Unit,
     onNavigateToTeams: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1839,7 +2203,7 @@ private fun RosterDrawerSheet(
         val selectedId = selectedPlayer?.id ?: return@LaunchedEffect
         val selectedIndex = displayedPlayers.indexOfFirst { it.id == selectedId }
         if (selectedIndex >= 0) {
-            rosterListState.animateScrollToItem((selectedIndex - 1).coerceAtLeast(0))
+            rosterListState.animateScrollToItem(selectedIndex)
         }
     }
 
@@ -2092,6 +2456,9 @@ private fun RosterDrawerSheet(
                         items(displayedPlayers, key = { it.id }) { player ->
                             val isHighlighted = highlightedIds.contains(player.id)
                             val isSelected = selectedPlayer?.id == player.id
+                            val pendingMemoryCount = pendingSharedMemoryCounts[
+                                player.name.trim().lowercase(java.util.Locale.getDefault())
+                            ] ?: 0
                             val rowBg by animateColorAsState(
                                 targetValue = if (isSelected) Color(0xFF2E7D32).copy(alpha = 0.42f)
                                     else if (isHighlighted) Color(0xFF1565C0).copy(alpha = 0.40f)
@@ -2117,8 +2484,24 @@ private fun RosterDrawerSheet(
                                 Text(
                                     text = player.name,
                                     color = Color.White.copy(alpha = 0.88f),
-                                    fontSize = 16.sp
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.weight(1f)
                                 )
+                                if (pendingMemoryCount > 0) {
+                                    Surface(
+                                        onClick = { onInvite(player) },
+                                        shape = RoundedCornerShape(50),
+                                        color = Color(0xFFD32F2F)
+                                    ) {
+                                        Text(
+                                            text = "Invite - ${pendingMemoryCount.coerceAtMost(99)} Memories",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                }
                             }
                             if (isFull) {
                                 HorizontalDivider(

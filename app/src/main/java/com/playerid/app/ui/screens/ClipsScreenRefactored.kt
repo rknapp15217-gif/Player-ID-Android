@@ -2,6 +2,8 @@
 
 package com.playerid.app.ui.screens
 
+import android.Manifest
+import android.app.Activity
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
@@ -14,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.speech.RecognizerIntent
 import android.util.Log
 import android.util.Size
 import android.widget.Toast
@@ -23,6 +26,12 @@ import androidx.compose.foundation.Image
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,11 +63,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.ui.platform.LocalConfiguration
@@ -71,28 +81,32 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.GpsFixed
-import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PersonSearch
+import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -100,10 +114,13 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -112,7 +129,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RangeSlider
@@ -127,6 +146,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -145,6 +165,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -155,6 +176,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -162,11 +184,19 @@ import androidx.media3.ui.PlayerView
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import com.playerid.app.data.VideoClip
+import com.playerid.app.data.Player
+import com.playerid.app.BuildConfig
+import com.playerid.app.domain.team.MemoryResultSelection
+import com.playerid.app.data.DetectionResultSerializer
+import com.playerid.app.data.PlayerDatabase
+import com.playerid.app.domain.team.MemorySeasonIntent
+import com.playerid.app.domain.team.parseMemorySearchQuery
 import com.playerid.app.reelVideoRelativePathsForRestoredClips
 import com.playerid.app.ui.icons.CrossedLacrosseSticksIcon
 import com.playerid.app.ui.icons.GroundBallIcon
 import com.playerid.app.ui.icons.StopSignIcon
 import com.playerid.app.viewmodels.TeamViewModel
+import com.playerid.app.viewmodels.PlayerViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -182,6 +212,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val NO_OPPONENT_FILTER_RESTORED = "No opponent specified"
+private const val PROVIDE_OPPONENT_HEADER = "Provide Opponent"
+private const val TEAMMATE_REVIEW_PREFS = "teammate_clip_reviews_v1"
+private const val TEAMMATE_BANNER_DISMISSED_BATCH = "dismissed_banner_batch"
+private const val TEAMMATE_DEMO_REVIEW_ID = "debug_teammate_review_demo_v6"
+private const val SHARE_DEMO_CLIP_ID = "debug_share_feature_demo_v1"
+private val SHARE_DEMO_DETECTED_PLAYER_IDS = setOf("debug_player_12", "debug_player_7", "debug_player_21")
+private const val RECENT_CLIP_WINDOW_MS = 48L * 60L * 60L * 1000L
 private val PlaysAccentColor = com.playerid.app.ui.theme.SpotrHighlightOrange
 private val OpponentGroupColor = Color(0xFF3676B8)
 private val RestoredSwipeActionWidth = 118.dp
@@ -217,6 +254,262 @@ private data class OpponentFilterOption(
     val label: String
 )
 
+private data class ReelPickerMemoryGroup(
+    val key: String,
+    val opponentLabel: String,
+    val seasonLabel: String,
+    val videos: List<VideoClip>
+)
+
+private data class RestoredTeamClipGroup(
+    val key: String,
+    val teamLabel: String,
+    val sections: List<VideoLibrarySection>
+) {
+    val videos: List<VideoClip> get() = sections.flatMap { it.videos }
+}
+
+private data class RestoredGridClipGroup(
+    val key: String,
+    val teamLabel: String?,
+    val title: String,
+    val subtitle: String,
+    val videos: List<VideoClip>
+)
+
+private data class ClipPlayerSuggestion(
+    val name: String,
+    val jerseyNumber: String,
+    val confidence: Float
+)
+
+private data class TeammateReviewClip(
+    val clip: VideoClip,
+    val players: List<ClipPlayerSuggestion>,
+    val isDemo: Boolean = false
+)
+
+private data class PendingClipImport(
+    val uri: Uri,
+    val capturedAtMs: Long?,
+    val team: String? = null,
+    val player: String? = null,
+    val seasonStartYear: Int? = null,
+    val opponent: String? = null
+)
+
+private data class CameraRollVideo(
+    val uri: Uri,
+    val durationMs: Long,
+    val imported: Boolean
+)
+
+@Composable
+private fun CameraRollVideoTile(
+    video: CameraRollVideo,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbnail by produceState<Bitmap?>(initialValue = null, key1 = video.uri) {
+        value = withContext(Dispatchers.IO) { loadRestoredClipThumbnail(context, video.uri.toString()) }
+    }
+    Card(
+        onClick = onClick,
+        enabled = !video.imported,
+        modifier = Modifier.fillMaxWidth().height(132.dp),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            thumbnail?.let {
+                Image(
+                    bitmap = it.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            if (video.imported) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color(0xB8E1E3E6)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Already imported", color = Color(0xFF40464D), fontWeight = FontWeight.Bold)
+                }
+            } else if (selected) {
+                Box(modifier = Modifier.fillMaxSize().border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp)))
+                Surface(
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(28.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = "Selected", modifier = Modifier.padding(5.dp))
+                }
+            }
+            Text(
+                formatRestoredDuration(video.durationMs),
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
+                    .background(Color.Black.copy(alpha = 0.68f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+private fun canonicalOpponentName(value: String?, knownOpponents: List<String>): String? {
+    val normalized = value?.trim()?.replace(Regex("\\s+"), " ").orEmpty()
+    if (normalized.isBlank()) return null
+    return knownOpponents.firstOrNull { it.equals(normalized, ignoreCase = true) } ?: normalized
+}
+
+@Composable
+private fun OpponentAutocompleteField(
+    value: String,
+    knownOpponents: List<String>,
+    onValueChange: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val matches = remember(value, knownOpponents) {
+        val query = value.trim()
+        if (query.isBlank()) {
+            knownOpponents.take(6)
+        } else {
+            knownOpponents.filter { it.contains(query, ignoreCase = true) }.take(6)
+        }
+    }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {
+                onValueChange(it)
+                expanded = true
+            },
+            placeholder = { Text("Enter opponent or event") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        DropdownMenu(
+            expanded = expanded && matches.isNotEmpty(),
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(0.9f)
+        ) {
+            matches.forEach { opponent ->
+                DropdownMenuItem(
+                    text = { Text(opponent) },
+                    onClick = {
+                        onValueChange(opponent)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImportClassificationChoice(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().height(82.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PendingImportPreview(
+    pending: PendingClipImport,
+    clipNumber: Int,
+    detailsAbove: Boolean = false,
+    showTapToPreview: Boolean = true,
+    onPlay: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbnail by produceState<Bitmap?>(initialValue = null, key1 = pending.uri) {
+        value = withContext(Dispatchers.IO) {
+            loadRestoredClipThumbnail(context, pending.uri.toString())
+        }
+    }
+    val capturedLabel = pending.capturedAtMs?.let(::formatRestoredDate) ?: "Date unavailable"
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (detailsAbove) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Memory $clipNumber", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(capturedLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (detailsAbove) 156.dp else 112.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black)
+                .clickable(onClick = onPlay),
+            contentAlignment = Alignment.Center
+        ) {
+        thumbnail?.let { bitmap ->
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Preview memory $clipNumber",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.16f))
+        )
+            if (showTapToPreview) {
+                Text(
+                    text = "Tap to preview",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 9.dp)
+                )
+            }
+        }
+        if (!detailsAbove) {
+            Text("Memory $clipNumber", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(
+                capturedLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
 private fun isReelTaggedClip(clip: VideoClip): Boolean {
     return clip.momentTag?.startsWith("Reel:", ignoreCase = true) == true ||
         clip.gameTitle.startsWith("Spotr-Reel", ignoreCase = true) ||
@@ -228,23 +521,51 @@ private fun reelDisplayTitleForClip(clip: VideoClip): String {
     return if (raw.startsWith("Reel:", ignoreCase = true)) raw.substring(5).trim() else raw
 }
 
+private fun withDebugShareDemo(videos: List<VideoClip>): List<VideoClip> {
+    if (!BuildConfig.DEBUG || videos.any { it.id == SHARE_DEMO_CLIP_ID }) return videos
+    val source = videos.filterNot(::isReelTaggedClip).maxByOrNull { it.createdAt } ?: return videos
+    val demo = source.copy(
+        id = SHARE_DEMO_CLIP_ID,
+        createdAt = System.currentTimeMillis() + 1,
+        gameDate = "2026-05-10",
+        gameTitle = "Pine-Richland",
+        momentTag = "Great Clear & Assist"
+    )
+    return listOf(demo) + videos
+}
+
+private fun debugShareRoster(teamName: String): List<Player> = listOf(
+    Player(id = "debug_player_12", number = "12", name = "Mason Davis", position = "Midfield", team = teamName, academicYear = "Junior", addedBy = "+14125550112"),
+    Player(id = "debug_player_7", number = "7", name = "Ethan Walker", position = "Attack", team = teamName, academicYear = "Senior", addedBy = "+14125550107"),
+    Player(id = "debug_player_21", number = "21", name = "Liam Turner", position = "Defense", team = teamName, academicYear = "Sophomore", addedBy = "+14125550121"),
+    Player(id = "debug_player_4", number = "4", name = "Jackson Reed", position = "Goalie", team = teamName, academicYear = "Junior", addedBy = "+14125550104"),
+    Player(id = "debug_player_11", number = "11", name = "Aiden King", position = "Attack", team = teamName, academicYear = "Freshman", addedBy = "+14125550111"),
+    Player(id = "debug_player_18", number = "18", name = "Noah Brown", position = "Midfield", team = teamName, academicYear = "Sophomore", addedBy = "+14125550118"),
+    Player(id = "debug_player_9", number = "9", name = "Carter Hall", position = "Defense", team = teamName, academicYear = "Senior", addedBy = "+14125550109")
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClipsScreenRefactored(
     teamViewModel: TeamViewModel,
+    playerViewModel: PlayerViewModel,
     cameraHandoffToken: Int = 0,
     onNavigateToTeams: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val cameraTeam by teamViewModel.selectedTeam.collectAsState()
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
+    val playerOptions by teamViewModel.kidOptions.collectAsState()
     val scope = rememberCoroutineScope()
 
     var localTeamName by remember { mutableStateOf<String?>(null) }
+    val rosterFlow = remember(localTeamName) { playerViewModel.observeTeamRoster(localTeamName.orEmpty()) }
+    val teamRoster by rosterFlow.collectAsState(initial = emptyList())
     var clips by remember { mutableStateOf<List<VideoClip>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var showAllTeams by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var animatedSearchHint by remember { mutableStateOf("") }
     var showTeamFilterMenu by remember { mutableStateOf(false) }
     var showPlayerFilterMenu by remember { mutableStateOf(false) }
     var showSeasonFilterMenu by remember { mutableStateOf(false) }
@@ -252,9 +573,13 @@ fun ClipsScreenRefactored(
     var selectedKid by remember(localTeamName) { mutableStateOf<String?>(null) }
     var selectedSeasonKey by remember(localTeamName) { mutableStateOf<String?>(null) }
     var selectedOpponentKey by remember(localTeamName) { mutableStateOf<String?>(null) }
+    var opponentMetadataVersion by remember { mutableStateOf(0) }
     var showReelsOnly by remember(localTeamName) { mutableStateOf(false) }
-    var useGridView by rememberSaveable { mutableStateOf(false) }
+    var isClipsMenuExpanded by rememberSaveable { mutableStateOf(true) }
+    val clipsGridState = rememberLazyGridState()
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedVideoClip by remember { mutableStateOf<VideoClip?>(null) }
+    var selectedVideoStartsInShareFlow by remember { mutableStateOf(false) }
     var editingClip by remember { mutableStateOf<VideoClip?>(null) }
     var editingClipAllowsTrim by remember { mutableStateOf(true) }
     var isTrimmingClip by remember { mutableStateOf(false) }
@@ -266,15 +591,77 @@ fun ClipsScreenRefactored(
     var showReelPickerDialog by remember { mutableStateOf(false) }
     var completedReelUri by remember { mutableStateOf<Uri?>(null) }
     var reelSelectionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showDeletePicker by remember { mutableStateOf(false) }
+    var deleteSelectionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showDeleteSelectionConfirmation by remember { mutableStateOf(false) }
+    var showSharePicker by remember { mutableStateOf(false) }
+    var shareSelectionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedShareVideoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var showCollectionActionsMenu by remember { mutableStateOf(false) }
     var reelNameInput by remember { mutableStateOf("") }
     var draftReelIds by remember { mutableStateOf<List<String>?>(null) }
     var reelEditorSelectionIdsOverride by remember { mutableStateOf<List<String>?>(null) }
     var reelSelectionEditTarget by remember { mutableStateOf<VideoClip?>(null) }
+    var pendingImports by remember { mutableStateOf<List<PendingClipImport>>(emptyList()) }
+    var pendingImportTeam by remember { mutableStateOf<String?>(null) }
+    var previewPendingImport by remember { mutableStateOf<PendingClipImport?>(null) }
+    var showCameraRollPicker by remember { mutableStateOf(false) }
+    var cameraRollVideos by remember { mutableStateOf<List<CameraRollVideo>>(emptyList()) }
+    var selectedCameraRollUris by remember { mutableStateOf<Set<Uri>>(emptySet()) }
+    var isLoadingCameraRoll by remember { mutableStateOf(false) }
+    var pendingSpokenReelCommand by remember { mutableStateOf<String?>(null) }
+    var showTeammateReview by rememberSaveable { mutableStateOf(false) }
+    var teammateReviewClip by remember { mutableStateOf<TeammateReviewClip?>(null) }
+    var sharedPlayers by remember { mutableStateOf<List<String>?>(null) }
+    var reviewQueueVersion by remember { mutableStateOf(0) }
+    var dismissedReviewBatch by remember(localTeamName) {
+        mutableStateOf(
+            context.getSharedPreferences(TEAMMATE_REVIEW_PREFS, android.content.Context.MODE_PRIVATE)
+                .getString("$TEAMMATE_BANNER_DISMISSED_BATCH:${localTeamName.orEmpty()}", null)
+        )
+    }
     val toggleReelClipSelection: (String) -> Unit = { clipId ->
         reelSelectionIds = if (reelSelectionIds.contains(clipId)) {
             reelSelectionIds - clipId
         } else {
             reelSelectionIds + clipId
+        }
+    }
+    val toggleShareClipSelection: (String) -> Unit = { clipId ->
+        shareSelectionIds = if (clipId in shareSelectionIds) {
+            shareSelectionIds - clipId
+        } else {
+            shareSelectionIds + clipId
+        }
+    }
+    val isClipSelectionMode = showDeletePicker || showReelPickerDialog || showSharePicker
+
+    LaunchedEffect(showReelPickerDialog) {
+        if (showReelPickerDialog) return@LaunchedEffect
+        var previousIndex = 0
+        var previousOffset = 0
+        val scrollPositions = snapshotFlow {
+            clipsGridState.firstVisibleItemIndex to clipsGridState.firstVisibleItemScrollOffset
+        }
+        scrollPositions.collect { (index, offset) ->
+            val atTop = index == 0 && offset < 8
+            val scrollingDown = index > previousIndex || (index == previousIndex && offset > previousOffset + 8)
+            val scrollingUp = index < previousIndex || (index == previousIndex && offset < previousOffset - 8)
+            when {
+                atTop -> isClipsMenuExpanded = true
+                scrollingDown -> isClipsMenuExpanded = false
+                scrollingUp -> isClipsMenuExpanded = true
+            }
+            previousIndex = index
+            previousOffset = offset
+        }
+    }
+    LaunchedEffect(isClipsMenuExpanded) {
+        if (!isClipsMenuExpanded) {
+            showTeamFilterMenu = false
+            showPlayerFilterMenu = false
+            showSeasonFilterMenu = false
+            showOpponentFilterMenu = false
         }
     }
 
@@ -292,40 +679,644 @@ fun ClipsScreenRefactored(
         }
     }
 
-    val uploadLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        val selectedTeamName = localTeamName
-        if (uri != null && !selectedTeamName.isNullOrBlank()) {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+    fun openCameraRollPicker() {
+        selectedCameraRollUris = emptySet()
+        showCameraRollPicker = true
+        isLoadingCameraRoll = true
+        scope.launch {
+            cameraRollVideos = withContext(Dispatchers.IO) {
+                val persistedUris = context
+                    .getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE)
+                    .all.keys.mapNotNull(::storedClipKeyToUri)
+                loadCameraRollVideos(
+                    context,
+                    persistedUris + clips.map { Uri.parse(it.filePath) }
                 )
-            } catch (_: SecurityException) {
             }
-
-            val uriString = uri.toString()
-            context.getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString(uriString, selectedTeamName)
-                .apply()
-            context.getSharedPreferences("video_start_times", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putLong(uriString, System.currentTimeMillis())
-                .apply()
-            context.getSharedPreferences("video_kid_names", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString(uriString, selectedKid ?: teamViewModel.getSelectedKidForTeam(selectedTeamName))
-                .apply()
-
-            scope.launch {
-                isLoading = true
-                clips = loadRestoredClips(context, selectedTeamName)
-                isLoading = false
+            isLoadingCameraRoll = false
+        }
+    }
+    val cameraRollPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) openCameraRollPicker()
+        else Toast.makeText(context, "Video access is needed to upload memories", Toast.LENGTH_SHORT).show()
+    }
+    val searchVoiceLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spoken = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+                ?.trim()
+                .orEmpty()
+            if (spoken.isNotEmpty()) {
+                val spokenWords = spoken.lowercase()
+                    .split(Regex("[^a-z]+"))
+                    .filter(String::isNotBlank)
+                val isReelCommand = spokenWords.any { it in setOf("make", "create", "build") } &&
+                    spokenWords.any { it in setOf("reel", "reels", "real") }
+                pendingSpokenReelCommand = spoken.takeIf { isReelCommand }
+                if (isReelCommand) {
+                    selectedKid = null
+                    selectedSeasonKey = null
+                    selectedOpponentKey = null
+                    showReelsOnly = false
+                    searchQuery = ""
+                } else {
+                    searchQuery = spoken
+                }
             }
+        }
+    }
 
-            Toast.makeText(context, "Play uploaded", Toast.LENGTH_SHORT).show()
+    val importPlayerOptions: List<String> = remember(clips, playerOptions) {
+        val playersFromClips = buildRestoredClipKidLookup(context, clips)
+            .values
+            .mapNotNull { player -> player?.trim()?.takeIf(String::isNotBlank) }
+            .distinctBy { it.lowercase(Locale.getDefault()) }
+            .sortedBy { it.lowercase(Locale.getDefault()) }
+        playersFromClips.ifEmpty {
+            playerOptions
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinctBy { it.lowercase(Locale.getDefault()) }
+                .sortedBy { it.lowercase(Locale.getDefault()) }
+        }
+    }
+
+    if (showCameraRollPicker) {
+        Dialog(
+            onDismissRequest = { showCameraRollPicker = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { showCameraRollPicker = false }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
+                        Text(
+                            "Select memories",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text("${selectedCameraRollUris.size} selected", style = MaterialTheme.typography.labelLarge)
+                    }
+                    HorizontalDivider()
+                    if (isLoadingCameraRoll) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier.weight(1f).padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            gridItems(cameraRollVideos, key = { it.uri.toString() }) { video ->
+                                CameraRollVideoTile(
+                                    video = video,
+                                    selected = video.uri in selectedCameraRollUris,
+                                    onClick = {
+                                        selectedCameraRollUris = if (video.uri in selectedCameraRollUris) {
+                                            selectedCameraRollUris - video.uri
+                                        } else {
+                                            selectedCameraRollUris + video.uri
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        Button(
+                            enabled = selectedCameraRollUris.isNotEmpty(),
+                            onClick = {
+                                val selectedTeamName = localTeamName ?: return@Button
+                                val selectedUris = cameraRollVideos
+                                    .map { it.uri }
+                                    .filter { it in selectedCameraRollUris }
+                                showCameraRollPicker = false
+                                scope.launch {
+                                    pendingImports = withContext(Dispatchers.IO) {
+                                        selectedUris.map { uri ->
+                                            readPendingClipImport(context, uri).copy(team = selectedTeamName)
+                                        }
+                                    }
+                                    pendingImportTeam = selectedTeamName
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp)
+                        ) {
+                            Text("Add ${selectedCameraRollUris.size} ${if (selectedCameraRollUris.size == 1) "Memory" else "Memories"}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (pendingImports.isNotEmpty()) {
+        val importTeam = pendingImportTeam
+        val currentSeasonStartYear = restoredSeasonStartYear(System.currentTimeMillis())
+        val seasonYears = remember(pendingImports, currentSeasonStartYear) {
+            (pendingImports.mapNotNull { it.seasonStartYear } +
+                (currentSeasonStartYear downTo currentSeasonStartYear - 12))
+                .distinct()
+                .sortedDescending()
+        }
+        var batchPlayerMenuOpen by remember { mutableStateOf(false) }
+        var batchSeasonMenuOpen by remember { mutableStateOf(false) }
+        var batchTeamMenuOpen by remember { mutableStateOf(false) }
+        var importClassificationStep by remember(pendingImports.firstOrNull()?.uri) {
+            mutableStateOf(if (pendingImports.size == 1) 2 else 1)
+        }
+        var useBatchClassification by remember(pendingImports.firstOrNull()?.uri) {
+            mutableStateOf(pendingImports.size > 1)
+        }
+        var playerMenuForUri by remember { mutableStateOf<String?>(null) }
+        var seasonMenuForUri by remember { mutableStateOf<String?>(null) }
+        var teamMenuForUri by remember { mutableStateOf<String?>(null) }
+        val importTeamOptions = remember(subscribedTeams, importTeam) {
+            (subscribedTeams.map { it.name } + listOfNotNull(importTeam))
+                .filter(String::isNotBlank)
+                .distinctBy { it.lowercase() }
+                .sortedBy { it.lowercase() }
+        }
+        val knownImportOpponents = remember(context, opponentMetadataVersion) {
+            context.getSharedPreferences("video_opponent_names", android.content.Context.MODE_PRIVATE)
+                .all.values.filterIsInstance<String>()
+                .mapNotNull { canonicalOpponentName(it, emptyList()) }
+                .distinctBy { it.lowercase() }
+                .sortedBy { it.lowercase() }
+        }
+        val canImport = pendingImports.all {
+            !it.team.isNullOrBlank() && !it.player.isNullOrBlank() &&
+                it.seasonStartYear != null && !it.opponent.isNullOrBlank()
+        }
+
+        Dialog(
+            onDismissRequest = {
+                pendingImports = emptyList()
+                pendingImportTeam = null
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (importClassificationStep == 2) {
+                            IconButton(onClick = {
+                                if (pendingImports.size == 1) {
+                                    pendingImports = emptyList()
+                                    pendingImportTeam = null
+                                } else {
+                                    importClassificationStep = 1
+                                }
+                            }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.size(48.dp))
+                        }
+                        Text(
+                            if (importClassificationStep == 1) "Importing ${pendingImports.size} memories" else "Step 2 of 2",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = {
+                            pendingImports = emptyList()
+                            pendingImportTeam = null
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel import")
+                        }
+                    }
+                    LinearProgressIndicator(
+                        progress = { if (importClassificationStep == 1) 0.18f else 1f },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    )
+
+                    if (importClassificationStep == 1) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Surface(
+                                modifier = Modifier.size(72.dp),
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Icon(
+                                    Icons.Default.VideoLibrary,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Text(
+                                "How would you like to classify these memories?",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                "You can change these details later.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            if (pendingImports.size > 1) {
+                                ImportClassificationChoice(
+                                    title = "Batch classify",
+                                    subtitle = "Use the same details for all ${pendingImports.size} memories",
+                                    icon = Icons.Default.Layers,
+                                    onClick = {
+                                        useBatchClassification = true
+                                        importClassificationStep = 2
+                                    }
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+                            ImportClassificationChoice(
+                                title = "Classify individually",
+                                subtitle = if (pendingImports.size == 1) "Set details for memory" else "Set details for each memory",
+                                icon = Icons.Default.PersonOutline,
+                                onClick = {
+                                    useBatchClassification = false
+                                    importClassificationStep = 2
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Text(
+                                "Memories to import (${pendingImports.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                itemsIndexed(pendingImports, key = { _, item -> item.uri.toString() }) { index, pending ->
+                                    Box(modifier = Modifier.width(132.dp)) {
+                                        PendingImportPreview(
+                                            pending = pending,
+                                            clipNumber = index + 1,
+                                            onPlay = { previewPendingImport = pending }
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.weight(1f))
+                            OutlinedButton(
+                                onClick = {
+                                    pendingImports = emptyList()
+                                    pendingImportTeam = null
+                                },
+                                modifier = Modifier.fillMaxWidth().height(52.dp)
+                            ) { Text("Cancel") }
+                        }
+                    } else {
+                    Column(
+                        modifier = Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                    Text(
+                        text = if (useBatchClassification) {
+                            "Set details for all ${pendingImports.size} memories"
+                        } else if (pendingImports.size == 1) {
+                            "Set details for memory"
+                        } else {
+                            "Set details for each memory"
+                        },
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (useBatchClassification) {
+                            "These details will be applied to every memory."
+                        } else {
+                            "Review each memory and adjust its details."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (useBatchClassification) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Player", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { batchPlayerMenuOpen = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    pendingImports.mapNotNull { it.player }.distinct().singleOrNull() ?: "Player for all",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = batchPlayerMenuOpen,
+                                onDismissRequest = { batchPlayerMenuOpen = false }
+                            ) {
+                                importPlayerOptions.forEach { player ->
+                                    DropdownMenuItem(
+                                        text = { Text(player) },
+                                        onClick = {
+                                            pendingImports = pendingImports.map { it.copy(player = player) }
+                                            batchPlayerMenuOpen = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Team", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { batchTeamMenuOpen = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    pendingImports.mapNotNull { it.team }.distinct().singleOrNull() ?: "Choose team",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = batchTeamMenuOpen,
+                                onDismissRequest = { batchTeamMenuOpen = false }
+                            ) {
+                                importTeamOptions.forEach { team ->
+                                    DropdownMenuItem(
+                                        text = { Text(team) },
+                                        onClick = {
+                                            pendingImports = pendingImports.map { it.copy(team = team) }
+                                            batchTeamMenuOpen = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Season", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { batchSeasonMenuOpen = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    pendingImports.mapNotNull { it.seasonStartYear }.distinct().singleOrNull()
+                                        ?.let(::restoredSeasonLabel) ?: "Season for all",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = batchSeasonMenuOpen,
+                                onDismissRequest = { batchSeasonMenuOpen = false }
+                            ) {
+                                seasonYears.forEach { startYear ->
+                                    DropdownMenuItem(
+                                        text = { Text(restoredSeasonLabel(startYear)) },
+                                        onClick = {
+                                            pendingImports = pendingImports.map { it.copy(seasonStartYear = startYear) }
+                                            batchSeasonMenuOpen = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Opponent / Event", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                        OpponentAutocompleteField(
+                            value = pendingImports.mapNotNull { it.opponent }.distinct().singleOrNull().orEmpty(),
+                            knownOpponents = knownImportOpponents,
+                            onValueChange = { opponent ->
+                                pendingImports = pendingImports.map { it.copy(opponent = opponent) }
+                            }
+                        )
+                        }
+                    }
+                    }
+                    if (!useBatchClassification) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        itemsIndexed(pendingImports, key = { _, item -> item.uri.toString() }) { index, pending ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceVariant,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                PendingImportPreview(
+                                    pending = pending,
+                                    clipNumber = index + 1,
+                                    detailsAbove = true,
+                                    showTapToPreview = false,
+                                    onPlay = { previewPendingImport = pending }
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Player", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        OutlinedButton(
+                                            onClick = { playerMenuForUri = pending.uri.toString() },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                pending.player ?: "Choose player",
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        DropdownMenu(
+                                            expanded = playerMenuForUri == pending.uri.toString(),
+                                            onDismissRequest = { playerMenuForUri = null }
+                                        ) {
+                                            importPlayerOptions.forEach { player ->
+                                                DropdownMenuItem(
+                                                    text = { Text(player) },
+                                                    onClick = {
+                                                        pendingImports = pendingImports.map {
+                                                            if (it.uri == pending.uri) it.copy(player = player) else it
+                                                        }
+                                                        playerMenuForUri = null
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Team", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        OutlinedButton(
+                                            onClick = { teamMenuForUri = pending.uri.toString() },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(pending.team ?: "Choose team", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                        DropdownMenu(
+                                            expanded = teamMenuForUri == pending.uri.toString(),
+                                            onDismissRequest = { teamMenuForUri = null }
+                                        ) {
+                                            importTeamOptions.forEach { team ->
+                                                DropdownMenuItem(
+                                                    text = { Text(team) },
+                                                    onClick = {
+                                                        pendingImports = pendingImports.map {
+                                                            if (it.uri == pending.uri) it.copy(team = team) else it
+                                                        }
+                                                        teamMenuForUri = null
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Season", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        OutlinedButton(
+                                            onClick = { seasonMenuForUri = pending.uri.toString() },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                pending.seasonStartYear?.let(::restoredSeasonLabel) ?: "Choose season",
+                                                maxLines = 1
+                                            )
+                                        }
+                                        DropdownMenu(
+                                            expanded = seasonMenuForUri == pending.uri.toString(),
+                                            onDismissRequest = { seasonMenuForUri = null }
+                                        ) {
+                                            seasonYears.forEach { startYear ->
+                                                DropdownMenuItem(
+                                                    text = { Text(restoredSeasonLabel(startYear)) },
+                                                    onClick = {
+                                                        pendingImports = pendingImports.map {
+                                                            if (it.uri == pending.uri) it.copy(seasonStartYear = startYear) else it
+                                                        }
+                                                        seasonMenuForUri = null
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Opponent / Event", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                    OpponentAutocompleteField(
+                                        value = pending.opponent.orEmpty(),
+                                        knownOpponents = knownImportOpponents,
+                                        onValueChange = { opponent ->
+                                            pendingImports = pendingImports.map {
+                                                if (it.uri == pending.uri) it.copy(opponent = opponent) else it
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                if (pendingImports.size == 1) {
+                                    pendingImports = emptyList()
+                                    pendingImportTeam = null
+                                } else {
+                                    importClassificationStep = 1
+                                }
+                            },
+                            modifier = Modifier.weight(1f).height(52.dp)
+                        ) { Text("Back") }
+                Button(
+                    enabled = canImport,
+                    onClick = {
+                        val teamEditor = context.getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE).edit()
+                        val startEditor = context.getSharedPreferences("video_start_times", android.content.Context.MODE_PRIVATE).edit()
+                        val kidEditor = context.getSharedPreferences("video_kid_names", android.content.Context.MODE_PRIVATE).edit()
+                        val opponentEditor = context.getSharedPreferences("video_opponent_names", android.content.Context.MODE_PRIVATE).edit()
+                        pendingImports.forEach { pending ->
+                            val uriKey = pending.uri.toString()
+                            teamEditor.putString(uriKey, pending.team)
+                            kidEditor.putString(uriKey, pending.player)
+                            opponentEditor.putString(
+                                uriKey,
+                                canonicalOpponentName(pending.opponent, knownImportOpponents)
+                            )
+                            startEditor.putLong(
+                                uriKey,
+                                timestampInRestoredSeason(pending.capturedAtMs, pending.seasonStartYear!!)
+                            )
+                        }
+                        teamEditor.apply()
+                        kidEditor.apply()
+                        startEditor.apply()
+                        opponentEditor.apply()
+                        val importedCount = pendingImports.size
+                        pendingImports = emptyList()
+                        pendingImportTeam = null
+                        scope.launch {
+                            isLoading = true
+                            clips = loadRestoredClips(context, localTeamName ?: importTeam!!)
+                            isLoading = false
+                        }
+                        val message = if (importedCount == 1) "Play uploaded" else "$importedCount plays uploaded"
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1.5f).height(52.dp)
+                        ) {
+                            Text("Import ${pendingImports.size} Memories")
+                        }
+                    }
+                }
+            }
+        }
+        }
+
+        previewPendingImport?.let { pending ->
+            Dialog(
+                onDismissRequest = { previewPendingImport = null },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                VideoPlaybackScreen(
+                    videoUri = pending.uri,
+                    detectedPlayers = emptyList(),
+                    onNavigateBack = { previewPendingImport = null }
+                )
+            }
         }
     }
 
@@ -336,6 +1327,7 @@ fun ClipsScreenRefactored(
                 .flatMap { team -> loadRestoredClips(context, team.name) }
                 .distinctBy { it.id }
                 .sortedByDescending { it.createdAt }
+                .let(::withDebugShareDemo)
             isLoading = false
             return@LaunchedEffect
         }
@@ -345,7 +1337,7 @@ fun ClipsScreenRefactored(
             return@LaunchedEffect
         }
         isLoading = true
-        clips = loadRestoredClips(context, teamName)
+        clips = withDebugShareDemo(loadRestoredClips(context, teamName))
         selectedSeasonKey = null
         selectedOpponentKey = null
         showReelsOnly = false
@@ -355,11 +1347,26 @@ fun ClipsScreenRefactored(
         isLoading = false
     }
 
-    val opponentLookup = remember(clips) {
+    val opponentLookup = remember(clips, opponentMetadataVersion) {
         buildRestoredClipOpponentLookup(context, clips)
     }
     val kidLookup = remember(clips) {
         buildRestoredClipKidLookup(context, clips)
+    }
+    val teamLookup = remember(clips) {
+        buildRestoredClipTeamLookup(context, clips)
+    }
+    val teammateReviewClips by produceState<List<TeammateReviewClip>>(
+        initialValue = emptyList(),
+        key1 = clips to teamRoster,
+        key2 = reviewQueueVersion
+    ) {
+        value = withContext(Dispatchers.IO) {
+            loadRecentTeammateReviewClips(context, clips, teamRoster)
+        }
+    }
+    val teammateReviewBatch = remember(teammateReviewClips) {
+        teammateReviewClips.map { it.clip.id }.sorted().joinToString("|")
     }
     val clipsById = remember(clips) { clips.associateBy { it.id } }
     val reelIncludedClipIds = remember(clips) {
@@ -431,6 +1438,36 @@ fun ClipsScreenRefactored(
             }
             .sortedBy { it.label.lowercase() }
     }
+    val searchHintExamples = remember(availableKidOptions, availableOpponents) {
+        val playerName = availableKidOptions.firstOrNull()?.substringBefore(" ") ?: "Tyson"
+        val opponentName = availableOpponents
+            .firstOrNull { it.label != NO_OPPONENT_FILTER_RESTORED }
+            ?.label
+            ?: "Penn Trafford"
+        listOf(
+            "Find all goals against $opponentName",
+            "Create Reel of all ${playerName}'s goals this season",
+            "Find the last save against $opponentName",
+            "Create Reel of ${playerName}'s favorite plays",
+            "Find all defensive stops this season",
+            "Create Reel of goals against $opponentName"
+        ).distinct()
+    }
+    LaunchedEffect(searchQuery, searchHintExamples) {
+        if (searchQuery.isNotEmpty()) return@LaunchedEffect
+        var exampleIndex = 0
+        while (true) {
+            val example = searchHintExamples[exampleIndex % searchHintExamples.size]
+            animatedSearchHint = ""
+            val typingDelayMs = (760L / example.length.coerceAtLeast(1)).coerceIn(12L, 28L)
+            example.forEachIndexed { index, _ ->
+                animatedSearchHint = example.take(index + 1)
+                delay(typingDelayMs)
+            }
+            delay(1_800L)
+            exampleIndex += 1
+        }
+    }
     val opponentScopedVideos = remember(clips, kidLookup, kidFilter, selectedSeasonKey, selectedOpponentKey, opponentLookup, reelIncludedClipIds, clipsById) {
         clips.filter { clipMatchesKid(it) && clipMatchesSeason(it) && clipMatchesOpponent(it) }
     }
@@ -448,6 +1485,76 @@ fun ClipsScreenRefactored(
             opponentLookup = opponentLookup
         )
     }
+    LaunchedEffect(pendingSpokenReelCommand, clips, kidLookup, opponentLookup) {
+        val reelCommand = pendingSpokenReelCommand ?: return@LaunchedEffect
+        val matchingClips = filterRestoredClipsBySearchQuery(
+            videos = clips.filterNot(::isReelTaggedClip),
+            query = reelCommand,
+            kidLookup = kidLookup,
+            opponentLookup = opponentLookup
+        )
+        if (matchingClips.isEmpty()) {
+            pendingSpokenReelCommand = null
+            Toast.makeText(context, "No memories matched that reel request", Toast.LENGTH_SHORT).show()
+            return@LaunchedEffect
+        }
+        val selectedTeamName = localTeamName
+        if (selectedTeamName.isNullOrBlank()) {
+            pendingSpokenReelCommand = null
+            Toast.makeText(context, "Select a team before creating a reel", Toast.LENGTH_SHORT).show()
+            return@LaunchedEffect
+        }
+        val reelTitle = reelCommand.trim()
+            .replace(Regex("(?i)^(please\\s+)?(make|create|build)\\s+(me\\s+)?a?\\s*(reel|reels|real)(\\s+of)?\\s*"), "")
+            .trim()
+            .replaceFirstChar(Char::uppercase)
+            .ifBlank { "Voice Reel" }
+        searchQuery = ""
+        Toast.makeText(
+            context,
+            "Creating reel from ${matchingClips.size} ${if (matchingClips.size == 1) "memory" else "memories"}...",
+            Toast.LENGTH_SHORT
+        ).show()
+        isBuildingReel = true
+        try {
+            val clipUris = matchingClips.mapNotNull { resolveClipUriForReel(it.filePath) }
+            if (clipUris.size != matchingClips.size) {
+                Toast.makeText(context, "Some matching memories are unavailable", Toast.LENGTH_SHORT).show()
+                return@LaunchedEffect
+            }
+            val reelUri = buildShareableReelForRefactored(
+                context = context,
+                clipUris = clipUris,
+                reelTitle = reelTitle,
+                teamName = selectedTeamName,
+                opponentName = null
+            )
+            if (reelUri == null) {
+                Toast.makeText(context, "Unable to build reel video", Toast.LENGTH_SHORT).show()
+                return@LaunchedEffect
+            }
+            persistReelClipSummary(context, reelUri, matchingClips)
+            persistReelClipIds(context, reelUri, matchingClips.map { it.id })
+            clips = if (showAllTeams) {
+                subscribedTeams
+                    .flatMap { team -> loadRestoredClips(context, team.name) }
+                    .distinctBy { it.id }
+                    .sortedByDescending { it.createdAt }
+            } else {
+                loadRestoredClips(context, selectedTeamName)
+            }
+            completedReelUri = reelUri
+            Toast.makeText(context, "Reel created", Toast.LENGTH_SHORT).show()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            Log.e("ClipsScreenRefactored", "Voice reel creation failed", error)
+            Toast.makeText(context, "Reel creation failed", Toast.LENGTH_SHORT).show()
+        } finally {
+            isBuildingReel = false
+            pendingSpokenReelCommand = null
+        }
+    }
     // Fraction of a reel's included clips that satisfy the active filters, so a reel that's entirely
     // one opponent/player/season ranks above one with only a single matching clip.
     fun reelMatchScore(clip: VideoClip): Double {
@@ -462,9 +1569,11 @@ fun ClipsScreenRefactored(
         }
         return matchingCount.toDouble() / includedIds.size.toDouble()
     }
-    val visibleSections = remember(
+    val visibleTeamGroups = remember(
         searchedVideos,
         opponentLookup,
+        teamLookup,
+        showAllTeams,
         showReelsOnly,
         kidFilter,
         selectedSeasonKey,
@@ -474,17 +1583,36 @@ fun ClipsScreenRefactored(
         kidLookup
     ) {
         val reelFiltersActive = showReelsOnly && (kidFilter.isNotEmpty() || selectedSeasonKey != null || selectedOpponentKey != null)
-        buildRestoredClipListSectionsForAllGames(
-            searchedVideos,
-            opponentLookup,
-            groupByOpponent = !showReelsOnly,
-            reelSortOverride = if (reelFiltersActive) { videos ->
-                videos.sortedWith(compareByDescending<VideoClip> { reelMatchScore(it) }.thenByDescending { it.createdAt })
-            } else null
-        )
+        val groupedVideos = if (showAllTeams) {
+            searchedVideos.groupBy { clip -> teamLookup[clip.id]?.takeIf(String::isNotBlank) ?: "Team not set" }
+        } else {
+            mapOf("" to searchedVideos)
+        }
+        groupedVideos.entries
+            .sortedBy { (teamName, _) -> teamName.lowercase(Locale.getDefault()) }
+            .map { (teamName, teamVideos) ->
+                RestoredTeamClipGroup(
+                    key = teamName.lowercase(Locale.getDefault()).ifBlank { "selected_team" },
+                    teamLabel = teamName,
+                    sections = buildRestoredClipListSectionsForAllGames(
+                        teamVideos,
+                        opponentLookup,
+                        groupByOpponent = !showReelsOnly,
+                        reelSortOverride = if (reelFiltersActive) { videos ->
+                            videos.sortedWith(compareByDescending<VideoClip> { reelMatchScore(it) }.thenByDescending { it.createdAt })
+                        } else null
+                    )
+                )
+            }
+    }
+    val visibleSections = remember(visibleTeamGroups) {
+        visibleTeamGroups.flatMap { it.sections }
     }
     val visibleVideos = remember(visibleSections) {
         visibleSections.flatMap { it.videos }
+    }
+    val reelPickerMemoryGroups = remember(visibleVideos, opponentLookup) {
+        buildReelPickerMemoryGroups(visibleVideos, opponentLookup)
     }
     LaunchedEffect(availableKidOptions, selectedKid) {
         if (selectedKid != null && availableKidOptions.none { it.equals(selectedKid, ignoreCase = true) }) {
@@ -503,16 +1631,33 @@ fun ClipsScreenRefactored(
     }
 
     selectedVideoUri?.let { videoUri ->
-        val matchingReelClip = clips.firstOrNull { clip ->
-            isReelTaggedClip(clip) && resolveClipUriForReel(clip.filePath) == videoUri
+        val matchingClip = selectedVideoClip ?: clips.firstOrNull { clip ->
+            Uri.parse(clip.filePath) == videoUri ||
+                (isReelTaggedClip(clip) && resolveClipUriForReel(clip.filePath) == videoUri)
         }
         VideoPlaybackScreen(
             videoUri = videoUri,
-            detectedPlayers = emptyList(),
-            onNavigateBack = { selectedVideoUri = null },
-            onEditReel = matchingReelClip?.let { reelClip ->
+            clipMetadata = matchingClip,
+            detectedPlayers = if (matchingClip?.id == SHARE_DEMO_CLIP_ID) {
+                (teamRoster + debugShareRoster(localTeamName.orEmpty())).distinctBy { it.id }
+            } else {
+                teamRoster
+            },
+            preselectedSharePlayerIds = if (matchingClip?.id == SHARE_DEMO_CLIP_ID) SHARE_DEMO_DETECTED_PLAYER_IDS else emptySet(),
+            isReviewMode = teammateReviewClip != null,
+            startInShareFlow = selectedVideoStartsInShareFlow,
+            showPlaybackUi = !selectedVideoStartsInShareFlow,
+            shareVideoUris = selectedShareVideoUris,
+            onNavigateBack = {
+                selectedVideoUri = null
+                selectedVideoClip = null
+                selectedVideoStartsInShareFlow = false
+                selectedShareVideoUris = emptyList()
+            },
+            onEditReel = matchingClip?.takeIf(::isReelTaggedClip)?.let { reelClip ->
                 {
                     selectedVideoUri = null
+                    selectedVideoClip = null
                     editingReelClip = reelClip
                 }
             }
@@ -542,19 +1687,19 @@ fun ClipsScreenRefactored(
                 scope.launch {
                     isTrimmingClip = true
                     try {
-                        Toast.makeText(context, "Trimming clip...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Trimming memory...", Toast.LENGTH_SHORT).show()
                         val trimmedUri = trimClipToNewVideo(context, target, startMs, endMs)
                         if (trimmedUri != null) {
                             copyClipMetadataForTrim(context, target, trimmedUri, localTeamName)
                             reloadClipsForCurrentScope()
-                            Toast.makeText(context, "Trimmed clip saved", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Trimmed memory saved", Toast.LENGTH_SHORT).show()
                             editingClip = null
                         } else {
-                            Toast.makeText(context, "Could not trim this clip", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Could not trim this memory", Toast.LENGTH_SHORT).show()
                         }
                     } catch (t: Throwable) {
                         Log.e("ClipsScreenRefactored", "Saving trimmed clip failed", t)
-                        Toast.makeText(context, "Could not save trimmed clip", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Could not save trimmed memory", Toast.LENGTH_SHORT).show()
                     } finally {
                         isTrimmingClip = false
                     }
@@ -597,7 +1742,7 @@ fun ClipsScreenRefactored(
                             val orderedClips = orderedIds.mapNotNull { id -> clips.firstOrNull { it.id == id } }
                             val clipUris = orderedClips.mapNotNull { resolveClipUriForReel(it.filePath) }
                             if (clipUris.size != orderedClips.size || clipUris.isEmpty()) {
-                                Toast.makeText(context, "Some selected clips are unavailable", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Some selected memories are unavailable", Toast.LENGTH_SHORT).show()
                                 return@launch
                             }
                             val reelUri = buildShareableReelForRefactored(
@@ -663,7 +1808,7 @@ fun ClipsScreenRefactored(
                         val orderedClips = orderedIds.mapNotNull { id -> clips.firstOrNull { it.id == id } }
                         val clipUris = orderedClips.mapNotNull { resolveClipUriForReel(it.filePath) }
                         if (clipUris.isEmpty()) {
-                            Toast.makeText(context, "Select at least one clip", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Select at least one memory", Toast.LENGTH_SHORT).show()
                             return@launch
                         }
                         val newReelUri = buildShareableReelForRefactored(
@@ -710,7 +1855,7 @@ fun ClipsScreenRefactored(
             ) {
                 Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(48.dp))
                 Spacer(modifier = Modifier.height(12.dp))
-                Text("Select a team to view clips", style = MaterialTheme.typography.titleMedium)
+                Text("Select a team to view memories", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(onClick = onNavigateToTeams) {
                     Text("Go to Teams")
@@ -720,6 +1865,53 @@ fun ClipsScreenRefactored(
         return
     }
 
+    if (showTeammateReview) {
+        val reviewClip = teammateReviewClip
+        if (reviewClip == null) {
+            TeammateReviewScreen(
+                clips = teammateReviewClips,
+                onBack = { showTeammateReview = false },
+                onReview = { teammateReviewClip = it }
+            )
+        } else {
+            TeammateClipReviewScreen(
+                reviewClip = reviewClip,
+                roster = teamRoster,
+                onBack = { teammateReviewClip = null },
+                onFullscreen = {
+                    selectedVideoClip = reviewClip.clip
+                    selectedVideoUri = Uri.parse(reviewClip.clip.filePath)
+                },
+                onShare = { selectedPlayers ->
+                    launchPersonalShareChooser(
+                        context = context,
+                        videoUri = Uri.parse(reviewClip.clip.filePath),
+                        shareTitle = "Share this PlayLoom memory"
+                    )
+                    markTeammateReviewComplete(context, reviewClip.clip, selectedPlayers)
+                    sharedPlayers = selectedPlayers
+                    teammateReviewClip = null
+                    showTeammateReview = false
+                    reviewQueueVersion += 1
+                }
+            )
+        }
+        return
+    }
+
+    sharedPlayers?.let { players ->
+        AlertDialog(
+            onDismissRequest = { sharedPlayers = null },
+            title = { Text("Memory shared") },
+            text = {
+                Text("Shared with ${players.joinToString()}. The memory is waiting for them in PlayLoom.")
+            },
+            confirmButton = {
+                TextButton(onClick = { sharedPlayers = null }) { Text("Done") }
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -727,6 +1919,12 @@ fun ClipsScreenRefactored(
                     .background(MaterialTheme.colorScheme.surface)
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
+            AnimatedVisibility(
+                visible = isClipsMenuExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -755,7 +1953,7 @@ fun ClipsScreenRefactored(
                         Box(modifier = Modifier.weight(1f)) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = "Find a memory",
+                                    text = animatedSearchHint,
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -780,53 +1978,42 @@ fun ClipsScreenRefactored(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier
                                     .size(16.dp)
-                                    .clickable { searchQuery = "" }
+                                    .clickable {
+                                        searchQuery = ""
+                                        isClipsMenuExpanded = true
+                                    }
                             )
                         }
-                    }
-                }
-                Surface(
-                    modifier = Modifier
-                        .width(PrimaryClipsControlHeight)
-                        .height(PrimaryClipsControlHeight),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    onClick = { useGridView = !useGridView }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (useGridView) {
-                                Icons.AutoMirrored.Filled.ViewList
-                            } else {
-                                Icons.Default.GridView
-                            },
-                            contentDescription = if (useGridView) "List view" else "Grid view",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
+                            Icons.Default.Mic,
+                            contentDescription = "Search by voice",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable {
+                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(
+                                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                                        )
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Find plays or create a reel")
+                                        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                                    }
+                                    runCatching { searchVoiceLauncher.launch(intent) }
+                                        .onFailure {
+                                            Toast.makeText(
+                                                context,
+                                                "Voice search is unavailable",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                }
                         )
                     }
                 }
-                if (!showReelPickerDialog) {
-                    Surface(
-                        modifier = Modifier.height(PrimaryClipsControlHeight),
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        onClick = { uploadLauncher.launch(arrayOf("video/*")) }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(PrimaryClipsControlHeight)
-                                .fillMaxHeight(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.FileDownload,
-                                contentDescription = "Import clip from phone",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
+            }
+
                 }
             }
 
@@ -873,32 +2060,32 @@ fun ClipsScreenRefactored(
                         }
                     }
                 }
-                if (subscribedTeams.size > 1) {
-                    Box {
-                        FilterMenuLabel(
-                            label = if (showAllTeams) "All Clubs" else localTeamName ?: "Club",
-                            isActive = !showAllTeams,
-                            onClick = { showTeamFilterMenu = true }
-                        )
-                        DropdownMenu(expanded = showTeamFilterMenu, onDismissRequest = { showTeamFilterMenu = false }) {
+                Box {
+                    FilterMenuLabel(
+                        label = if (showAllTeams) "All Teams" else localTeamName ?: "Team",
+                        isActive = !showAllTeams && !localTeamName.isNullOrBlank(),
+                        onClick = { showTeamFilterMenu = true }
+                    )
+                    DropdownMenu(expanded = showTeamFilterMenu, onDismissRequest = { showTeamFilterMenu = false }) {
+                        if (subscribedTeams.size > 1) {
                             DropdownMenuItem(
-                                text = { Text("All clubs") },
+                                text = { Text("All teams") },
                                 onClick = {
                                     showAllTeams = true
                                     showTeamFilterMenu = false
                                 }
                             )
-                            subscribedTeams.forEach { team ->
-                                DropdownMenuItem(
-                                    text = { Text(team.name) },
-                                    onClick = {
-                                        localTeamName = team.name
-                                        showAllTeams = false
-                                        selectedKid = teamViewModel.getSelectedKidForTeam(team.name)
-                                        showTeamFilterMenu = false
-                                    }
-                                )
-                            }
+                        }
+                        subscribedTeams.forEach { team ->
+                            DropdownMenuItem(
+                                text = { Text(team.name) },
+                                onClick = {
+                                    localTeamName = team.name
+                                    showAllTeams = false
+                                    selectedKid = teamViewModel.getSelectedKidForTeam(team.name)
+                                    showTeamFilterMenu = false
+                                }
+                            )
                         }
                     }
                 }
@@ -927,13 +2114,13 @@ fun ClipsScreenRefactored(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (!showReelPickerDialog) {
+                if (!isClipSelectionMode) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ClipsFileTab(
-                            label = "Clips",
+                            label = "Memories",
                             highlighted = !showReelsOnly,
                             underlined = !showReelsOnly && !showReelPickerDialog,
                             enabled = !isBuildingReel && !showReelPickerDialog,
@@ -955,44 +2142,234 @@ fun ClipsScreenRefactored(
                     }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .width(124.dp)
-                        .height(PrimaryClipsControlHeight)
-                        .clickable(enabled = !showReelPickerDialog) {
-                        when {
-                            opponentScopedVideos.none { !isReelTaggedClip(it) } -> Toast.makeText(
-                                context,
-                                "No clips available to build a reel",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            else -> {
-                                reelSelectionIds = emptySet()
-                                reelSelectionEditTarget = null
-                                reelEditorSelectionIdsOverride = null
-                                reelNameInput = buildCollectionName(
-                                    selectedKid = selectedKid,
-                                    selectedSeasonKey = selectedSeasonKey,
-                                    selectedOpponentKey = selectedOpponentKey,
-                                    reelsOnly = false
-                                )
-                                showReelsOnly = false
-                                useGridView = true
-                                showReelPickerDialog = true
+                if (!isClipSelectionMode) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    Manifest.permission.READ_MEDIA_VIDEO
+                                } else {
+                                    Manifest.permission.READ_EXTERNAL_STORAGE
+                                }
+                                if (ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                    openCameraRollPicker()
+                                } else {
+                                    cameraRollPermissionLauncher.launch(permission)
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Upload memory")
+                        }
+                        Box {
+                            TextButton(onClick = { showCollectionActionsMenu = true }) {
+                                Text("Select")
+                            }
+                            DropdownMenu(
+                                expanded = showCollectionActionsMenu,
+                                onDismissRequest = { showCollectionActionsMenu = false }
+                            ) {
+                            DropdownMenuItem(
+                                text = { Text("Remove memories") },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                                onClick = {
+                                    showCollectionActionsMenu = false
+                                    deleteSelectionIds = emptySet()
+                                    showDeletePicker = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Create reel") },
+                                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                                onClick = {
+                                    showCollectionActionsMenu = false
+                                    when {
+                                        opponentScopedVideos.none { !isReelTaggedClip(it) } -> Toast.makeText(
+                                            context,
+                                            "No memories available to build a reel",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                        else -> {
+                                            reelSelectionIds = emptySet()
+                                            reelSelectionEditTarget = null
+                                            reelEditorSelectionIdsOverride = null
+                                            reelNameInput = buildCollectionName(
+                                                selectedKid = selectedKid,
+                                                selectedSeasonKey = selectedSeasonKey,
+                                                selectedOpponentKey = selectedOpponentKey,
+                                                reelsOnly = false
+                                            )
+                                            showReelsOnly = false
+                                            showReelPickerDialog = true
+                                        }
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Share memories") },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                onClick = {
+                                    showCollectionActionsMenu = false
+                                    shareSelectionIds = emptySet()
+                                    showSharePicker = true
+                                }
+                            )
                             }
                         }
-                    },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "+ Create Reel",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    }
                 }
             }
 
+            AnimatedVisibility(
+                visible = isClipsMenuExpanded &&
+                    teammateReviewClips.isNotEmpty() &&
+                    teammateReviewBatch != dismissedReviewBatch &&
+                    !showReelPickerDialog,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                val dismissDistancePx = with(LocalDensity.current) { 84.dp.toPx() }
+                var bannerDragOffset by remember(teammateReviewBatch) { mutableStateOf(0f) }
+                val animatedBannerOffset by animateFloatAsState(
+                    targetValue = bannerDragOffset,
+                    animationSpec = tween(160),
+                    label = "teammate_banner_swipe"
+                )
+                val bannerDragState = rememberDraggableState { delta ->
+                    bannerDragOffset = (bannerDragOffset + delta).coerceIn(-dismissDistancePx, 0f)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(88.dp)
+                        .padding(top = 10.dp)
+                ) {
+                    if (animatedBannerOffset < -1f) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .width(84.dp)
+                                .fillMaxHeight(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.error,
+                            contentColor = Color.White,
+                            onClick = {
+                                    dismissedReviewBatch = teammateReviewBatch
+                                    context.getSharedPreferences(TEAMMATE_REVIEW_PREFS, android.content.Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putString(
+                                            "$TEAMMATE_BANNER_DISMISSED_BATCH:${localTeamName.orEmpty()}",
+                                            teammateReviewBatch
+                                        )
+                                        .apply()
+                            }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("Dismiss", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .offset { IntOffset(animatedBannerOffset.roundToInt(), 0) }
+                            .draggable(
+                                state = bannerDragState,
+                                orientation = Orientation.Horizontal,
+                                onDragStopped = {
+                                    bannerDragOffset = if (bannerDragOffset <= -dismissDistancePx * 0.55f) {
+                                        -dismissDistancePx
+                                } else {
+                                        0f
+                                    }
+                                }
+                            ),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFE2F7EA),
+                        contentColor = Color(0xFF075D32),
+                        onClick = {
+                            if (bannerDragOffset < 0f) bannerDragOffset = 0f else showTeammateReview = true
+                        }
+                    ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(44.dp))
+                            Surface(
+                                modifier = Modifier.align(Alignment.BottomEnd).size(22.dp),
+                                shape = CircleShape,
+                                color = Color(0xFF079447),
+                                contentColor = Color.White
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.padding(5.dp))
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                text = "Share the moments",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Your memories include other players",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF315B43)
+                            )
+                            Text(
+                                text = "Let their families see it.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF315B43)
+                            )
+                        }
+                        Surface(
+                            modifier = Modifier.size(44.dp),
+                            shape = CircleShape,
+                            color = Color(0xFF079447),
+                            contentColor = Color.White
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Review and share", modifier = Modifier.padding(11.dp))
+                        }
+                    }
+                    }
+                }
+            }
+
+        }
+
+        if (showDeletePicker) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Select memories to remove", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${deleteSelectionIds.size} ${if (deleteSelectionIds.size == 1) "memory" else "memories"} selected",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                TextButton(onClick = {
+                    showDeletePicker = false
+                    deleteSelectionIds = emptySet()
+                }) {
+                    Text("Cancel")
+                }
+                Button(
+                    enabled = deleteSelectionIds.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = { showDeleteSelectionConfirmation = true }
+                ) {
+                    Text("Remove")
+                }
+            }
         }
 
         if (showReelPickerDialog) {
@@ -1012,13 +2389,13 @@ fun ClipsScreenRefactored(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Select clips",
+                            text = "Select memories",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "${selectedClips.size} clip${if (selectedClips.size == 1) "" else "s"} selected",
+                            text = "${selectedClips.size} ${if (selectedClips.size == 1) "memory" else "memories"} selected",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -1061,6 +2438,54 @@ fun ClipsScreenRefactored(
                         enabled = selectedClips.isNotEmpty()
                     ) {
                         Text("Next")
+                    }
+                }
+            }
+        }
+
+        if (showSharePicker) {
+            val selectedClips = (visibleVideos + clips)
+                .distinctBy { it.id }
+                .filter { it.id in shareSelectionIds }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Select Memories", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(
+                            "${selectedClips.size} ${if (selectedClips.size == 1) "memory" else "memories"} selected",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    TextButton(onClick = {
+                        showSharePicker = false
+                        shareSelectionIds = emptySet()
+                    }) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        enabled = selectedClips.isNotEmpty(),
+                        onClick = {
+                            val selectedUris = selectedClips.map { Uri.parse(it.filePath) }
+                            selectedVideoClip = selectedClips.first()
+                            selectedVideoUri = selectedUris.first()
+                            selectedShareVideoUris = selectedUris
+                            selectedVideoStartsInShareFlow = true
+                            showSharePicker = false
+                            shareSelectionIds = emptySet()
+                        }
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Share")
                     }
                 }
             }
@@ -1116,12 +2541,12 @@ fun ClipsScreenRefactored(
         when {
             isLoading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Loading clips...", style = MaterialTheme.typography.bodyMedium)
+                    Text("Loading memories...", style = MaterialTheme.typography.bodyMedium)
                 }
             }
             localTeamName.isNullOrBlank() && !showAllTeams -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Select a team to view clips", style = MaterialTheme.typography.bodyMedium)
+                    Text("Select a team to view memories", style = MaterialTheme.typography.bodyMedium)
                 }
             }
             visibleVideos.isEmpty() -> {
@@ -1132,25 +2557,126 @@ fun ClipsScreenRefactored(
                     )
                 }
             }
-            useGridView -> {
+            else -> {
                 val gridColumnCount = if (LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(gridColumnCount),
+                    state = clipsGridState,
                     modifier = Modifier
                         .then(
-                            if (showReelPickerDialog) Modifier.weight(1f) else Modifier.fillMaxSize()
+                            if (isClipSelectionMode) Modifier.weight(1f) else Modifier.fillMaxSize()
                         )
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    gridItems(visibleVideos, key = { it.id }) { clip ->
+                    val gridGroups = if (showReelPickerDialog) {
+                        reelPickerMemoryGroups.map { group ->
+                            RestoredGridClipGroup(
+                                key = group.key,
+                                teamLabel = null,
+                                title = group.opponentLabel,
+                                subtitle = group.seasonLabel,
+                                videos = group.videos
+                            )
+                        }
+                    } else {
+                        visibleTeamGroups.flatMap { teamGroup ->
+                            teamGroup.sections.mapIndexed { index, section ->
+                                RestoredGridClipGroup(
+                                    key = "${teamGroup.key}|${section.key}",
+                                    teamLabel = teamGroup.teamLabel.takeIf { showAllTeams && index == 0 },
+                                    title = section.title,
+                                    subtitle = section.subtitle,
+                                    videos = section.videos
+                                )
+                            }
+                        }
+                    }
+                    gridGroups.forEach { group ->
+                        item(
+                            key = "memory_group_${group.key}",
+                            span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp)) {
+                                group.teamLabel?.let { teamLabel ->
+                                    Text(
+                                        teamLabel,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(4.dp)
+                                            .height(44.dp)
+                                            .background(OpponentGroupColor, RoundedCornerShape(2.dp))
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            group.title,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (group.subtitle.isNotBlank()) {
+                                            Text(
+                                                group.subtitle,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.9f)
+                                        .height(3.dp)
+                                        .background(OpponentGroupColor)
+                                )
+                            }
+                        }
+                    gridItems(group.videos, key = { it.id }) { clip ->
                         RestoredClipGridTile(
                             clip = clip,
-                            reelMode = showReelPickerDialog,
-                            isSelectedForReel = reelSelectionIds.contains(clip.id),
-                            onToggleReelSelection = { toggleReelClipSelection(clip.id) },
-                            onPlay = { selectedVideoUri = Uri.parse(clip.filePath) },
+                            reelMode = isClipSelectionMode,
+                            isSelectedForReel = when {
+                                showDeletePicker -> clip.id in deleteSelectionIds
+                                showSharePicker -> clip.id in shareSelectionIds
+                                else -> clip.id in reelSelectionIds
+                            },
+                            onToggleReelSelection = {
+                                when {
+                                    showDeletePicker -> deleteSelectionIds = if (clip.id in deleteSelectionIds) {
+                                        deleteSelectionIds - clip.id
+                                    } else {
+                                        deleteSelectionIds + clip.id
+                                    }
+                                    showSharePicker -> toggleShareClipSelection(clip.id)
+                                    else -> toggleReelClipSelection(clip.id)
+                                }
+                            },
+                            onPlay = {
+                                selectedVideoClip = clip
+                                selectedVideoUri = Uri.parse(clip.filePath)
+                            },
+                            onEdit = {
+                                editingClipAllowsTrim = true
+                                editingClip = clip
+                            },
+                            onShare = {
+                                selectedVideoClip = clip
+                                selectedVideoUri = Uri.parse(clip.filePath)
+                                selectedShareVideoUris = emptyList()
+                                selectedVideoStartsInShareFlow = true
+                            },
+                            onDelete = {
+                                videoToDelete = clip
+                                showDeleteDialog = true
+                            },
                             onToggleHighlight = {
                                 val newStatus = !clip.isHighlight
                                 context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE)
@@ -1163,114 +2689,6 @@ fun ClipsScreenRefactored(
                             }
                         )
                     }
-                }
-            }
-            else -> {
-                LazyColumn(
-                    modifier = Modifier
-                        .then(
-                            if (showReelPickerDialog) Modifier.weight(1f) else Modifier.fillMaxSize()
-                        )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
-                ) {
-                    visibleSections.forEach { section ->
-                        item(key = "header_${section.key}") {
-                            if (section.title.isNotBlank() || section.subtitle.isNotBlank()) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 16.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(OpponentGroupColor.copy(alpha = 0.12f))
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(4.dp)
-                                            .height(30.dp)
-                                            .clip(RoundedCornerShape(2.dp))
-                                            .background(OpponentGroupColor)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        if (section.title.isNotBlank()) {
-                                            Text(
-                                                text = "vs ${section.title}",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                        val clipCountLabel = if (section.videos.size == 1) {
-                                            "1 clip"
-                                        } else {
-                                            "${section.videos.size} clips"
-                                        }
-                                        Text(
-                                            text = if (section.subtitle.isNotBlank()) {
-                                                "${section.subtitle}  •  $clipCountLabel"
-                                            } else {
-                                                clipCountLabel
-                                            },
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        items(section.videos, key = { it.id }) { clip ->
-                            val reelModeEnabled = showReelPickerDialog
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                RestoredClipRow(
-                                    clip = clip,
-                                    reelMode = reelModeEnabled,
-                                    isSelectedForReel = reelSelectionIds.contains(clip.id),
-                                    onToggleReelSelection = { toggleReelClipSelection(clip.id) },
-                                    onEdit = { editingClipAllowsTrim = true; editingClip = clip },
-                                    onExpand = { editingClipAllowsTrim = false; editingClip = clip },
-                                    onShare = {
-                                        launchPersonalShareChooser(
-                                            context = context,
-                                            videoUri = Uri.parse(clip.filePath),
-                                            shareTitle = "Share this play"
-                                        )
-                                    },
-                                    onDelete = {
-                                        videoToDelete = clip
-                                        showDeleteDialog = true
-                                    },
-                                    onToggleHighlight = {
-                                        val newStatus = !clip.isHighlight
-                                        val prefs = context.getSharedPreferences("video_highlights", android.content.Context.MODE_PRIVATE)
-                                        prefs.edit().putBoolean(clip.id, newStatus).apply()
-                                        clips = clips.map { current ->
-                                            if (current.id == clip.id) current.copy(isHighlight = newStatus) else current
-                                        }
-                                    },
-                                    onTagChanged = { newTag ->
-                                        val prefs = context.getSharedPreferences("video_custom_names", android.content.Context.MODE_PRIVATE)
-                                        if (newTag == null) {
-                                            prefs.edit().remove(clip.id).remove(clip.filePath).apply()
-                                        } else {
-                                            prefs.edit().putString(clip.id, newTag).putString(clip.filePath, newTag).apply()
-                                        }
-                                        clips = clips.map { current ->
-                                            if (current.id == clip.id) current.copy(momentTag = newTag) else current
-                                        }
-                                    },
-                                    onTitleChanged = { newTitle ->
-                                        updateReelTitle(context, clip, newTitle)
-                                        localTeamName?.let { teamName ->
-                                            scope.launch { clips = loadRestoredClips(context, teamName) }
-                                        }
-                                    },
-                                    onEditReel = { editingReelClip = clip }
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -1279,8 +2697,8 @@ fun ClipsScreenRefactored(
         if (showDeleteDialog && videoToDelete != null) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showDeleteDialog = false },
-                title = { Text("Delete clip?") },
-                text = { Text("This clip will be permanently deleted from your phone.") },
+                title = { Text("Remove memory?") },
+                text = { Text("1 memory will be removed from the app. The original will remain on your phone.") },
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = { showDeleteDialog = false }) {
                         Text("Cancel")
@@ -1293,7 +2711,7 @@ fun ClipsScreenRefactored(
                             showDeleteDialog = false
                             if (target != null) {
                                 scope.launch {
-                                    deleteRestoredClip(context, target)
+                                    removeRestoredMemory(context, target)
                                     localTeamName?.let { teamName ->
                                         clips = loadRestoredClips(context, teamName)
                                     }
@@ -1302,8 +2720,45 @@ fun ClipsScreenRefactored(
                             }
                         }
                     ) {
-                        Text("Delete")
+                        Text("Remove")
                     }
+                }
+            )
+        }
+
+        if (showDeleteSelectionConfirmation) {
+            val selectedMemories = clips.filter { it.id in deleteSelectionIds }
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showDeleteSelectionConfirmation = false },
+                title = { Text("Remove memories?") },
+                text = {
+                    Text(
+                        "${selectedMemories.size} ${if (selectedMemories.size == 1) "memory" else "memories"} " +
+                            "will be removed from the app. The ${if (selectedMemories.size == 1) "original" else "originals"} " +
+                            "will remain on your phone."
+                    )
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteSelectionConfirmation = false }) { Text("Cancel") }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteSelectionConfirmation = false
+                            showDeletePicker = false
+                            scope.launch {
+                                selectedMemories.forEach { removeRestoredMemory(context, it) }
+                                clips = if (showAllTeams) {
+                                    subscribedTeams.flatMap { team -> loadRestoredClips(context, team.name) }
+                                        .distinctBy { it.id }
+                                        .sortedByDescending { it.createdAt }
+                                } else {
+                                    localTeamName?.let { loadRestoredClips(context, it) }.orEmpty()
+                                }
+                                deleteSelectionIds = emptySet()
+                            }
+                        }
+                    ) { Text("Remove") }
                 }
             )
         }
@@ -1317,9 +2772,17 @@ private fun RestoredClipGridTile(
     isSelectedForReel: Boolean,
     onToggleReelSelection: () -> Unit,
     onPlay: () -> Unit,
+    onEdit: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
     onToggleHighlight: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showActionsMenu by remember(clip.id, clip.filePath) { mutableStateOf(false) }
+    var commentary by remember(clip.id, clip.filePath) {
+        mutableStateOf(loadClipCommentary(context, clip))
+    }
+    var showCommentEditor by remember(clip.id, clip.filePath) { mutableStateOf(false) }
     val previewBitmap by produceState<Bitmap?>(initialValue = null, clip.id, clip.filePath) {
         value = withContext(Dispatchers.IO) {
             loadRestoredClipThumbnail(context, clip.filePath)
@@ -1329,23 +2792,26 @@ private fun RestoredClipGridTile(
     val label = if (isReel) {
         reelDisplayTitleForClip(clip)
     } else {
-        clip.momentTag?.takeIf { it.isNotBlank() } ?: "Clip"
+        clip.momentTag?.takeIf { it.isNotBlank() } ?: "Memory"
     }
-    val labelColor = if (isReel) {
-        Color(0xFF2B2F33)
-    } else {
-        momentTagConfig(clip.momentTag).second
-    }
+    val labelColor = if (isReel) Color(0xFF2B2F33) else momentTagConfig(clip.momentTag).second
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(124.dp)
             .clickable(enabled = reelMode) { onToggleReelSelection() },
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Black)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(124.dp)
+                .background(Color.Black)
+                .clickable(enabled = !reelMode, onClick = onPlay),
+            contentAlignment = Alignment.Center
+        ) {
             if (previewBitmap != null) {
                 Image(
                     bitmap = previewBitmap!!.asImageBitmap(),
@@ -1355,61 +2821,100 @@ private fun RestoredClipGridTile(
                 )
             }
 
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(6.dp)
-                    .widthIn(max = 96.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(labelColor.copy(alpha = 0.88f))
-                    .padding(horizontal = 6.dp, vertical = 3.dp)
-            )
-
-            IconButton(
-                onClick = onToggleHighlight,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .size(34.dp)
-            ) {
-                Icon(
-                    Icons.Default.Star,
-                    contentDescription = if (clip.isHighlight) "Remove favorite" else "Add favorite",
-                    tint = if (clip.isHighlight) PlaysAccentColor else Color.White.copy(alpha = 0.72f),
-                    modifier = Modifier.size(22.dp)
+            if (!reelMode) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    maxLines = 2,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 6.dp, top = 6.dp, end = 40.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(labelColor.copy(alpha = 0.88f))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
                 )
+                Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                    IconButton(
+                        onClick = { showActionsMenu = true },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreHoriz,
+                            contentDescription = "Memory actions",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showActionsMenu,
+                        onDismissRequest = { showActionsMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit memory") },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                            onClick = { showActionsMenu = false; onEdit() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Remove memory") },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                            onClick = { showActionsMenu = false; onDelete() }
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onShare,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .size(34.dp)
+                ) {
+                    Box(modifier = Modifier.size(26.dp), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = "Share memory",
+                            tint = Color(0xFF1C8CFF),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onToggleHighlight,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(34.dp)
+                ) {
+                    if (clip.isHighlight) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = "Remove favorite",
+                            tint = PlaysAccentColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else {
+                        Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Star,
+                                contentDescription = null,
+                                tint = Color.Gray,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Icon(
+                                Icons.Default.Star,
+                                contentDescription = "Add favorite",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
             }
-
-            Surface(
-                onClick = onPlay,
-                modifier = Modifier.size(42.dp),
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.58f),
-                contentColor = Color.White
-            ) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription = "Play full screen",
-                    modifier = Modifier.padding(8.dp)
-                )
-            }
-
-            Text(
-                text = formatRestoredDuration(clip.duration),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color.Black.copy(alpha = 0.68f))
-                    .padding(horizontal = 5.dp, vertical = 2.dp)
-            )
 
             if (reelMode) {
                 Surface(
@@ -1420,19 +2925,89 @@ private fun RestoredClipGridTile(
                         .size(28.dp),
                     shape = CircleShape,
                     color = if (isSelectedForReel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.9f),
-                    contentColor = if (isSelectedForReel) Color.White else MaterialTheme.colorScheme.outline
+                    contentColor = if (isSelectedForReel) Color.White else Color(0xFF555B61),
+                    border = if (isSelectedForReel) null else BorderStroke(1.5.dp, Color(0xFF555B61))
                 ) {
                     if (isSelectedForReel) {
                         Icon(
                             Icons.Default.Check,
-                            contentDescription = "Selected for reel",
+                            contentDescription = "Selected memory",
                             modifier = Modifier.padding(5.dp)
                         )
                     }
                 }
             }
         }
+        if (reelMode) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 8.dp, vertical = 7.dp)
+            )
+        } else if (!isReel) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showCommentEditor = true }
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (commentary.isBlank()) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Text(
+                    text = commentary.takeIf(String::isNotBlank) ?: "What Happened",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        }
     }
+
+    if (showCommentEditor) {
+        val keyboardController = LocalSoftwareKeyboardController.current
+        AlertDialog(
+            onDismissRequest = { showCommentEditor = false },
+            title = { Text(if (commentary.isBlank()) "What Happened" else "Edit Comment") },
+            text = {
+                OutlinedTextField(
+                    value = commentary,
+                    onValueChange = { commentary = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Add notes about this memory") },
+                    minLines = 2,
+                    maxLines = 4,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { keyboardController?.hide() })
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        persistClipCommentary(context, clip, commentary)
+                        showCommentEditor = false
+                    }
+                ) { Text(if (commentary.isBlank()) "Add" else "Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCommentEditor = false }) { Text("Cancel") }
+            }
+        )
+    }
+
 }
 
 private fun loadClipCommentary(context: android.content.Context, clip: VideoClip): String {
@@ -1485,7 +3060,7 @@ private fun persistReelClipSummary(
 ) {
     if (includedClips.isEmpty()) return
     val lines = includedClips.joinToString("\n") { clip ->
-        val moment = clip.momentTag?.trim()?.takeIf { it.isNotEmpty() } ?: "Clip"
+        val moment = clip.momentTag?.trim()?.takeIf { it.isNotEmpty() } ?: "Memory"
         val date = clip.gameDate.takeIf { it.isNotBlank() }?.let { formatRestoredClipDate(it) }
         if (date != null) "• $moment - $date" else "• $moment"
     }
@@ -1535,6 +3110,423 @@ private fun updateReelTitle(context: android.content.Context, clip: VideoClip, n
     }
 }
 
+private suspend fun loadConfidentClipPlayers(
+    context: android.content.Context,
+    clip: VideoClip
+): List<ClipPlayerSuggestion> {
+    val dao = PlayerDatabase.getDatabase(context).videoDetectionResultDao()
+    val uriPath = Uri.parse(clip.filePath).path
+    val entity = listOfNotNull(clip.id, clip.filePath, uriPath)
+        .distinct()
+        .firstNotNullOfOrNull { key -> dao.getDetectionResult(key) }
+        ?: return emptyList()
+    val result = DetectionResultSerializer.deserialize(entity.detectionJson) ?: return emptyList()
+    val minimumConfidence = if (entity.detectionMode.equals("ACCURATE", ignoreCase = true)) 0.90f else 0.72f
+    val bubblesById = result.bubbles.associateBy { it.id }
+
+    return result.tracks.mapNotNull { track ->
+        if (track.samples.isEmpty()) return@mapNotNull null
+        val confidence = track.samples.map { it.confidence }.average().toFloat()
+        val bubble = bubblesById[track.playerId] ?: return@mapNotNull null
+        if (confidence < minimumConfidence || bubble.playerName.isBlank()) return@mapNotNull null
+        ClipPlayerSuggestion(
+            name = bubble.playerName,
+            jerseyNumber = bubble.jerseyNumber,
+            confidence = confidence
+        )
+    }
+        .distinctBy { it.name.lowercase(Locale.getDefault()) }
+        .sortedByDescending { it.confidence }
+        .take(3)
+}
+
+private suspend fun loadRecentTeammateReviewClips(
+    context: android.content.Context,
+    clips: List<VideoClip>,
+    roster: List<Player>
+): List<TeammateReviewClip> {
+    val cutoff = System.currentTimeMillis() - RECENT_CLIP_WINDOW_MS
+    val reviewPrefs = context.getSharedPreferences(TEAMMATE_REVIEW_PREFS, android.content.Context.MODE_PRIVATE)
+    val reviewClips = mutableListOf<TeammateReviewClip>()
+    clips.asSequence()
+        .filterNot(::isReelTaggedClip)
+        .filter { it.createdAt >= cutoff && !reviewPrefs.getBoolean(it.id, false) }
+        .forEach { clip ->
+            val players = loadConfidentClipPlayers(context, clip)
+            if (players.isNotEmpty()) reviewClips += TeammateReviewClip(clip, players)
+        }
+    if (BuildConfig.DEBUG && !reviewPrefs.getBoolean(TEAMMATE_DEMO_REVIEW_ID, false)) {
+        clips.filterNot(::isReelTaggedClip).maxByOrNull { it.createdAt }?.let { sourceClip ->
+            val rosterPlayers = roster.take(3).mapIndexed { index, player ->
+                ClipPlayerSuggestion(
+                    name = player.name,
+                    jerseyNumber = player.number,
+                    confidence = listOf(0.98f, 0.94f, 0.91f)[index]
+                )
+            }
+            val fallbackPlayers = listOf(
+                ClipPlayerSuggestion("Alex Morgan", "7", 0.98f),
+                ClipPlayerSuggestion("Jordan Lee", "12", 0.94f),
+                ClipPlayerSuggestion("Taylor Smith", "21", 0.91f)
+            )
+            val mockPlayers = (rosterPlayers + fallbackPlayers)
+                .distinctBy { it.name.lowercase(Locale.getDefault()) }
+                .take(3)
+            return listOf(
+                TeammateReviewClip(
+                    clip = sourceClip.copy(
+                        id = TEAMMATE_DEMO_REVIEW_ID,
+                        createdAt = System.currentTimeMillis(),
+                        momentTag = "Demo memory"
+                    ),
+                    players = mockPlayers,
+                    isDemo = true
+                )
+            )
+        }
+    }
+    return reviewClips.distinctBy { it.clip.id }.sortedByDescending { it.clip.createdAt }
+}
+
+private fun markTeammateReviewComplete(
+    context: android.content.Context,
+    clip: VideoClip,
+    playerNames: List<String>
+) {
+    val editor = context.getSharedPreferences(TEAMMATE_REVIEW_PREFS, android.content.Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean(clip.id, true)
+        .putString("${clip.id}:players", JSONArray(playerNames).toString())
+    if (clip.id != TEAMMATE_DEMO_REVIEW_ID) editor.putBoolean(clip.filePath, true)
+    editor.apply()
+}
+
+internal fun loadPendingSharedMemoryCounts(context: android.content.Context): Map<String, Int> {
+    val prefs = context.getSharedPreferences(TEAMMATE_REVIEW_PREFS, android.content.Context.MODE_PRIVATE)
+    return prefs.all.asSequence()
+        .filter { (key, value) -> key.endsWith(":players") && value is String }
+        .flatMap { (_, value) ->
+            val players = runCatching { JSONArray(value as String) }.getOrNull() ?: return@flatMap emptySequence()
+            sequence {
+                for (index in 0 until players.length()) {
+                    players.optString(index).trim().takeIf(String::isNotBlank)?.let { yield(it.lowercase(Locale.getDefault())) }
+                }
+            }
+        }
+        .groupingBy { it }
+        .eachCount()
+}
+
+@Composable
+private fun TeammateReviewScreen(
+    clips: List<TeammateReviewClip>,
+    onBack: () -> Unit,
+    onReview: (TeammateReviewClip) -> Unit
+) {
+    BackHandler(onBack = onBack)
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+            Column {
+                Text("Share with Families", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFE7F8ED),
+                    contentColor = Color(0xFF075D32)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(38.dp))
+                        Text(
+                            "These memories include other players from your team. Review and share the moments with their families.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+            item {
+                Text(
+                    "${clips.size} ${if (clips.size == 1) "memory" else "memories"} ready to share",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            items(clips, key = { it.clip.id }) { review ->
+                TeammateReviewRow(review = review, onReview = { onReview(review) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun TeammateReviewRow(review: TeammateReviewClip, onReview: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val thumbnail by produceState<Bitmap?>(null, review.clip.filePath) {
+        value = withContext(Dispatchers.IO) { loadRestoredClipThumbnail(context, review.clip.filePath) }
+    }
+    Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
+        Row(
+            modifier = Modifier.padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 112.dp, height = 76.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                thumbnail?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } ?: Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White)
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFDFF3E6),
+                    contentColor = Color(0xFF08743B)
+                ) {
+                    Text(
+                        review.clip.momentTag?.takeIf { it.isNotBlank() } ?: "Play",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+                Text(
+                    review.players.joinToString { player ->
+                        player.name + player.jerseyNumber.takeIf(String::isNotBlank)?.let { " #$it" }.orEmpty()
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Button(
+                onClick = onReview,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF079447), contentColor = Color.White),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+            ) { Text("Review") }
+        }
+    }
+}
+
+@Composable
+private fun TeammateClipReviewScreen(
+    reviewClip: TeammateReviewClip,
+    roster: List<Player>,
+    onBack: () -> Unit,
+    onFullscreen: () -> Unit,
+    onShare: (List<String>) -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val detectedNames = remember(reviewClip) { reviewClip.players.map { it.name }.toSet() }
+    var selectedNames by remember(reviewClip.clip.id) { mutableStateOf(detectedNames) }
+    var showFullRoster by rememberSaveable(reviewClip.clip.id) { mutableStateOf(false) }
+    val player = remember(reviewClip.clip.filePath) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.parse(reviewClip.clip.filePath)))
+            prepare()
+        }
+    }
+    DisposableEffect(player) { onDispose { player.release() } }
+    BackHandler {
+        if (showFullRoster) showFullRoster = false else onBack()
+    }
+
+    if (showFullRoster) {
+        TeammateRosterPickerScreen(
+            roster = roster,
+            selectedNames = selectedNames,
+            onBack = { showFullRoster = false },
+            onSelectionChanged = { selectedNames = it }
+        )
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+            Text("Share this memory", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        Box(
+            modifier = Modifier.fillMaxWidth().height(230.dp).background(Color.Black)
+        ) {
+            AndroidView(
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        this.player = player
+                        useController = true
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        setShowRewindButton(false)
+                        setShowFastForwardButton(false)
+                        findViewById<android.view.View>(androidx.media3.ui.R.id.exo_settings)?.visibility = android.view.View.GONE
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            IconButton(
+                onClick = onFullscreen,
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape)
+            ) {
+                Icon(Icons.Default.Fullscreen, contentDescription = "View full screen", tint = Color.White)
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text("Who was involved?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("PlayLoom suggested these players. You decide who to include.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            reviewClip.players.forEach { suggestion ->
+                PlayerShareChoice(
+                    name = suggestion.jerseyNumber.takeIf(String::isNotBlank)
+                        ?.let { "#$it ${suggestion.name}" }
+                        ?: suggestion.name,
+                    detail = "",
+                    selected = suggestion.name in selectedNames,
+                    onSelectedChange = { selected ->
+                        selectedNames = if (selected) selectedNames + suggestion.name else selectedNames - suggestion.name
+                    }
+                )
+            }
+            TextButton(
+                onClick = { showFullRoster = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("+ Add another player", modifier = Modifier.fillMaxWidth())
+            }
+        }
+        Button(
+            enabled = selectedNames.isNotEmpty(),
+            onClick = { onShare(selectedNames.sorted()) },
+            modifier = Modifier.fillMaxWidth().padding(16.dp).height(50.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF208A4B),
+                contentColor = Color.White
+            )
+        ) {
+            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Share it")
+        }
+        TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text("Not now", color = Color(0xFF079447), fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun TeammateRosterPickerScreen(
+    roster: List<Player>,
+    selectedNames: Set<String>,
+    onBack: () -> Unit,
+    onSelectionChanged: (Set<String>) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+            Column {
+                Text("Add players", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Full roster", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            items(roster, key = { it.id }) { player ->
+                val selected = player.name in selectedNames
+                PlayerShareChoice(
+                    name = player.name,
+                    detail = player.number.takeIf(String::isNotBlank)?.let { "#$it" }.orEmpty(),
+                    selected = selected,
+                    onSelectedChange = { checked ->
+                        onSelectionChanged(if (checked) selectedNames + player.name else selectedNames - player.name)
+                    }
+                )
+            }
+        }
+        Button(onClick = onBack, modifier = Modifier.fillMaxWidth().padding(16.dp).height(50.dp)) {
+            Text("Done")
+        }
+    }
+}
+
+@Composable
+private fun PlayerShareChoice(
+    name: String,
+    detail: String,
+    selected: Boolean,
+    onSelectedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSelectedChange(!selected) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .border(
+                    width = 2.dp,
+                    color = if (selected) Color(0xFF208A4B) else MaterialTheme.colorScheme.outline,
+                    shape = CircleShape
+                )
+                .background(if (selected) Color(0xFF208A4B) else Color.Transparent, CircleShape)
+                .clickable { onSelectedChange(!selected) },
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(name, modifier = Modifier.weight(1f))
+        if (detail.isNotBlank()) Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 private fun loadRestoredClipThumbnail(context: android.content.Context, filePath: String): Bitmap? {
     val uri = Uri.parse(filePath)
 
@@ -1573,21 +3565,8 @@ private fun loadRestoredClipThumbnail(context: android.content.Context, filePath
     }
 }
 
-private suspend fun deleteRestoredClip(context: android.content.Context, video: VideoClip) {
+private suspend fun removeRestoredMemory(context: android.content.Context, video: VideoClip) {
     withContext(Dispatchers.IO) {
-        val videoUri = Uri.parse(video.filePath)
-
-        try {
-            if (videoUri.scheme == "content") {
-                context.contentResolver.delete(videoUri, null, null)
-            }
-            if (videoUri.scheme == "file") {
-                val file = java.io.File(videoUri.path ?: "")
-                file.delete()
-            }
-        } catch (_: Exception) {
-        }
-
         val prefs = listOf(
             context.getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE),
             context.getSharedPreferences("video_start_times", android.content.Context.MODE_PRIVATE),
@@ -1630,6 +3609,7 @@ private fun ClipEditorScreen(
     onSaveTrim: (Long, Long) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val playbackMetadata = remember(clip) { loadPlaybackClipMetadata(context, clip) }
 
     val player = remember(clip.filePath) {
         ExoPlayer.Builder(context).build().apply {
@@ -1684,14 +3664,11 @@ private fun ClipEditorScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
                 Text(
-                    text = if (allowTrim) "Trim clip" else "View clip",
+                    text = if (allowTrim) "Trim memory" else "View memory",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = onClose, enabled = !isTrimming) {
-                    Text("Done")
-                }
             }
 
             Box(
@@ -1708,6 +3685,13 @@ private fun ClipEditorScreen(
                         }
                     },
                     modifier = Modifier.fillMaxSize()
+                )
+
+                ClipMetadataTicket(
+                    metadata = playbackMetadata,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 14.dp, start = 14.dp)
                 )
 
                 IconButton(
@@ -1773,7 +3757,7 @@ private fun ClipEditorScreen(
                     }
                 } else {
                     Text(
-                        text = "Loading clip...",
+                        text = "Loading memory...",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1795,7 +3779,7 @@ private fun ClipEditorScreen(
                             enabled = !isTrimming,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("Full clip")
+                            Text("Full memory")
                         }
                     }
 
@@ -1978,7 +3962,7 @@ private fun EditReelScreen(
                 item(key = "clips_header") {
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = "Clips in this reel (${orderedIds.size})",
+                        text = "Memories in this reel (${orderedIds.size})",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -2014,7 +3998,7 @@ private fun EditReelScreen(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Add Clips")
+                        Text("Add Memories")
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                 }
@@ -2027,33 +4011,12 @@ private fun EditReelScreen(
             onDismissRequest = { showFullScreenPreview = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                val fullScreenPlayer = remember(previewClip.filePath) {
-                    ExoPlayer.Builder(context).build().apply {
-                        setMediaItem(MediaItem.fromUri(Uri.parse(previewClip.filePath)))
-                        prepare()
-                        playWhenReady = true
-                    }
-                }
-                DisposableEffect(previewClip.filePath) {
-                    onDispose { fullScreenPlayer.release() }
-                }
-                AndroidView(
-                    factory = { viewContext ->
-                        PlayerView(viewContext).apply {
-                            player = fullScreenPlayer
-                            useController = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-                IconButton(
-                    onClick = { showFullScreenPreview = false },
-                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close", tint = Color.White)
-                }
-            }
+            VideoPlaybackScreen(
+                videoUri = Uri.parse(previewClip.filePath),
+                clipMetadata = previewClip,
+                detectedPlayers = emptyList(),
+                onNavigateBack = { showFullScreenPreview = false }
+            )
         }
     }
 }
@@ -2119,7 +4082,7 @@ private fun ReelOrderClipRow(
             }
 
             Text(
-                text = clip?.momentTag?.takeIf { it.isNotBlank() } ?: clip?.gameTitle ?: "Clip",
+                text = clip?.momentTag?.takeIf { it.isNotBlank() } ?: clip?.gameTitle ?: "Memory",
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -2204,7 +4167,7 @@ private fun AddClipsToReelScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
                 Text(
-                    text = "Add Clips",
+                    text = "Add Memories",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -2289,7 +4252,7 @@ private fun AddClipsToReelScreen(
                 if (filteredClips.isEmpty()) {
                     item {
                         Text(
-                            text = "No clips match your filters",
+                            text = "No memories match your filters",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 24.dp)
@@ -2560,8 +4523,9 @@ private fun ClipsFileTab(
 ) {
     Box(
         modifier = Modifier
-            .width(72.dp)
+            .widthIn(min = 72.dp)
             .height(PrimaryClipsControlHeight)
+            .padding(horizontal = 8.dp)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -2569,7 +4533,9 @@ private fun ClipsFileTab(
             text = label,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Medium,
-            color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false
         )
         if (underlined) {
             Box(
@@ -2598,11 +4564,6 @@ private fun ClipActionButton(
         modifier = modifier
             .height(40.dp)
             .clip(RoundedCornerShape(20.dp))
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(20.dp)
-            )
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally),
@@ -2659,6 +4620,9 @@ private fun RestoredClipRow(
     onDelete: () -> Unit,
     onToggleHighlight: () -> Unit,
     onTagChanged: (String?) -> Unit,
+    opponentName: String?,
+    opponentOptions: List<String>,
+    onOpponentChanged: (String?) -> Unit,
     onTitleChanged: (String) -> Unit,
     onEditReel: () -> Unit
 ) {
@@ -2667,6 +4631,13 @@ private fun RestoredClipRow(
         mutableStateOf(loadClipCommentary(context, clip))
     }
     var isCommentaryExpanded by remember(clip.id, clip.filePath) { mutableStateOf(false) }
+    val suggestedPlayers by produceState<List<ClipPlayerSuggestion>?>(
+        initialValue = null,
+        key1 = clip.id,
+        key2 = clip.filePath
+    ) {
+        value = withContext(Dispatchers.IO) { loadConfidentClipPlayers(context, clip) }
+    }
     val previewBitmap by produceState<Bitmap?>(
         initialValue = null,
         key1 = clip.id,
@@ -2685,10 +4656,11 @@ private fun RestoredClipRow(
         label = "restored_clip_swipe"
     )
     val dragState = rememberDraggableState { delta ->
-        swipeOffsetTarget = (swipeOffsetTarget + delta).coerceIn(-actionWidthPx, actionWidthPx)
+        swipeOffsetTarget = (swipeOffsetTarget + delta).coerceIn(-actionWidthPx, 0f)
     }
     val rowScope = rememberCoroutineScope()
     var showTagPicker by remember(clip.id, clip.filePath) { mutableStateOf(false) }
+    var showOpponentEditor by remember(clip.id, clip.filePath) { mutableStateOf(false) }
     var customTags by remember(clip.id, clip.filePath) { mutableStateOf(loadClipCustomTags(context, clip)) }
     var showTitleEditor by remember(clip.id, clip.filePath) { mutableStateOf(false) }
     var isPlayingInline by remember(clip.id, clip.filePath) { mutableStateOf(false) }
@@ -2717,36 +4689,7 @@ private fun RestoredClipRow(
                 .height(158.dp)
                 .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
         ) {
-            when {
-                swipeOffset > 0f -> {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .width(RestoredSwipeActionWidth)
-                            .fillMaxSize(),
-                        color = MaterialTheme.colorScheme.tertiary,
-                        onClick = {
-                            if (swipeOffsetTarget >= actionWidthPx * 0.9f) {
-                                onShare()
-                                rowScope.launch { swipeOffsetTarget = 0f }
-                            }
-                        }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Start
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, tint = Color.White)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Share", color = Color.White, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-
-                swipeOffset < 0f -> {
+            if (swipeOffset < 0f) {
                     Surface(
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
@@ -2767,12 +4710,11 @@ private fun RestoredClipRow(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.End
                         ) {
-                            Text("Delete", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text("Remove", color = Color.White, fontWeight = FontWeight.SemiBold)
                             Spacer(modifier = Modifier.width(6.dp))
                             Icon(Icons.Default.Delete, contentDescription = null, tint = Color.White)
                         }
                     }
-                }
             }
         }
 
@@ -2790,7 +4732,6 @@ private fun RestoredClipRow(
                     onDragStopped = {
                         val settleThreshold = actionWidthPx * 0.5f
                         swipeOffsetTarget = when {
-                            swipeOffsetTarget > settleThreshold -> actionWidthPx
                             swipeOffsetTarget < -settleThreshold -> -actionWidthPx
                             else -> 0f
                         }
@@ -2836,21 +4777,6 @@ private fun RestoredClipRow(
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.Black.copy(alpha = 0.34f))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            formatRestoredDuration(clip.duration),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
-                            color = Color.White.copy(alpha = 0.95f)
-                        )
-                    }
                     val tagStartPadding = 6.dp
                     if (isReel) {
                         Box(
@@ -2890,7 +4816,7 @@ private fun RestoredClipRow(
                                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
                                     Text(
-                                        text = if (clipCount != null) "$clipCount clip${if (clipCount == 1) "" else "s"}" else "View clips",
+                                        text = if (clipCount != null) "$clipCount ${if (clipCount == 1) "memory" else "memories"}" else "View memories",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Color.White
@@ -2907,42 +4833,64 @@ private fun RestoredClipRow(
                     } else {
                         val currentTag = clip.momentTag?.takeIf { it.isNotBlank() }
                         val tagConfig = if (currentTag != null) momentTagConfig(currentTag) else null
-                        Box(
+                        Row(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(start = tagStartPadding, top = 6.dp)
-                                .widthIn(max = 168.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(tagConfig?.second ?: Color.Black.copy(alpha = 0.6f))
-                                .clickable(enabled = !reelMode) { showTagPicker = true }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(end = 46.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (tagConfig != null) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = tagConfig.first,
-                                        contentDescription = tagConfig.third,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
+                            Box(
+                                modifier = Modifier
+                                    .widthIn(max = 150.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(tagConfig?.second ?: Color.Black.copy(alpha = 0.6f))
+                                    .clickable(enabled = !reelMode) { showTagPicker = true }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (tagConfig != null) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = tagConfig.first,
+                                            contentDescription = tagConfig.third,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = tagConfig.third,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                } else {
                                     Text(
-                                        text = tagConfig.third,
+                                        text = "+Tag",
                                         style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        color = Color.White
                                     )
                                 }
-                            } else {
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(9.dp),
+                                color = Color.Black.copy(alpha = 0.6f),
+                                contentColor = Color.White,
+                                onClick = { showOpponentEditor = true }
+                            ) {
                                 Text(
-                                    text = "+Tag",
+                                    text = opponentName?.takeIf(String::isNotBlank)?.let { "vs $it" } ?: "vs Opponent",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = Color.White
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 150.dp).padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
                         }
@@ -2958,8 +4906,8 @@ private fun RestoredClipRow(
                     if (!reelMode) {
                         Surface(
                             modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(8.dp)
+                                .align(Alignment.TopEnd)
+                                .padding(top = 6.dp, end = 6.dp)
                                 .size(30.dp)
                                 .clip(CircleShape)
                                 .clickable { onExpand() },
@@ -2986,7 +4934,7 @@ private fun RestoredClipRow(
                                 .background(if (isSelectedForReel) MaterialTheme.colorScheme.primary else Color.White)
                                 .border(
                                     width = 2.dp,
-                                    color = if (isSelectedForReel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                    color = if (isSelectedForReel) MaterialTheme.colorScheme.primary else Color(0xFF555B61),
                                     shape = CircleShape
                                 )
                                 .clickable { onToggleReelSelection() },
@@ -3038,7 +4986,59 @@ private fun RestoredClipRow(
                         }
                     }
 
+                    suggestedPlayers?.takeIf { !isReel && it.isNotEmpty() }?.let { players ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 6.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PersonSearch,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Players spotted",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                players.forEach { suggestion ->
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            text = buildString {
+                                                append(suggestion.name)
+                                                if (suggestion.jerseyNumber.isNotBlank()) append(" #${suggestion.jerseyNumber}")
+                                            },
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if (!reelMode || clip.isHighlight) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 6.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f)
+                        )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3055,7 +5055,7 @@ private fun RestoredClipRow(
                                 )
                             } else {
                                 ClipActionButton(
-                                    icon = Icons.Default.Edit,
+                                    icon = Icons.Default.ContentCut,
                                     label = "Trim",
                                     modifier = Modifier.weight(1f),
                                     tint = MaterialTheme.colorScheme.primary,
@@ -3162,7 +5162,7 @@ private fun RestoredClipRow(
                                 value = commentary,
                                 onValueChange = { updated -> commentary = updated },
                                 modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("Add notes about this clip") },
+                                placeholder = { Text("Add notes about this memory") },
                                 minLines = 2,
                                 maxLines = 4,
                                 singleLine = false,
@@ -3272,6 +5272,22 @@ private fun RestoredClipRow(
             )
         }
 
+        if (showOpponentEditor) {
+            OpponentEditorDialog(
+                currentOpponent = opponentName,
+                opponentOptions = opponentOptions,
+                onDismiss = { showOpponentEditor = false },
+                onSave = { opponent ->
+                    onOpponentChanged(opponent)
+                    showOpponentEditor = false
+                },
+                onRemove = {
+                    onOpponentChanged(null)
+                    showOpponentEditor = false
+                }
+            )
+        }
+
         if (showTitleEditor) {
             var titleInput by remember { mutableStateOf(reelDisplayTitle) }
             androidx.compose.material3.AlertDialog(
@@ -3307,6 +5323,64 @@ private fun RestoredClipRow(
             )
         }
     }
+}
+
+@Composable
+private fun OpponentEditorDialog(
+    currentOpponent: String?,
+    opponentOptions: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (String?) -> Unit,
+    onRemove: () -> Unit
+) {
+    var opponentInput by remember(currentOpponent) { mutableStateOf(currentOpponent.orEmpty()) }
+    val matchingOptions = remember(opponentInput, opponentOptions) {
+        val query = opponentInput.trim()
+        if (query.isEmpty()) opponentOptions.take(5) else opponentOptions
+            .filter { it.contains(query, ignoreCase = true) }
+            .sortedBy { if (it.startsWith(query, ignoreCase = true)) 0 else 1 }
+            .take(5)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit opponent") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = opponentInput,
+                    onValueChange = { opponentInput = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Opponent name") },
+                    placeholder = { Text("Enter opponent") },
+                    singleLine = true
+                )
+                matchingOptions.forEach { option ->
+                    TextButton(
+                        onClick = { opponentInput = option },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(option, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val trimmed = opponentInput.trim()
+                    val canonical = opponentOptions.firstOrNull { it.equals(trimmed, ignoreCase = true) } ?: trimmed
+                    onSave(canonical.takeIf(String::isNotEmpty))
+                }
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (!currentOpponent.isNullOrBlank()) TextButton(onClick = onRemove) { Text("Remove") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        }
+    )
 }
 
 private suspend fun loadRestoredClips(context: android.content.Context, teamName: String): List<VideoClip> {
@@ -3565,44 +5639,42 @@ private fun buildRestoredClipOpponentLookup(
     }
 }
 
+private fun persistClipOpponent(
+    context: android.content.Context,
+    clip: VideoClip,
+    opponentName: String?
+) {
+    val prefs = context.getSharedPreferences("video_opponent_names", android.content.Context.MODE_PRIVATE)
+    val keys = listOfNotNull(clip.id, clip.filePath, Uri.parse(clip.filePath).path).distinct()
+    prefs.edit().apply {
+        keys.forEach { key ->
+            if (opponentName.isNullOrBlank()) remove(key) else putString(key, opponentName.trim())
+        }
+    }.apply()
+}
+
 private fun filterRestoredClipsBySearchQuery(
     videos: List<VideoClip>,
     query: String,
     kidLookup: Map<String, String?>,
     opponentLookup: Map<String, String?>
 ): List<VideoClip> {
-    val normalizedQuery = query
-        .lowercase(Locale.getDefault())
-        .replace("’s", " ")
-        .replace("'s", " ")
-        .replace(Regex("[^a-z0-9#]+"), " ")
-        .trim()
+    val searchQuery = parseMemorySearchQuery(query)
+    if (searchQuery.momentTag == null && searchQuery.seasonIntent == null && searchQuery.terms.isEmpty()) {
+        return videos
+    }
 
-    if (normalizedQuery.isBlank()) return videos
-
-    val queryWords = normalizedQuery.split(Regex("\\s+")).filter(String::isNotBlank)
-    val hasSeasonIntent = "season" in queryWords
     val currentSeasonStartYear = currentRestoredSeasonStartYear()
-    val requestedSeasonStartYear = when {
-        !hasSeasonIntent -> null
-        "last" in queryWords || "previous" in queryWords -> currentSeasonStartYear - 1
-        "this" in queryWords || "current" in queryWords -> currentSeasonStartYear
+    val requestedSeasonStartYear = when (searchQuery.seasonIntent) {
+        MemorySeasonIntent.PREVIOUS -> currentSeasonStartYear - 1
+        MemorySeasonIntent.CURRENT -> currentSeasonStartYear
         else -> null
     }
-    val requestedTag = detectMomentTagIntent(queryWords)
-    val intentWords = buildSet {
-        if (hasSeasonIntent) addAll(setOf("season", "last", "previous", "this", "current"))
-        if (requestedTag != null) addAll(momentTagIntentWords(requestedTag))
-    }
-    val wantsFirst = !hasSeasonIntent && "first" in queryWords
-    val wantsLast = !hasSeasonIntent && "last" in queryWords
-    val searchTerms = queryWords
-        .filter { it !in setOf("the", "a", "an", "and", "of", "my", "first", "last") && it !in intentWords }
 
     val matches = videos.filter { video ->
         val matchesSeason = requestedSeasonStartYear == null ||
             parseRestoredSeasonKey(video.gameDate)?.startYear == requestedSeasonStartYear
-        val matchesTag = requestedTag == null || canonicalMomentTag(video.momentTag) == requestedTag
+        val matchesTag = searchQuery.momentTag == null || canonicalMomentTag(video.momentTag) == searchQuery.momentTag
         if (!matchesSeason || !matchesTag) return@filter false
 
         val bubbleNames = try {
@@ -3632,15 +5704,15 @@ private fun filterRestoredClipsBySearchQuery(
             .replace("’s", " ")
             .replace("'s", " ")
 
-        searchTerms.all { term ->
+        searchQuery.terms.all { term ->
             searchable.contains(term) ||
                 (term.endsWith("s") && term.length > 3 && searchable.contains(term.dropLast(1)))
         }
     }
 
     return when {
-        wantsFirst -> matches.minWithOrNull(compareBy<VideoClip> { it.gameDate }.thenBy { it.createdAt })?.let(::listOf).orEmpty()
-        wantsLast -> matches.maxWithOrNull(compareBy<VideoClip> { it.gameDate }.thenBy { it.createdAt })?.let(::listOf).orEmpty()
+        searchQuery.resultSelection == MemoryResultSelection.FIRST -> matches.minWithOrNull(compareBy<VideoClip> { it.gameDate }.thenBy { it.createdAt })?.let(::listOf).orEmpty()
+        searchQuery.resultSelection == MemoryResultSelection.LAST -> matches.maxWithOrNull(compareBy<VideoClip> { it.gameDate }.thenBy { it.createdAt })?.let(::listOf).orEmpty()
         else -> matches
     }
 }
@@ -3650,26 +5722,6 @@ private fun currentRestoredSeasonStartYear(): Int {
     val year = calendar.get(java.util.Calendar.YEAR)
     val month = calendar.get(java.util.Calendar.MONTH) + 1
     return if (month >= 8) year else year - 1
-}
-
-private fun detectMomentTagIntent(words: List<String>): String? = when {
-    words.any { it in setOf("goal", "goals", "score", "scores", "scored", "scoring") } -> "Score"
-    words.any { it in setOf("assist", "assists") } -> "Assist"
-    words.any { it in setOf("save", "saves") } -> "Save"
-    words.containsAll(listOf("defensive", "stop")) || words.containsAll(listOf("defensive", "stops")) -> "Defensive Stop"
-    words.any { it in setOf("faceoff", "faceoffs") } && words.any { it in setOf("win", "wins", "won") } -> "Faceoff Win"
-    words.containsAll(listOf("ground", "ball")) || words.containsAll(listOf("ground", "balls")) -> "Ground Ball"
-    else -> null
-}
-
-private fun momentTagIntentWords(tag: String): Set<String> = when (tag) {
-    "Score" -> setOf("goal", "goals", "score", "scores", "scored", "scoring")
-    "Assist" -> setOf("assist", "assists")
-    "Save" -> setOf("save", "saves")
-    "Defensive Stop" -> setOf("defensive", "stop", "stops")
-    "Faceoff Win" -> setOf("faceoff", "faceoffs", "win", "wins", "won")
-    "Ground Ball" -> setOf("ground", "ball", "balls")
-    else -> emptySet()
 }
 
 private fun canonicalMomentTag(tag: String?): String? = when (tag?.trim()?.lowercase(Locale.getDefault())) {
@@ -3698,6 +5750,22 @@ private fun buildRestoredClipKidLookup(
     }
 }
 
+private fun buildRestoredClipTeamLookup(
+    context: android.content.Context,
+    videos: List<VideoClip>
+): Map<String, String?> {
+    val teamPrefs = context.getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE)
+    return videos.associate { video ->
+        val fileUri = Uri.parse(video.filePath)
+        val filePath = fileUri.path
+        video.id to (
+            teamPrefs.getString(video.id, null)
+                ?: teamPrefs.getString(video.filePath, null)
+                ?: filePath?.let { teamPrefs.getString(it, null) }
+        )?.trim().takeIf { !it.isNullOrBlank() }
+    }
+}
+
 private fun buildRestoredClipGameSections(
     videos: List<VideoClip>,
     opponentLookup: Map<String, String?>
@@ -3707,7 +5775,8 @@ private fun buildRestoredClipGameSections(
         .map { (key, groupedVideos) ->
             val sample = groupedVideos.maxByOrNull { it.createdAt } ?: groupedVideos.first()
             val opponent = opponentLookup[sample.id]?.takeIf(String::isNotBlank)
-            val displayTitle = opponent?.split(" ")?.joinToString(" ") { it.replaceFirstChar(Char::uppercase) } ?: ""
+            val displayTitle = opponent?.split(" ")?.joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+                ?: PROVIDE_OPPONENT_HEADER
             val dates = groupedVideos.map { it.gameDate }.distinct().sorted()
             val dateLabel = dates.joinToString(", ") { formatRestoredClipFilterDate(it) }
             VideoLibrarySection(
@@ -3730,7 +5799,7 @@ private fun buildRestoredClipDateSubSections(
         return listOf(
             VideoLibrarySection(
                 key = NO_OPPONENT_FILTER_RESTORED,
-                title = "",
+                title = PROVIDE_OPPONENT_HEADER,
                 subtitle = "",
                 videos = videos.sortedByDescending { it.createdAt }
             )
@@ -3780,7 +5849,7 @@ private fun buildRestoredClipListSectionsForAllGames(
             listOf(
                 VideoLibrarySection(
                     key = NO_OPPONENT_FILTER_RESTORED,
-                    title = "",
+                    title = PROVIDE_OPPONENT_HEADER,
                     subtitle = "",
                     videos = opponentVideos.sortedByDescending { it.createdAt }
                 )
@@ -3802,6 +5871,34 @@ private fun buildRestoredClipListSectionsForAllGames(
     }
 }
 
+private fun buildReelPickerMemoryGroups(
+    videos: List<VideoClip>,
+    opponentLookup: Map<String, String?>
+): List<ReelPickerMemoryGroup> {
+    return videos
+        .groupBy { clip ->
+            val opponent = opponentLookup[clip.id]?.trim()?.takeIf(String::isNotBlank)
+            val season = parseRestoredSeasonKey(clip.gameDate)
+            (opponent ?: "Opponent not set") to season
+        }
+        .map { (groupKey, groupedVideos) ->
+            val (opponent, season) = groupKey
+            ReelPickerMemoryGroup(
+                key = "${opponent.lowercase(Locale.getDefault())}|${season?.key ?: "unknown"}",
+                opponentLabel = opponent,
+                seasonLabel = season?.let { "${it.label} Season" } ?: "Season not set",
+                videos = groupedVideos.sortedByDescending { it.createdAt }
+            )
+        }
+        .sortedWith(
+            compareBy<ReelPickerMemoryGroup> { it.opponentLabel.lowercase(Locale.getDefault()) }
+                .thenByDescending { group ->
+                    group.videos.firstNotNullOfOrNull { parseRestoredSeasonKey(it.gameDate)?.startYear }
+                        ?: Int.MIN_VALUE
+                }
+        )
+}
+
 private fun formatRestoredClipFilterDate(dateString: String): String {
     return try {
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateString)
@@ -3816,6 +5913,150 @@ private data class RestoredSeasonOption(
     val label: String,
     val startYear: Int
 )
+
+private fun readPendingClipImport(
+    context: android.content.Context,
+    uri: Uri
+): PendingClipImport {
+    var capturedAtMs: Long? = null
+
+    runCatching {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use
+            fun positiveLong(columnName: String): Long? {
+                val index = cursor.getColumnIndex(columnName)
+                return if (index >= 0 && !cursor.isNull(index)) cursor.getLong(index).takeIf { it > 0L } else null
+            }
+
+            capturedAtMs = positiveLong(MediaStore.MediaColumns.DATE_TAKEN)
+                ?: positiveLong(android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                ?: positiveLong(MediaStore.MediaColumns.DATE_MODIFIED)?.let { seconds -> seconds * 1000L }
+                ?: positiveLong(MediaStore.MediaColumns.DATE_ADDED)?.let { seconds -> seconds * 1000L }
+        }
+    }
+
+    return PendingClipImport(
+        uri = uri,
+        capturedAtMs = capturedAtMs,
+        seasonStartYear = capturedAtMs?.let(::restoredSeasonStartYear)
+    )
+}
+
+private fun storedClipKeyToUri(key: String): Uri? {
+    return when {
+        key.startsWith("content://") || key.startsWith("file://") -> Uri.parse(key)
+        else -> java.io.File(key).takeIf { it.isFile }?.let(Uri::fromFile)
+    }
+}
+
+private data class VideoIdentity(
+    val sizeBytes: Long,
+    val durationMs: Long,
+    val width: Int,
+    val height: Int
+)
+
+private fun readVideoIdentity(context: android.content.Context, uri: Uri): VideoIdentity? = runCatching {
+    context.contentResolver.query(
+        uri,
+        arrayOf(
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.Video.Media.DURATION,
+            MediaStore.Video.Media.WIDTH,
+            MediaStore.Video.Media.HEIGHT
+        ),
+        null,
+        null,
+        null
+    )?.use { cursor ->
+        if (!cursor.moveToFirst()) return@use null
+        val size = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE))
+        val duration = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION))
+        val width = cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH))
+        val height = cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT))
+        if (size > 0L && duration > 0L) VideoIdentity(size, duration, width, height) else null
+    }
+}.getOrNull()
+
+private fun loadCameraRollVideos(
+    context: android.content.Context,
+    existingClipUris: List<Uri>
+): List<CameraRollVideo> {
+    val existingIdentities = existingClipUris
+        .distinctBy { it.toString() }
+        .mapNotNull { readVideoIdentity(context, it) }
+        .toSet()
+    val importedKeys = context
+        .getSharedPreferences("video_team_names", android.content.Context.MODE_PRIVATE)
+        .all
+        .keys
+
+    val videos = mutableListOf<CameraRollVideo>()
+    val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+    val projection = arrayOf(
+        MediaStore.Video.Media._ID,
+        MediaStore.Video.Media.DURATION,
+        MediaStore.MediaColumns.SIZE,
+        MediaStore.Video.Media.WIDTH,
+        MediaStore.Video.Media.HEIGHT
+    )
+    context.contentResolver.query(
+        collection,
+        projection,
+        null,
+        null,
+        "${MediaStore.Video.Media.DATE_ADDED} DESC"
+    )?.use { cursor ->
+        val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+        val durationIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+        val sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+        val widthIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH)
+        val heightIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
+        while (cursor.moveToNext() && videos.size < 200) {
+            val uri = ContentUris.withAppendedId(collection, cursor.getLong(idIndex))
+            val duration = cursor.getLong(durationIndex)
+            val identity = VideoIdentity(
+                sizeBytes = cursor.getLong(sizeIndex),
+                durationMs = duration,
+                width = cursor.getInt(widthIndex),
+                height = cursor.getInt(heightIndex)
+            )
+            videos += CameraRollVideo(
+                uri = uri,
+                durationMs = duration,
+                imported = uri.toString() in importedKeys ||
+                    identity in existingIdentities
+            )
+        }
+    }
+    return videos
+}
+
+private fun restoredSeasonStartYear(timestampMs: Long): Int {
+    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = timestampMs }
+    val year = calendar.get(java.util.Calendar.YEAR)
+    return if (calendar.get(java.util.Calendar.MONTH) >= java.util.Calendar.AUGUST) year else year - 1
+}
+
+private fun restoredSeasonLabel(startYear: Int): String =
+    "$startYear-${String.format(Locale.getDefault(), "%02d", (startYear + 1) % 100)}"
+
+private fun timestampInRestoredSeason(capturedAtMs: Long?, seasonStartYear: Int): Long {
+    val calendar = java.util.Calendar.getInstance()
+    if (capturedAtMs == null) {
+        calendar.clear()
+        calendar.set(seasonStartYear, java.util.Calendar.AUGUST, 1, 12, 0, 0)
+    } else {
+        calendar.timeInMillis = capturedAtMs
+        val targetYear = if (calendar.get(java.util.Calendar.MONTH) >= java.util.Calendar.AUGUST) {
+            seasonStartYear
+        } else {
+            seasonStartYear + 1
+        }
+        calendar.set(java.util.Calendar.YEAR, targetYear)
+    }
+    return calendar.timeInMillis
+}
 
 private fun parseRestoredSeasonKey(gameDate: String): RestoredSeasonOption? {
     return try {

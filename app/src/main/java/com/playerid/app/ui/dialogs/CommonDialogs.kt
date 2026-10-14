@@ -67,12 +67,18 @@ fun EditPlayerDialog(
     player: Player,
     onDismiss: () -> Unit,
     onSave: (Player) -> Unit,
+    initialContactPhone: String = "",
+    initialContactEmail: String = "",
+    onContactSave: (String, String, String) -> Unit = { _, _, _ -> },
+    showContactFields: Boolean = false,
     hideTeamField: Boolean = false, // New parameter to hide team field in team context
     availableTeams: List<String> = listOf("Red Team", "Blue Team", "Green Team", "Yellow Team")
 ) {
     var formState by remember(player) {
         mutableStateOf(PlayerFormState.forEditing(player.toProfile()))
     }
+    var contactPhone by remember(player, initialContactPhone) { mutableStateOf(initialContactPhone) }
+    var contactEmail by remember(player, initialContactEmail) { mutableStateOf(initialContactEmail) }
 
     PlayerFormDialog(
         title = "Edit Player",
@@ -81,6 +87,7 @@ fun EditPlayerDialog(
         onEvent = { formState = formState.reduce(it) },
         onDismiss = onDismiss,
         onSubmit = { submission ->
+            onContactSave(submission.name, contactPhone.trim(), contactEmail.trim())
             onSave(
                 player.copy(
                     name = submission.name,
@@ -92,7 +99,12 @@ fun EditPlayerDialog(
             )
         },
         showTeamField = !hideTeamField,
-        availableTeams = availableTeams
+        availableTeams = availableTeams,
+        showContactFields = showContactFields,
+        contactPhone = contactPhone,
+        contactEmail = contactEmail,
+        onContactPhoneChange = { contactPhone = it },
+        onContactEmailChange = { contactEmail = it }
     )
 }
 

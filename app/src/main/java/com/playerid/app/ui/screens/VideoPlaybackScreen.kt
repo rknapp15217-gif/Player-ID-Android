@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.content.Intent
+import android.graphics.BitmapFactory
 import androidx.compose.ui.text.style.TextOverflow
 import android.content.Context
 import android.graphics.Bitmap
@@ -21,6 +22,7 @@ import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -44,6 +46,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -86,8 +89,11 @@ import androidx.media3.common.Player as Media3Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.playerid.app.data.Player
+import com.playerid.app.data.VideoClip
+import com.playerid.app.BuildConfig
 import com.playerid.app.video.VideoProcessingManager
 import com.playerid.app.video.VideoPlayerDetectionResult
 import com.playerid.app.video.VideoSharePreparationCache
@@ -187,12 +193,16 @@ private fun VideoSeekBar(
 @Composable
 fun VideoPlaybackScreen(
     videoUri: Uri,
+    clipMetadata: VideoClip? = null,
+    playlistClips: List<VideoClip> = emptyList(),
     detectedPlayers: List<Player>,
     onNavigateBack: () -> Unit,
     playlistUris: List<Uri> = emptyList(), // For highlight reel mode
     initialIndex: Int = 0,
     startInShareFlow: Boolean = false,
+    preselectedSharePlayerIds: Set<String> = emptySet(),
     showPlaybackUi: Boolean = true,
+    shareVideoUris: List<Uri> = emptyList(),
     isReviewMode: Boolean = false,
     reelTitle: String? = null,
     reelTeamName: String? = null,
@@ -270,6 +280,14 @@ fun VideoPlaybackScreen(
     }
     val isPlaylistMode = playlistUris.isNotEmpty() && composedReelPlaybackUri == null
     val totalVideos = if (isPlaylistMode) playlistUris.size else 1
+    val activeClipMetadata = if (isPlaylistMode) {
+        playlistClips.getOrNull(currentVideoIndex) ?: clipMetadata
+    } else {
+        clipMetadata
+    }
+    val playbackMetadata = remember(activeClipMetadata) {
+        activeClipMetadata?.let { loadPlaybackClipMetadata(context, it) }
+    }
     val reelClipCountLabel = if (totalVideos == 1) "1 clip" else "$totalVideos clips"
     var showReelIntroOverlay by remember(isPlaylistMode, reelTitle, reelSeasonLabel, reelOpponents, totalVideos) {
         mutableStateOf(isPlaylistMode)
@@ -424,7 +442,17 @@ fun VideoPlaybackScreen(
     var showHighlightTags by remember { mutableStateOf(false) }
     var showPreviewActionsMenu by remember { mutableStateOf(false) }
     var shareDialogUri by remember { mutableStateOf<Uri?>(null) }
+    var showSharePreviewFullscreen by remember { mutableStateOf(false) }
+    var isSharePreviewPlaying by remember { mutableStateOf(false) }
+    var showSuggestedSharePlayers by remember { mutableStateOf(false) }
     var showSharePlayerList by remember { mutableStateOf(false) }
+    var showFavoriteShareContacts by remember { mutableStateOf(false) }
+    var shareRecipientQuery by remember { mutableStateOf("") }
+    var selectedPhoneContactKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showPhoneContactPicker by remember { mutableStateOf(false) }
+    var phoneContactPickerQuery by remember { mutableStateOf("") }
+    var draftPhoneContactKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var draftFavoriteContactKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var suggestedSharePlayerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isLoadingSuggestedPlayers by remember { mutableStateOf(false) }
     var scanShareSuggestionsDone by remember { mutableStateOf(false) }
@@ -574,21 +602,18 @@ fun VideoPlaybackScreen(
             )
         )
     }
-    val shareContactPickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickContact()
-    ) { contactUri ->
-        if (contactUri != null) {
-            val savedUri = shareDialogUri
-            if (savedUri != null) {
-                val contact = readSelectedContact(context, contactUri)
-                if (contact != null) {
-                    shareVideoToPhoneContact(context, savedUri, emptyList(), contact)
-                    shareDialogUri = null
-                }
+    val shareContactsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            scope.launch {
+                allContactsForShare = loadAllPhoneContactsForShare(context)
+                showPhoneContactPicker = true
             }
+        } else {
+            Toast.makeText(context, "Contacts permission is needed to select people", Toast.LENGTH_SHORT).show()
         }
     }
-
     val videoProcessingManager = remember {
         VideoProcessingManager(context)
     }
@@ -655,7 +680,7 @@ fun VideoPlaybackScreen(
             val initiallySelectedPlayer = matchedPlayers.firstOrNull()
             selectedOverlayIds = initiallySelectedPlayer?.let { setOf(it.id) } ?: emptySet()
             detectedSharePlayers = matchedPlayers
-            selectedSharePlayerIds = matchedPlayers.map { it.id }.toSet()
+            selectedSharePlayerIds = if (openShareDialog) emptySet() else matchedPlayers.map { it.id }.toSet()
             showDeeperScanPrompt = openShareDialog &&
                 detectionMode == VideoProcessingManager.DetectionMode.FAST &&
                 matchedPlayers.size <= 3
@@ -772,7 +797,7 @@ fun VideoPlaybackScreen(
     LaunchedEffect(startInShareFlow, videoUri, detectedPlayers) {
         if (startInShareFlow && !autoShareTriggered) {
             autoShareTriggered = true
-            showInitialShareDestinationDialog = true
+            resolveShareUri { uri -> shareDialogUri = uri }
         }
     }
 
@@ -819,35 +844,57 @@ fun VideoPlaybackScreen(
     }
 
     LaunchedEffect(shareDialogUri) {
+        if (shareDialogUri != null) {
+            isSharePreviewPlaying = false
+            showSuggestedSharePlayers = false
+            showSharePlayerList = false
+            showFavoriteShareContacts = false
+            selectedPhoneContactKeys = emptySet()
+            shareRecipientQuery = ""
+            allContactsForShare = loadAllPhoneContactsForShare(context)
+        }
+    }
+
+    LaunchedEffect(shareDialogUri, detectedPlayers) {
         if (shareDialogUri != null && detectedPlayers.isNotEmpty()) {
+            val dialogUri = shareDialogUri ?: return@LaunchedEffect
             selectedSharePlayerIds = emptySet()
             suggestedSharePlayerIds = emptySet()
             showSharePlayerList = false
             scanShareSuggestionsDone = false
-            
-            // Trigger quick player detection with FAST mode
+
             isLoadingSuggestedPlayers = true
             scope.launch(Dispatchers.Default) {
                 try {
-                    val detectionResult = videoProcessingManager.autoDetectPlayersWithTracksInVideo(
-                        videoUri = shareDialogUri!!,
-                        roster = detectedPlayers,
-                        mode = VideoProcessingManager.DetectionMode.FAST
-                    )
+                    if (preselectedSharePlayerIds.isNotEmpty()) {
+                        suggestedSharePlayerIds = preselectedSharePlayerIds
+                        return@launch
+                    }
+                    val cachedResult = VideoSharePreparationCache.get(dialogUri)?.analysisResult
+                    val persistedResult = if (cachedResult == null) {
+                        val dao = com.playerid.app.data.PlayerDatabase.getDatabase(context).videoDetectionResultDao()
+                        dao.getDetectionResult(dialogUri.toString())?.let { entity ->
+                            com.playerid.app.data.DetectionResultSerializer.deserialize(entity.detectionJson)
+                        }
+                    } else {
+                        null
+                    }
+                    val detectionResult = cachedResult ?: persistedResult
+                        ?: videoProcessingManager.autoDetectPlayersWithTracksInVideo(
+                            videoUri = dialogUri,
+                            roster = detectedPlayers,
+                            mode = VideoProcessingManager.DetectionMode.FAST
+                        )
                     
                     // Match detected jersey numbers with roster players
                     val detected = detectionResult.bubbles.mapNotNull { bubble ->
                         detectedPlayers.find { it.number == bubble.jerseyNumber }?.id
                     }.toSet()
                     
-                    // Pre-select suggested players
                     suggestedSharePlayerIds = detected
-                    if (detected.isNotEmpty()) {
-                        selectedSharePlayerIds = detected
-                    }
                     com.playerid.app.video.DeferredDeepScanScheduler.schedule(
                         context = context,
-                        videoUri = shareDialogUri!!,
+                        videoUri = dialogUri,
                         roster = detectedPlayers
                     )
                 } catch (e: Exception) {
@@ -1126,6 +1173,7 @@ fun VideoPlaybackScreen(
                         }
                     },
                     actions = {
+                        if (!isReviewMode) {
                         Surface(
                             onClick = {
                                 if (onEditReel != null) {
@@ -1161,37 +1209,6 @@ fun VideoPlaybackScreen(
                                 )
                             }
                         }
-                        Surface(
-                            onClick = {
-                                val permissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                                if (!permissionGranted) {
-                                    voiceMemoryPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                } else {
-                                    showVoiceMemoryDialog = true
-                                    voiceMemoryStatus = null
-                                }
-                            },
-                            color = Color.Transparent,
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Mic,
-                                    contentDescription = voiceMemoryActionLabel,
-                                    tint = if (!activeVoiceMemoryPath.isNullOrBlank()) Color(0xFFFFD54F) else Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    voiceMemoryActionLabel,
-                                    color = Color.White,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -1509,6 +1526,18 @@ fun VideoPlaybackScreen(
                     }
                 }
 
+                playbackMetadata?.let { metadata ->
+                    ClipMetadataTicket(
+                        metadata = metadata,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(
+                                top = if (isPlaylistMode) 68.dp else 14.dp,
+                                start = 14.dp
+                            )
+                    )
+                }
+
                 if (!isPlaylistMode) {
                 } else {
                     Row(
@@ -1641,7 +1670,7 @@ fun VideoPlaybackScreen(
                     }
 
                     // Prev / Next clip navigation arrows (Box scope overlay)
-                    if (currentVideoIndex > 0) {
+                    if (!isReviewMode && currentVideoIndex > 0) {
                         IconButton(
                             onClick = { exoPlayer?.seekToPreviousMediaItem() },
                             modifier = Modifier
@@ -1657,7 +1686,7 @@ fun VideoPlaybackScreen(
                             )
                         }
                     }
-                    if (currentVideoIndex < totalVideos - 1) {
+                    if (!isReviewMode && currentVideoIndex < totalVideos - 1) {
                         IconButton(
                             onClick = { exoPlayer?.seekToNextMediaItem() },
                             modifier = Modifier
@@ -2030,30 +2059,255 @@ fun VideoPlaybackScreen(
     }
 
     shareDialogUri?.let { savedUri ->
+        val shareClipMetadata = remember(clipMetadata) {
+            clipMetadata?.let { loadPlaybackClipMetadata(context, it) }
+        }
+        val sharePreviewBitmap by produceState<Bitmap?>(null, savedUri) {
+            value = withContext(Dispatchers.IO) {
+                runCatching {
+                    MediaMetadataRetriever().run {
+                        try {
+                            setDataSource(context, savedUri)
+                            getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        } finally {
+                            release()
+                        }
+                    }
+                }.getOrNull()
+            }
+        }
+        val shareInlinePlayer = remember(savedUri) {
+            ExoPlayer.Builder(context).build().apply {
+                setMediaItem(MediaItem.fromUri(savedUri))
+                prepare()
+            }
+        }
+        DisposableEffect(shareInlinePlayer) {
+            onDispose { shareInlinePlayer.release() }
+        }
+        LaunchedEffect(isSharePreviewPlaying) {
+            if (isSharePreviewPlaying) shareInlinePlayer.play() else shareInlinePlayer.pause()
+        }
+        val shareTagColor = shareMomentTagColor(clipMetadata?.momentTag)
+        val selectedPlayers = shareRosterPlayers.filter { it.id in selectedSharePlayerIds }
+        val suggestedSelectionCount = selectedSharePlayerIds.count { it in suggestedSharePlayerIds }
+        val rosterSelectionCount = selectedPlayers.size
+        val availablePhoneContacts = (favoritePhoneContacts + allContactsForShare).distinctBy { it.cacheKey }
+        val favoriteSelectionCount = favoritePhoneContacts.count { it.cacheKey in selectedPhoneContactKeys }
+        val phoneContactSelectionCount = selectedPhoneContactKeys.size
+        val selectedPhoneContacts = availablePhoneContacts.filter { it.cacheKey in selectedPhoneContactKeys }
+        val combinedRecipients = (
+            buildTeamShareRecipients(selectedPlayers) + selectedPhoneContacts.map { contact ->
+                TeamShareRecipient(
+                    key = contact.cacheKey,
+                    displayName = contact.displayName,
+                    detail = contact.phoneNumber ?: contact.email.orEmpty(),
+                    rawContact = contact.phoneNumber ?: contact.email.orEmpty(),
+                    phoneNumber = contact.phoneNumber,
+                    email = contact.email
+                )
+            }
+        ).distinctBy { it.key }
+        val closeShare: () -> Unit = {
+            isSharePreviewPlaying = false
+            if (startInShareFlow) {
+                onNavigateBack()
+            } else {
+                shareDialogUri = null
+            }
+        }
         Dialog(
-            onDismissRequest = { shareDialogUri = null },
+            onDismissRequest = closeShare,
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                modifier = Modifier.fillMaxWidth(0.95f),
-                shape = RoundedCornerShape(16.dp),
-                tonalElevation = 6.dp
+                modifier = Modifier.fillMaxSize(),
+                shape = RectangleShape,
+                color = MaterialTheme.colorScheme.surface
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                        .fillMaxSize()
+                        .imePadding()
                 ) {
-                    Text(
-                        "Share this moment",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 10.dp)
+                    ) {
+                        IconButton(onClick = closeShare, modifier = Modifier.align(Alignment.CenterStart)) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
+                        Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Share", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    HorizontalDivider()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .requiredHeight(158.dp)
+                            .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSharePreviewPlaying) {
+                                AndroidView(
+                                    factory = { viewContext ->
+                                        PlayerView(viewContext).apply {
+                                            player = shareInlinePlayer
+                                            useController = false
+                                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                        }
+                                    },
+                                    modifier = Modifier.matchParentSize()
+                                )
+                            } else {
+                                sharePreviewBitmap?.let { preview ->
+                                    Image(
+                                        bitmap = preview.asImageBitmap(),
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { isSharePreviewPlaying = true },
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .size(48.dp)
+                                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                                ) {
+                                    Icon(
+                                        Icons.Default.PlayArrow,
+                                        contentDescription = "Play clip",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = formatShareDuration(clipMetadata?.duration ?: videoDuration),
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(8.dp)
+                                    .background(Color.Black.copy(alpha = 0.68f), RoundedCornerShape(5.dp))
+                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 6.dp, end = 6.dp)
+                                    .size(28.dp)
+                                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                                    .clickable { showSharePreviewFullscreen = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Fullscreen,
+                                    contentDescription = "View clip full screen",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(start = 6.dp, top = 6.dp, end = 46.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(9.dp),
+                                    color = shareTagColor,
+                                    contentColor = Color.White
+                                ) {
+                                    Text(
+                                        clipMetadata?.momentTag?.takeIf(String::isNotBlank) ?: "Clip",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.widthIn(max = 150.dp).padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(9.dp),
+                                    color = Color.Black.copy(alpha = 0.68f),
+                                    contentColor = Color.White
+                                ) {
+                                    Text(
+                                        shareClipMetadata?.opponent?.let { "vs $it" } ?: "vs Opponent",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.widthIn(max = 150.dp).padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                shareClipMetadata?.date ?: "Team memory",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White,
+                                maxLines = 1,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(8.dp)
+                                    .background(Color.Black.copy(alpha = 0.68f), RoundedCornerShape(5.dp))
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                    HorizontalDivider()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = Color(0xFF205C96),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        onClick = { showSuggestedSharePlayers = !showSuggestedSharePlayers }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.PersonSearch, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Column {
+                                    Text("Suggested players", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "$suggestedSelectionCount selected",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Icon(
+                                if (showSuggestedSharePlayers) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (showSuggestedSharePlayers) "Collapse suggested players" else "Expand suggested players"
+                            )
+                        }
+                    }
 
-                    // ── Suggested Players ────────────────────────────────
-                    if (isLoadingSuggestedPlayers) {
+                    if (showSuggestedSharePlayers && isLoadingSuggestedPlayers) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2068,73 +2322,50 @@ fun VideoPlaybackScreen(
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                    } else if (suggestedSharePlayerIds.isNotEmpty()) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Star,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    "Suggested Players",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                suggestedSharePlayerIds.forEach { playerId ->
+                    } else if (showSuggestedSharePlayers && suggestedSharePlayerIds.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                items(suggestedSharePlayerIds.toList(), key = { it }) { playerId ->
                                     detectedPlayers.find { it.id == playerId }?.let { player ->
-                                        Row(
+                                        val selected = player.id in selectedSharePlayerIds
+                                        Column(
                                             modifier = Modifier
-                                                .fillMaxWidth()
+                                                .width(96.dp)
                                                 .clickable {
-                                                    selectedSharePlayerIds = if (selectedSharePlayerIds.contains(player.id)) {
+                                                    selectedSharePlayerIds = if (selected) {
                                                         selectedSharePlayerIds - player.id
                                                     } else {
                                                         selectedSharePlayerIds + player.id
                                                     }
                                                 },
-                                            verticalAlignment = Alignment.CenterVertically
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
-                                            Checkbox(
-                                                checked = selectedSharePlayerIds.contains(player.id),
-                                                onCheckedChange = { checked ->
-                                                    selectedSharePlayerIds = if (checked) {
-                                                        selectedSharePlayerIds + player.id
-                                                    } else {
-                                                        selectedSharePlayerIds - player.id
-                                                    }
+                                            Box(contentAlignment = Alignment.TopEnd) {
+                                                SharePlayerAvatar(player = player, modifier = Modifier.size(54.dp))
+                                                if (selected) {
+                                                    Icon(
+                                                        Icons.Default.CheckCircle,
+                                                        contentDescription = "Selected",
+                                                        tint = Color(0xFF159B62),
+                                                        modifier = Modifier.size(20.dp).background(Color.White, CircleShape)
+                                                    )
                                                 }
-                                            )
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    "#${player.number} ${player.name}",
-                                                    style = MaterialTheme.typography.bodySmall
-                                                )
                                             }
+                                            Text(
+                                                player.name,
+                                                maxLines = 2,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )
+                                            Text("#${player.number}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 }
                             }
                         }
                         Spacer(modifier = Modifier.height(12.dp))
-                    } else if (scanShareSuggestionsDone) {
+                    } else if (showSuggestedSharePlayers && scanShareSuggestionsDone) {
                         Text(
                             "No players detected in this clip",
                             style = MaterialTheme.typography.bodySmall,
@@ -2143,150 +2374,444 @@ fun VideoPlaybackScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
-                    Text(
-                        "Team Parents",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    if (detectedPlayers.isEmpty()) {
-                        Text(
-                            "No players on roster yet",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = Color(0xFF205C96),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        onClick = { showSharePlayerList = !showSharePlayerList }
+                    ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showSharePlayerList = !showSharePlayerList },
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                if (selectedSharePlayerIds.isEmpty()) "Choose players"
-                                else "${selectedSharePlayerIds.size} player${if (selectedSharePlayerIds.size == 1) "" else "s"} selected",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Column {
+                                    Text("Roster", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "$rosterSelectionCount selected",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                             Icon(
                                 if (showSharePlayerList) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = null
+                                contentDescription = if (showSharePlayerList) "Collapse roster" else "Expand roster"
                             )
                         }
-                        if (showSharePlayerList) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    }
+                    if (showSharePlayerList) {
+                        if (shareRosterPlayers.isEmpty()) {
+                            Text(
+                                "No roster players",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 260.dp)
+                                    .verticalScroll(rememberScrollState())
                             ) {
-                                TextButton(onClick = {
-                                    selectedSharePlayerIds = shareRosterPlayers
-                                        .filter { it.addedBy.any(Char::isDigit) && it.addedBy.filter(Char::isDigit).length >= 10 }
-                                        .map { it.id }
-                                        .toSet()
-                                }) {
-                                    Text("Select all")
-                                }
-                                if (selectedSharePlayerIds.isNotEmpty()) {
-                                    TextButton(onClick = { selectedSharePlayerIds = emptySet() }) {
-                                        Text("Clear")
-                                    }
-                                }
-                            }
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                shareRosterPlayers.forEach { player ->
-                                    val hasParentContact = player.addedBy.any(Char::isDigit) &&
-                                        player.addedBy.filter(Char::isDigit).length >= 10
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .alpha(if (hasParentContact) 1f else 0.4f)
-                                            .clickable(enabled = hasParentContact) {
-                                                selectedSharePlayerIds = if (selectedSharePlayerIds.contains(player.id)) {
-                                                    selectedSharePlayerIds - player.id
-                                                } else {
-                                                    selectedSharePlayerIds + player.id
-                                                }
-                                            },
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        if (hasParentContact) {
-                                            Checkbox(
-                                                checked = selectedSharePlayerIds.contains(player.id),
-                                                onCheckedChange = { checked ->
-                                                    selectedSharePlayerIds = if (checked) {
-                                                        selectedSharePlayerIds + player.id
-                                                    } else {
-                                                        selectedSharePlayerIds - player.id
-                                                    }
-                                                }
-                                            )
-                                        } else {
-                                            Spacer(modifier = Modifier.width(48.dp))
+                                    shareRosterPlayers.forEach { player ->
+                                val selected = player.id in selectedSharePlayerIds
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedSharePlayerIds = if (selected) {
+                                                selectedSharePlayerIds - player.id
+                                            } else {
+                                                selectedSharePlayerIds + player.id
+                                            }
                                         }
-                                        Column(modifier = Modifier.weight(1f)) {
+                                        .padding(vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Surface(modifier = Modifier.size(38.dp), shape = CircleShape, color = Color(0xFFDDF3E8)) {
+                                        Box(contentAlignment = Alignment.Center) {
                                             Text(
-                                                "#${player.number} ${player.name}",
-                                                style = MaterialTheme.typography.bodyMedium
+                                                player.name.trim().split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString(""),
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF087A4B)
                                             )
                                         }
                                     }
-                                }
-                            }
-                        }
-                        val selectedPlayers = shareRosterPlayers.filter { selectedSharePlayerIds.contains(it.id) }
-                        if (selectedSharePlayerIds.isNotEmpty()) {
-                            Button(
-                                onClick = {
-                                    val recipients = buildTeamShareRecipients(selectedPlayers)
-                                    if (recipients.isEmpty()) {
-                                        launchPersonalShareChooser(context, savedUri, "Share this moment")
-                                    } else {
-                                        shareVideoToTeamRecipients(
-                                            context = context,
-                                            videoUri = savedUri,
-                                            recipients = recipients,
-                                            players = selectedPlayers,
-                                            highlightTag = null,
-                                            customMessage = ""
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(player.name, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            "#${player.number} | Teammate",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    shareDialogUri = null
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    "Send to ${selectedSharePlayerIds.size} parent${if (selectedSharePlayerIds.size == 1) "" else "s"}"
-                                )
+                                    Checkbox(
+                                        checked = selected,
+                                        onCheckedChange = { checked ->
+                                            selectedSharePlayerIds = if (checked) selectedSharePlayerIds + player.id
+                                            else selectedSharePlayerIds - player.id
+                                        }
+                                    )
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+                            }
                             }
                         }
                     }
 
-                    HorizontalDivider()
-
-                    Text(
-                        "My Contacts",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    OutlinedButton(
-                        onClick = { shareContactPickerLauncher.launch(null) },
-                        modifier = Modifier.fillMaxWidth()
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = Color(0xFF205C96),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        onClick = { showFavoriteShareContacts = !showFavoriteShareContacts }
                     ) {
-                        Icon(
-                            Icons.Default.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Pick contact from phone")
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Column {
+                                    Text("Favorites", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "$favoriteSelectionCount selected",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Icon(
+                                if (showFavoriteShareContacts) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (showFavoriteShareContacts) "Collapse favorites" else "Expand favorites"
+                            )
+                        }
                     }
-
-                    TextButton(
-                        onClick = { shareDialogUri = null },
-                        modifier = Modifier.align(Alignment.End)
+                    if (showFavoriteShareContacts && favoritePhoneContacts.isEmpty()) {
+                        Text(
+                            "No favorite phone contacts yet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (showFavoriteShareContacts) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 260.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                        favoritePhoneContacts.forEach { contact ->
+                            val selected = contact.cacheKey in selectedPhoneContactKeys
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedPhoneContactKeys = if (selected) {
+                                            selectedPhoneContactKeys - contact.cacheKey
+                                        } else {
+                                            selectedPhoneContactKeys + contact.cacheKey
+                                        }
+                                    }
+                                    .padding(vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = Color(0xFFE7F1FC)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            contact.displayName.trim().take(1).uppercase(),
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF205C96)
+                                        )
+                                    }
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(contact.displayName, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        contact.phoneNumber ?: contact.email.orEmpty(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Checkbox(
+                                    checked = selected,
+                                    onCheckedChange = { checked ->
+                                        selectedPhoneContactKeys = if (checked) selectedPhoneContactKeys + contact.cacheKey
+                                        else selectedPhoneContactKeys - contact.cacheKey
+                                    },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = Color(0xFF3676B8),
+                                        uncheckedColor = Color(0xFF6C8FB3),
+                                        checkmarkColor = Color.White
+                                    )
+                                )
+                                IconButton(
+                                    onClick = {
+                                        favoritePhoneContacts = removeFavoritePhoneContact(context, contact)
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove ${contact.displayName} from favorites"
+                                    )
+                                }
+                            }
+                        }
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = Color(0xFF205C96),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        onClick = {
+                            draftPhoneContactKeys = selectedPhoneContactKeys
+                            draftFavoriteContactKeys = favoritePhoneContacts.mapTo(mutableSetOf()) { it.cacheKey }
+                            phoneContactPickerQuery = ""
+                            if (ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.READ_CONTACTS
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                scope.launch {
+                                    allContactsForShare = loadAllPhoneContactsForShare(context)
+                                    showPhoneContactPicker = true
+                                }
+                            } else {
+                                shareContactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                            }
+                        }
                     ) {
-                        Text("Cancel")
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Column {
+                                    Text("Phone contacts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "$phoneContactSelectionCount selected",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = "Open phone contacts"
+                            )
+                        }
+                    }
+                    }
+                    Button(
+                        enabled = combinedRecipients.isNotEmpty(),
+                        onClick = {
+                            shareSelectedVideosToTeamRecipients(
+                                context = context,
+                                videoUris = shareVideoUris.ifEmpty { listOf(savedUri) },
+                                recipients = combinedRecipients,
+                                players = selectedPlayers,
+                                highlightTag = clipMetadata?.momentTag,
+                                customMessage = "",
+                                opponentName = shareClipMetadata?.opponent
+                            )
+                            shareDialogUri = null
+                            onNavigateBack()
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(16.dp).height(54.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF159B62))
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            if (combinedRecipients.isEmpty()) "Select people to share with"
+                            else "Share with ${combinedRecipients.size} ${if (combinedRecipients.size == 1) "person" else "people"}",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showPhoneContactPicker) {
+        val availableContacts = (favoritePhoneContacts + allContactsForShare)
+            .distinctBy { it.cacheKey }
+            .filter { contact ->
+                phoneContactPickerQuery.isBlank() ||
+                    contact.displayName.contains(phoneContactPickerQuery, ignoreCase = true) ||
+                    contact.phoneNumber.orEmpty().contains(phoneContactPickerQuery) ||
+                    contact.email.orEmpty().contains(phoneContactPickerQuery, ignoreCase = true)
+            }
+        Dialog(
+            onDismissRequest = { showPhoneContactPicker = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+                Column(modifier = Modifier.fillMaxSize().imePadding()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { showPhoneContactPicker = false }) { Text("Cancel") }
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Select Phone Contacts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                "${draftPhoneContactKeys.size} selected",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                val contactsForSave = (favoritePhoneContacts + allContactsForShare)
+                                    .distinctBy { it.cacheKey }
+                                val updatedFavorites = contactsForSave
+                                    .filter { it.cacheKey in draftFavoriteContactKeys }
+                                    .takeLast(12)
+                                saveFavoritePhoneContacts(context, updatedFavorites)
+                                favoritePhoneContacts = updatedFavorites
+                                selectedPhoneContactKeys = draftPhoneContactKeys
+                                showPhoneContactPicker = false
+                            }
+                        ) { Text("Done") }
+                    }
+                    HorizontalDivider()
+                    OutlinedTextField(
+                        value = phoneContactPickerQuery,
+                        onValueChange = { phoneContactPickerQuery = it },
+                        placeholder = { Text("Search contacts") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp)
+                    )
+                    if (availableContacts.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No contacts found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(availableContacts, key = { it.cacheKey }) { contact ->
+                                val selected = contact.cacheKey in draftPhoneContactKeys
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            draftPhoneContactKeys = if (selected) {
+                                                draftPhoneContactKeys - contact.cacheKey
+                                            } else {
+                                                draftPhoneContactKeys + contact.cacheKey
+                                            }
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Surface(modifier = Modifier.size(42.dp), shape = CircleShape, color = Color(0xFFE7F1FC)) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                contact.displayName.trim().take(1).uppercase(),
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF205C96)
+                                            )
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(contact.displayName, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            contact.phoneNumber ?: contact.email.orEmpty(),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Checkbox(
+                                        checked = selected,
+                                        onCheckedChange = { checked ->
+                                            draftPhoneContactKeys = if (checked) {
+                                                draftPhoneContactKeys + contact.cacheKey
+                                            } else {
+                                                draftPhoneContactKeys - contact.cacheKey
+                                            }
+                                        }
+                                    )
+                                    val favorite = contact.cacheKey in draftFavoriteContactKeys
+                                    IconButton(
+                                        onClick = {
+                                            draftFavoriteContactKeys = if (favorite) {
+                                                draftFavoriteContactKeys - contact.cacheKey
+                                            } else {
+                                                draftFavoriteContactKeys + contact.cacheKey
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
+                                            contentDescription = if (favorite) {
+                                                "Remove ${contact.displayName} from favorites"
+                                            } else {
+                                                "Add ${contact.displayName} to favorites"
+                                            },
+                                            tint = if (favorite) Color(0xFFE6A700) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                HorizontalDivider(modifier = Modifier.padding(start = 70.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showSharePreviewFullscreen) {
+        val previewUri = shareDialogUri
+        if (previewUri != null) {
+            val sharePreviewPlayer = remember(previewUri) {
+                ExoPlayer.Builder(context).build().apply {
+                    setMediaItem(MediaItem.fromUri(previewUri))
+                    prepare()
+                    playWhenReady = true
+                }
+            }
+            DisposableEffect(sharePreviewPlayer) {
+                onDispose { sharePreviewPlayer.release() }
+            }
+            Dialog(
+                onDismissRequest = { showSharePreviewFullscreen = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                    AndroidView(
+                        factory = { viewContext ->
+                            PlayerView(viewContext).apply {
+                                player = sharePreviewPlayer
+                                useController = true
+                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    IconButton(
+                        onClick = { showSharePreviewFullscreen = false },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .background(Color.Black.copy(alpha = 0.58f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close full screen", tint = Color.White)
                     }
                 }
             }
@@ -2350,7 +2875,10 @@ fun VideoPlaybackScreen(
                                             recipients = recipients,
                                             players = selectedPlayersForShare,
                                             highlightTag = selectedHighlightTag,
-                                            customMessage = teamShareMessage
+                                            customMessage = teamShareMessage,
+                                            opponentName = clipMetadata?.let {
+                                                loadPlaybackClipMetadata(context, it).opponent
+                                            }
                                         )
                                         showTeamShareAboutDialog = false
                                         onNavigateBack()
@@ -2504,7 +3032,10 @@ fun VideoPlaybackScreen(
                                     recipients = recipients,
                                     players = detectedSharePlayers,
                                     highlightTag = selectedHighlightTag,
-                                    customMessage = teamShareMessage
+                                    customMessage = teamShareMessage,
+                                    opponentName = clipMetadata?.let {
+                                        loadPlaybackClipMetadata(context, it).opponent
+                                    }
                                 )
                                 showShareSuggestions = false
                                 showTeamShareAboutDialog = false
@@ -2559,7 +3090,10 @@ fun VideoPlaybackScreen(
                                                     context = context,
                                                     videoUri = uri,
                                                     players = selectedPlayersForShare,
-                                                    contact = contact
+                                                    contact = contact,
+                                                    opponentName = clipMetadata?.let {
+                                                        loadPlaybackClipMetadata(context, it).opponent
+                                                    }
                                                 )
                                                 showQuickSharePicker = false
                                             }
@@ -2600,7 +3134,10 @@ fun VideoPlaybackScreen(
                                                 context = context,
                                                 videoUri = uri,
                                                 players = selectedPlayersForShare,
-                                                contact = contact
+                                                contact = contact,
+                                                opponentName = clipMetadata?.let {
+                                                    loadPlaybackClipMetadata(context, it).opponent
+                                                }
                                             )
                                             showQuickSharePicker = false
                                             favoritePhoneContacts = addFavoritePhoneContact(context, contact)
@@ -2692,6 +3229,105 @@ fun VideoPlaybackScreen(
             }
         )
     }
+}
+
+internal data class PlaybackClipMetadata(
+    val tag: String?,
+    val opponent: String?,
+    val date: String?
+)
+
+@Composable
+internal fun ClipMetadataTicket(
+    metadata: PlaybackClipMetadata,
+    modifier: Modifier = Modifier
+) {
+    if (metadata.tag == null && metadata.opponent == null && metadata.date == null) return
+
+    Surface(
+        modifier = modifier.widthIn(max = 360.dp),
+        color = Color.Black.copy(alpha = 0.52f),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(8.dp),
+        shadowElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            metadata.tag?.let { tag ->
+                Text(
+                    text = tag,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+            }
+            if (metadata.tag != null && (metadata.opponent != null || metadata.date != null)) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .background(Color.White, CircleShape)
+                )
+            }
+            metadata.opponent?.let { opponent ->
+                Text(
+                    text = "vs $opponent",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            if (metadata.opponent != null && metadata.date != null) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .background(Color.White, CircleShape)
+                )
+            }
+            metadata.date?.let { date ->
+                Text(
+                    text = date,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+internal fun loadPlaybackClipMetadata(context: Context, clip: VideoClip): PlaybackClipMetadata {
+    val tag = clip.momentTag
+        ?.trim()
+        ?.takeIf { it.isNotBlank() && !it.startsWith("Reel:", ignoreCase = true) }
+    val date = clip.gameDate.trim().takeIf(String::isNotBlank)?.let { rawDate ->
+        runCatching {
+            java.time.LocalDate.parse(rawDate).format(
+                java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy")
+            )
+        }.getOrDefault(rawDate)
+    }
+    return PlaybackClipMetadata(
+        tag = tag,
+        opponent = loadClipPreference(context, "video_opponent_names", clip),
+        date = date
+    )
+}
+
+private fun loadClipPreference(context: Context, preferenceName: String, clip: VideoClip): String? {
+    val preferences = context.getSharedPreferences(preferenceName, Context.MODE_PRIVATE)
+    val uriPath = runCatching { Uri.parse(clip.filePath).path }.getOrNull()
+    return (
+        preferences.getString(clip.id, null)
+            ?: preferences.getString(clip.filePath, null)
+            ?: uriPath?.let { preferences.getString(it, null) }
+        )?.trim()?.takeIf(String::isNotBlank)
 }
 
 private fun voiceMemoryPrefs(context: Context) =
@@ -3052,6 +3688,71 @@ private fun AnchoredPlayerLabelBubble(
     }
 }
 
+private fun formatShareDuration(durationMs: Long): String {
+    val totalSeconds = (durationMs.coerceAtLeast(0L) / 1000L)
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return "%d:%02d".format(minutes, seconds)
+}
+
+@Composable
+private fun SharePlayerAvatar(player: Player, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val photoUri = remember(player.id) {
+        context.getSharedPreferences("player_photos", Context.MODE_PRIVATE).getString(player.id, null)
+    }
+    val photo by produceState<Bitmap?>(null, photoUri) {
+        value = photoUri?.let { uri ->
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(Uri.parse(uri))?.use(BitmapFactory::decodeStream)
+                }.getOrNull()
+            }
+        }
+    }
+    Surface(
+        modifier = modifier.border(1.dp, Color(0xFFB8C0CC), CircleShape),
+        shape = CircleShape,
+        color = Color.Transparent
+    ) {
+        if (photo != null) {
+            Image(
+                bitmap = photo!!.asImageBitmap(),
+                contentDescription = player.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.Person,
+                    contentDescription = null,
+                    tint = Color(0xFF667085),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun shareMomentTagColor(tag: String?): Color {
+    val normalized = tag?.trim().orEmpty()
+    return when {
+        normalized.equals("Score", ignoreCase = true) ||
+            normalized.equals("Goal", ignoreCase = true) ||
+            normalized.equals("Winning Goal", ignoreCase = true) -> Color(0xFFE87522)
+        normalized.equals("Assist", ignoreCase = true) -> Color(0xFF168C8C)
+        normalized.equals("Save", ignoreCase = true) -> Color(0xFF7950BC)
+        normalized.equals("Defensive Stop", ignoreCase = true) ||
+            normalized.equals("Big Play", ignoreCase = true) -> Color(0xFFD9534F)
+        normalized.equals("Faceoff Win", ignoreCase = true) ||
+            normalized.equals("Win", ignoreCase = true) -> Color(0xFF399875)
+        normalized.equals("Ground Ball", ignoreCase = true) -> Color(0xFF3676B8)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+
 private fun shareVideoToSpotrContact(context: android.content.Context, videoUri: Uri, player: Player) {
     val shareIntent = Intent().apply {
         action = Intent.ACTION_SEND
@@ -3146,7 +3847,8 @@ internal fun shareVideoToTeamRecipients(
     recipients: List<TeamShareRecipient>,
     players: List<Player>,
     highlightTag: String?,
-    customMessage: String
+    customMessage: String,
+    opponentName: String? = null
 ) {
     if (recipients.size == 1 && (!recipients[0].phoneNumber.isNullOrBlank() || !recipients[0].email.isNullOrBlank())) {
         shareVideoToPhoneContact(
@@ -3157,7 +3859,8 @@ internal fun shareVideoToTeamRecipients(
                 displayName = recipients[0].displayName,
                 phoneNumber = recipients[0].phoneNumber,
                 email = recipients[0].email
-            )
+            ),
+            opponentName = opponentName
         )
         return
     }
@@ -3175,19 +3878,49 @@ internal fun shareVideoToTeamRecipients(
     launchHighQualityShareChooser(context, shareIntent, "Share")
 }
 
+internal fun shareSelectedVideosToTeamRecipients(
+    context: Context,
+    videoUris: List<Uri>,
+    recipients: List<TeamShareRecipient>,
+    players: List<Player>,
+    highlightTag: String?,
+    customMessage: String,
+    opponentName: String? = null
+) {
+    if (videoUris.isEmpty()) return
+    if (videoUris.size == 1) {
+        shareVideoToTeamRecipients(
+            context = context,
+            videoUri = videoUris.first(),
+            recipients = recipients,
+            players = players,
+            highlightTag = highlightTag,
+            customMessage = customMessage,
+            opponentName = opponentName
+        )
+        return
+    }
+
+    val recipientNames = recipients.joinToString(", ") { it.displayName }
+    val message = customMessage.ifBlank { buildMultipleMemoriesShareMessage(opponentName) }
+    val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+        type = "video/mp4"
+        putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(videoUris))
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        putExtra(Intent.EXTRA_SUBJECT, "Spotr plays for $recipientNames")
+        putExtra(Intent.EXTRA_TEXT, "$message\n\nFor: $recipientNames")
+        recipients.singleOrNull()?.email?.takeIf { it.isNotBlank() }?.let {
+            putExtra(Intent.EXTRA_EMAIL, arrayOf(it))
+        }
+    }
+    launchHighQualityShareChooser(context, shareIntent, "Share")
+}
+
 private fun playerHasDirectContactInfo(player: Player): Boolean {
     val source = player.addedBy.trim()
     if (source.contains("@")) return true
     val digitsOnly = source.filter { it.isDigit() }
     return digitsOnly.length >= 10
-}
-
-internal data class SelectedContact(
-    val displayName: String,
-    val phoneNumber: String?,
-    val email: String?
-) {
-    val cacheKey: String = "${displayName.trim()}|${phoneNumber.orEmpty().trim()}|${email.orEmpty().trim()}"
 }
 
 private const val PHONE_FAVORITES_PREF = "video_share_phone_favorites"
@@ -3196,8 +3929,7 @@ private const val PHONE_FAVORITES_KEY = "favorites"
 private fun loadFavoritePhoneContacts(context: Context): List<SelectedContact> {
     val prefs = context.getSharedPreferences(PHONE_FAVORITES_PREF, Context.MODE_PRIVATE)
     val raw = prefs.getString(PHONE_FAVORITES_KEY, "") ?: ""
-    if (raw.isBlank()) return emptyList()
-    return raw.split("\n")
+    val stored = if (raw.isBlank()) emptyList() else raw.split("\n")
         .mapNotNull { line ->
             val parts = line.split("||")
             if (parts.isEmpty() || parts[0].isBlank()) return@mapNotNull null
@@ -3207,6 +3939,7 @@ private fun loadFavoritePhoneContacts(context: Context): List<SelectedContact> {
                 email = parts.getOrNull(2)?.ifBlank { null }
             )
         }
+    return stored.distinctBy { it.cacheKey }
 }
 
 private fun addFavoritePhoneContact(context: Context, contact: SelectedContact): List<SelectedContact> {
@@ -3372,14 +4105,12 @@ internal fun shareVideoToPhoneContact(
     context: android.content.Context,
     videoUri: Uri,
     players: List<Player>,
-    contact: SelectedContact
+    contact: SelectedContact,
+    opponentName: String? = null
 ) {
-    val names = players.joinToString(", ") { "#${it.number} ${it.name}" }
-    val message = if (players.isEmpty()) {
-        "Hi ${contact.displayName}, sharing the original Spotr play"
-    } else {
-        "Hi ${contact.displayName}, sharing the original play featuring: $names"
-    }
+    val message = buildSingleMemoryShareMessage(
+        opponentName ?: loadSharedMemoryOpponent(context, videoUri)
+    )
     val phoneTarget = contact.phoneNumber
         ?.filter { it.isDigit() || it == '+' }
         ?.takeIf { it.isNotBlank() }
@@ -3410,6 +4141,27 @@ internal fun shareVideoToPhoneContact(
     if (!openedSms) {
         launchStandardShareChooser(context, shareIntent, "Share this moment with ${contact.displayName}")
     }
+}
+
+internal fun buildSingleMemoryShareMessage(opponentName: String?): String {
+    val opponent = opponentName?.trim()?.takeIf(String::isNotBlank) ?: "the other team"
+    return "Hi! I caught this memory from the game against $opponent and thought your family might want it.\n\n" +
+        "Shared via Playloom - Never lose the moment"
+}
+
+internal fun buildMultipleMemoriesShareMessage(opponentName: String?): String {
+    val opponent = opponentName?.trim()?.takeIf(String::isNotBlank) ?: "the other team"
+    return "Hi! I caught these memories from the game against $opponent and thought your family might want them.\n\n" +
+        "Shared via Playloom - Never lose the moment"
+}
+
+private fun loadSharedMemoryOpponent(context: Context, videoUri: Uri): String? {
+    val preferences = context.getSharedPreferences("video_opponent_names", Context.MODE_PRIVATE)
+    return listOfNotNull(videoUri.toString(), videoUri.path)
+        .distinct()
+        .firstNotNullOfOrNull { key -> preferences.getString(key, null) }
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
 }
 
 private fun launchDirectSmsShare(

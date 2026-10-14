@@ -20,11 +20,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,7 +49,6 @@ import com.playerid.app.domain.team.teamHueToHex
 import kotlin.math.PI
 import kotlin.math.atan2
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TeamCreationDialog(
     existingTeams: List<String>,
@@ -90,34 +86,28 @@ fun TeamCreationDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                ExposedDropdownMenuBox(
-                    expanded = sportDropdownExpanded,
-                    onExpandedChange = { sportDropdownExpanded = !sportDropdownExpanded }
+                OutlinedButton(
+                    onClick = { sportDropdownExpanded = !sportDropdownExpanded },
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    OutlinedTextField(
-                        value = formState.sport,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Sport") },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = sportDropdownExpanded)
-                        },
-                        modifier = Modifier.menuAnchor()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = sportDropdownExpanded,
-                        onDismissRequest = { sportDropdownExpanded = false }
-                    ) {
+                    Text("Sport: ${formState.sport}")
+                }
+                if (sportDropdownExpanded) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
                         TeamCreationOptions.sports.forEach { sport ->
-                            DropdownMenuItem(
-                                text = { Text(sport) },
+                            TextButton(
                                 onClick = {
                                     formState = formState.reduce(TeamCreationEvent.SportSelected(sport))
                                     sportDropdownExpanded = false
-                                }
-                            )
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(sport)
+                            }
                         }
                     }
+                }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))

@@ -167,6 +167,11 @@ class ScreenCaptureService : Service() {
             visibility = View.VISIBLE
         }
 
+        if (captureContent == CaptureContent.CONTACTS) {
+            showContactCaptureOverlay(container)
+            return
+        }
+
         val captureButton = Button(this).apply {
             setText(R.string.start_capture)
             setOnClickListener {
@@ -187,23 +192,7 @@ class ScreenCaptureService : Service() {
                 // Stop auto-capture
                 autoCaptureJob?.cancel()
                 autoCaptureJob = null
-                
-                val teamName = AppRosterCaptureRepository.activeTeamName.value
-                val route = if (!teamName.isNullOrBlank()) {
-                    if (captureContent == CaptureContent.SCHEDULE) {
-                        "scheduleImport/${Uri.encode(teamName)}/app"
-                    } else {
-                        "appRosterImport/${Uri.encode(teamName)}"
-                    }
-                } else {
-                    "team"
-                }
-                val launchIntent = Intent(this@ScreenCaptureService, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    putExtra(AppNavigationCallback.EXTRA_NAV_ROUTE, route)
-                }
-                startActivity(launchIntent)
-                stopSelf()
+                finishCaptureAndReturn()
             }
         }
 
@@ -230,6 +219,84 @@ class ScreenCaptureService : Service() {
         
         // Show tutorial screen immediately
         showTutorialScreen()
+    }
+
+    private fun showContactCaptureOverlay(container: LinearLayout) {
+        val playerNames = AppRosterCaptureRepository.contactPlayerNames.value
+        if (playerNames.isEmpty()) {
+            finishCaptureAndReturn()
+            return
+        }
+
+        val prompt = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.argb(220, 20, 20, 20))
+            textSize = 16f
+            setPadding(24, 16, 24, 12)
+        }
+        val captureButton = Button(this)
+
+        fun updatePrompt() {
+            val index = AppRosterCaptureRepository.contactPlayerIndex.value
+            val playerName = playerNames.getOrNull(index) ?: playerNames.last()
+            prompt.text = "${index + 1} of ${playerNames.size}: Open $playerName"
+            captureButton.text = if (index == playerNames.lastIndex) {
+                "Capture & Finish"
+            } else {
+                "Capture & Next"
+            }
+        }
+
+        captureButton.setOnClickListener {
+            val capturedIndex = AppRosterCaptureRepository.contactPlayerIndex.value
+            captureButton.isEnabled = false
+            captureButton.text = "Reading..."
+            captureOnce {
+                if (capturedIndex >= playerNames.lastIndex) {
+                    finishCaptureAndReturn()
+                } else {
+                    updatePrompt()
+                    captureButton.isEnabled = true
+                }
+            }
+        }
+        updatePrompt()
+        container.addView(prompt)
+        container.addView(captureButton)
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = 24
+            y = 120
+        }
+        windowManager?.addView(container, params)
+        overlayView = container
+        overlayContainer = container
+    }
+
+    private fun finishCaptureAndReturn() {
+        val teamName = AppRosterCaptureRepository.activeTeamName.value
+        val route = if (!teamName.isNullOrBlank()) {
+            when (captureContent) {
+                CaptureContent.SCHEDULE -> "scheduleImport/${Uri.encode(teamName)}/app"
+                CaptureContent.CONTACTS -> "contactImport/${Uri.encode(teamName)}/app"
+                CaptureContent.ROSTER -> "appRosterImport/${Uri.encode(teamName)}"
+            }
+        } else {
+            "team"
+        }
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            putExtra(AppNavigationCallback.EXTRA_NAV_ROUTE, route)
+        }
+        startActivity(launchIntent)
+        stopSelf()
     }
 
     private fun removeOverlay() {
@@ -488,7 +555,7 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun captureOnce() {
+    private fun captureOnce(onComplete: (() -> Unit)? = null) {
         if (isCapturing) return
         isCapturing = true
         
@@ -496,6 +563,7 @@ class ScreenCaptureService : Service() {
         val image = imageReader?.acquireLatestImage()
         if (image == null) {
             isCapturing = false
+            onComplete?.invoke()
             return
         }
 
@@ -509,11 +577,12 @@ class ScreenCaptureService : Service() {
         serviceScope.launch {
             val scaled = scaleBitmap(bitmap, 2048)
             val result = extractRosterCandidates(scaled)
-            if (captureContent == CaptureContent.SCHEDULE) {
-                AppRosterCaptureRepository.addScheduleLines(result.rawLines)
-            } else {
-                AppRosterCaptureRepository.addCandidates(result.candidates)
+            when (captureContent) {
+                CaptureContent.SCHEDULE -> AppRosterCaptureRepository.addScheduleLines(result.rawLines)
+                CaptureContent.CONTACTS -> AppRosterCaptureRepository.addCurrentPlayerContactLines(result.rawLines)
+                CaptureContent.ROSTER -> AppRosterCaptureRepository.addCandidates(result.candidates)
             }
+            if (onComplete != null) withContext(Dispatchers.Main) { onComplete() }
         }
     }
 

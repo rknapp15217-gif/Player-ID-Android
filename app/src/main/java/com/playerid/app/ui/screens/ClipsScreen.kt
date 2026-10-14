@@ -813,6 +813,8 @@ fun ClipsScreen(
 
         VideoPlaybackScreen(
             videoUri = playlistUris.first(),
+            clipMetadata = reelVideos.firstOrNull(),
+            playlistClips = reelVideos,
             detectedPlayers = emptyList(),
             onNavigateBack = {
                 highlightPlaylistUris = null
@@ -849,8 +851,10 @@ fun ClipsScreen(
     }
 
     selectedVideoUri?.let { uri ->
+        val selectedClip = allTeamVideos.firstOrNull { it.filePath == uri.toString() }
         VideoPlaybackScreen(
             videoUri = uri,
+            clipMetadata = selectedClip,
             detectedPlayers = selectedVideoPlayers,
             onNavigateBack = {
                 selectedVideoUri = null

@@ -62,6 +62,7 @@ import com.playerid.app.ui.screens.WebRosterImportScreen
 import com.playerid.app.ui.screens.AppRosterImportScreen
 import com.playerid.app.ui.screens.ClipsScreenRefactored
 import com.playerid.app.ui.screens.ScheduleImportScreen
+import com.playerid.app.ui.screens.ContactImportScreen
 import com.playerid.app.ui.screens.OnboardingScreen
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.remember
@@ -280,6 +281,9 @@ fun PlayerIDApp() {
                                             com.playerid.app.capture.AppRosterCaptureRepository.clearSchedule()
                                         }
                                         navController.navigate("scheduleImport/${Uri.encode(teamName)}/$source")
+                                    },
+                                    onNavigateToContactImport = { teamName, source ->
+                                        navController.navigate("contactImport/${Uri.encode(teamName)}/$source")
                                     }
                                 )
                             }
@@ -300,6 +304,9 @@ fun PlayerIDApp() {
                                             com.playerid.app.capture.AppRosterCaptureRepository.clearSchedule()
                                         }
                                         navController.navigate("scheduleImport/${Uri.encode(teamName)}/$source")
+                                    },
+                                    onNavigateToContactImport = { teamName, source ->
+                                        navController.navigate("contactImport/${Uri.encode(teamName)}/$source")
                                     }
                                 )
                             }
@@ -323,12 +330,16 @@ fun PlayerIDApp() {
                                             com.playerid.app.capture.AppRosterCaptureRepository.clearSchedule()
                                         }
                                         navController.navigate("scheduleImport/${Uri.encode(teamName)}/$source")
+                                    },
+                                    onNavigateToContactImport = { teamName, source ->
+                                        navController.navigate("contactImport/${Uri.encode(teamName)}/$source")
                                     }
                                 )
                             }
                             composable("clips") {
                                 ClipsScreenRefactored(
                                     teamViewModel = teamViewModel,
+                                    playerViewModel = playerViewModel,
                                     cameraHandoffToken = cameraHandoffToken,
                                     onNavigateToTeams = { navController.navigate("teams") }
                                 )
@@ -387,6 +398,20 @@ fun PlayerIDApp() {
                                             navController.popBackStack()
                                         }
                                     }
+                                )
+                            }
+                            composable(
+                                route = "contactImport/{teamName}/{source}",
+                                arguments = listOf(
+                                    navArgument("teamName") { type = NavType.StringType },
+                                    navArgument("source") { type = NavType.StringType }
+                                )
+                            ) { backStackEntry ->
+                                ContactImportScreen(
+                                    teamName = backStackEntry.arguments?.getString("teamName") ?: "",
+                                    source = backStackEntry.arguments?.getString("source") ?: "screenshot",
+                                    playerViewModel = playerViewModel,
+                                    onBack = { navController.popBackStack() }
                                 )
                             }
                             composable("referral") {
