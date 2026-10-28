@@ -31,6 +31,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.material3.LocalTextStyle
 import com.playerid.app.domain.team.TeamSelectionItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,31 +60,40 @@ fun TeamSelectionPage(
     importTeamSnapLabel: String = "Import from TeamSnap"
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = "Teams",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
         ) {
             OutlinedButton(
                 onClick = onJoinTeam,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                // Each pill hugs its label; it can take at most half the row, never wraps or truncates.
+                modifier = Modifier.weight(1f, fill = false),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) {
                     joinIcon()
                 }
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(joinTeamLabel)
+                SingleLineFitText(joinTeamLabel)
             }
             OutlinedButton(
                 onClick = onCreateTeam,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                modifier = Modifier.weight(1f, fill = false),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) {
                     createIcon()
                 }
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(createTeamLabel)
+                SingleLineFitText(createTeamLabel)
             }
         }
 
@@ -154,7 +170,7 @@ fun TeamSelectionPage(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "Join an existing team or create your own new team",
+                                "Join an existing team or create your own team.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
@@ -211,4 +227,25 @@ private fun teamColor(hex: String, fallbackRgb: Long): Color {
         value.length == 6 && value.all { it.digitToIntOrNull(16) != null }
     }?.toLong(16) ?: fallbackRgb
     return Color(0xFF000000L or rgb)
+}
+/** One-line label that shrinks its font (down to 10sp) instead of wrapping or truncating when space is tight. */
+@Composable
+private fun SingleLineFitText(text: String) {
+    val baseStyle = LocalTextStyle.current
+    var fontSize by remember(text) { mutableStateOf(baseStyle.fontSize) }
+    var ready by remember(text) { mutableStateOf(false) }
+    Text(
+        text = text,
+        maxLines = 1,
+        softWrap = false,
+        style = baseStyle.copy(fontSize = fontSize),
+        modifier = Modifier.drawWithContent { if (ready) drawContent() },
+        onTextLayout = { result ->
+            if (result.didOverflowWidth && fontSize.value > 10f) {
+                fontSize = (fontSize.value - 0.5f).sp
+            } else {
+                ready = true
+            }
+        }
+    )
 }

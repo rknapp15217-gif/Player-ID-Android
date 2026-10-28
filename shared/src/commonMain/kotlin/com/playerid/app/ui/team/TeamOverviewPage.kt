@@ -31,12 +31,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.playerid.app.domain.team.PlayerProfile
 
 enum class TeamOverviewDestination {
     Roster,
     Schedule,
+    Contacts,
     Invite,
     Settings
 }
@@ -64,7 +66,12 @@ fun TeamOverviewPage(
     assignedPlayerTrailingIcon: @Composable () -> Unit,
     destinationIcon: @Composable (TeamOverviewDestination) -> Unit,
     destinationTrailingIcon: @Composable (TeamOverviewDestination) -> Unit,
-    leaveIcon: @Composable () -> Unit
+    leaveIcon: @Composable () -> Unit,
+    sharingAvailable: Boolean = true,
+    settingsSubtitle: String = "Team name, colors and notifications",
+    leaveDescription: String = "You will no longer have access to the shared roster, schedule and team content.",
+    onContacts: (() -> Unit)? = null,
+    contactsSubtitle: String = "Player contacts and share favorites"
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -152,9 +159,14 @@ fun TeamOverviewPage(
                     subtitle = "$playerCount players",
                     onClick = onRoster,
                     destinationIcon = destinationIcon,
-                    trailingIcon = destinationTrailingIcon
+                    trailingIcon = destinationTrailingIcon,
+                    bottomPadding = 0.dp
                 )
-                TextButton(onClick = onImportRoster, modifier = Modifier.padding(start = 52.dp)) {
+                TextButton(
+                    onClick = onImportRoster,
+                    modifier = Modifier.padding(start = 52.dp, bottom = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                ) {
                     Text("Import roster", color = TeamOverviewActionBlue)
                 }
                 Divider()
@@ -164,28 +176,46 @@ fun TeamOverviewPage(
                     subtitle = "$gameCount games",
                     onClick = onSchedule,
                     destinationIcon = destinationIcon,
-                    trailingIcon = destinationTrailingIcon
+                    trailingIcon = destinationTrailingIcon,
+                    bottomPadding = 0.dp
                 )
-                TextButton(onClick = onImportSchedule, modifier = Modifier.padding(start = 52.dp)) {
+                TextButton(
+                    onClick = onImportSchedule,
+                    modifier = Modifier.padding(start = 52.dp, bottom = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                ) {
                     Text("Import schedule", color = TeamOverviewActionBlue)
+                }
+                if (onContacts != null) {
+                    Divider()
+                    TeamOverviewDestinationRow(
+                        destination = TeamOverviewDestination.Contacts,
+                        title = "Contacts",
+                        subtitle = contactsSubtitle,
+                        onClick = onContacts,
+                        destinationIcon = destinationIcon,
+                        trailingIcon = destinationTrailingIcon
+                    )
                 }
             }
         }
-        item { TeamOverviewSectionLabel("SHARING") }
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                TeamOverviewDestinationRow(
-                    destination = TeamOverviewDestination.Invite,
-                    title = "Invite parents & coaches",
-                    subtitle = "Give others access to this team",
-                    onClick = onInvite,
-                    destinationIcon = destinationIcon,
-                    trailingIcon = destinationTrailingIcon
-                )
-            }
+        if (sharingAvailable) {
+                item { TeamOverviewSectionLabel("SHARING") }
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        TeamOverviewDestinationRow(
+                            destination = TeamOverviewDestination.Invite,
+                            title = "Invite parents & coaches",
+                            subtitle = "Give others access to this team",
+                            onClick = onInvite,
+                            destinationIcon = destinationIcon,
+                            trailingIcon = destinationTrailingIcon
+                        )
+                    }
+                }
         }
         item { TeamOverviewSectionLabel("MANAGEMENT") }
         item {
@@ -196,7 +226,7 @@ fun TeamOverviewPage(
                 TeamOverviewDestinationRow(
                     destination = TeamOverviewDestination.Settings,
                     title = "Team settings",
-                    subtitle = "Team name, colors and notifications",
+                    subtitle = settingsSubtitle,
                     onClick = onSettings,
                     destinationIcon = destinationIcon,
                     trailingIcon = destinationTrailingIcon
@@ -218,7 +248,7 @@ fun TeamOverviewPage(
                         Text("Leave Team", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(5.dp))
                         Text(
-                            "You will no longer have access to the shared roster, schedule and team content.",
+                            leaveDescription,
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -243,7 +273,7 @@ private fun TeamOverviewHeader(
             Text("Teams")
         }
         Text(
-            "Teams",
+            "Team",
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
@@ -254,7 +284,7 @@ private fun TeamOverviewHeader(
 }
 
 @Composable
-private fun TeamOverviewSectionLabel(text: String) {
+internal fun TeamOverviewSectionLabel(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.labelMedium,
@@ -270,10 +300,12 @@ private fun TeamOverviewDestinationRow(
     subtitle: String,
     onClick: () -> Unit,
     destinationIcon: @Composable (TeamOverviewDestination) -> Unit,
-    trailingIcon: @Composable (TeamOverviewDestination) -> Unit
+    trailingIcon: @Composable (TeamOverviewDestination) -> Unit,
+    bottomPadding: Dp = 16.dp
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = bottomPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(modifier = Modifier.size(28.dp), contentAlignment = Alignment.Center) {

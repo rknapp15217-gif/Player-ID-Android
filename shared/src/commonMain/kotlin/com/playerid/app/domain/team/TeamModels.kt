@@ -1,5 +1,8 @@
 package com.playerid.app.domain.team
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class TeamProfile(
     val id: String = "",
     val name: String,
@@ -20,6 +23,7 @@ data class TeamProfile(
     val verificationCount: Int = 0
 )
 
+@Serializable
 data class PlayerProfile(
     val id: String = "",
     val number: String,
@@ -37,6 +41,7 @@ data class PlayerProfile(
     val syncStatus: String = "NOT_SYNCED"
 )
 
+@Serializable
 data class TeamSubscription(
     val userId: String,
     val teamName: String,

@@ -226,6 +226,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                 players = playersById.values.map { it.toProfile() }
             )
             when (decision) {
+                is VoiceCommandDecision.Answer -> {
+                    _voiceResult.value = VoiceAssistantResult.Success(decision.message, rosterAnswer = true)
+                    speak(decision.speech.replace("#", "number "))
+                }
                 is VoiceCommandDecision.Capture -> {
                     _voiceActions.emit(VoiceAction.StopRecording)
                     _voiceResult.value = VoiceAssistantResult.Success(decision.message)
@@ -391,7 +395,8 @@ sealed class VoiceAssistantResult {
     data class Success(
         val message: String,
         val player: Player? = null,
-        val players: List<Player> = emptyList()
+        val players: List<Player> = emptyList(),
+        val rosterAnswer: Boolean = false
     ) : VoiceAssistantResult()
     data class Error(val message: String) : VoiceAssistantResult()
 }
@@ -400,4 +405,3 @@ sealed class VoiceAction {
     object StopRecording : VoiceAction()
     object StopRecordingSilent : VoiceAction()
 }
-

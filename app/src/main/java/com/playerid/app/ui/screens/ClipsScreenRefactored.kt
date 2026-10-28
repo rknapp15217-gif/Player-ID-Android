@@ -191,6 +191,33 @@ import com.playerid.app.data.DetectionResultSerializer
 import com.playerid.app.data.PlayerDatabase
 import com.playerid.app.domain.team.MemorySeasonIntent
 import com.playerid.app.domain.team.parseMemorySearchQuery
+import com.playerid.app.domain.team.LibraryActionRequest
+import com.playerid.app.domain.team.ActionScheduleGame
+import com.playerid.app.domain.team.parseLibraryActionRequest
+import com.playerid.app.domain.team.scheduleQuestionAnswer
+import com.playerid.app.domain.team.ScheduleQuestionAnswer
+import com.playerid.app.domain.team.LibraryNavigationRequest
+import com.playerid.app.domain.team.LibraryDestination
+import com.playerid.app.domain.team.parseLibraryNavigation
+import com.playerid.app.domain.team.resolveLibraryNavigation
+import com.playerid.app.domain.team.AskPlayloomQuery
+import com.playerid.app.domain.team.interpretAskPlayloom
+import com.playerid.app.domain.team.resolveMemoryPlayerAssignment
+import com.playerid.app.domain.team.parseMemoryQuestion
+import com.playerid.app.domain.team.answerMemoryQuestion
+import com.playerid.app.domain.team.withSelectedSeasonYear
+import com.playerid.app.domain.team.answerRosterQuestion
+import com.playerid.app.data.repositories.toProfile
+import com.playerid.app.ui.components.AskPlayloomResults
+import com.playerid.app.ui.components.AskPlayloomAnswer
+import com.playerid.app.ui.components.CaptureLibrarySearchBar
+import com.playerid.app.ui.components.PlayloomGoPage
+import androidx.compose.runtime.MutableState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.playerid.app.ui.components.rememberMemoryFilterScroll
+import com.playerid.app.domain.team.matchesScheduleOpponent
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Groups
 import com.playerid.app.reelVideoRelativePathsForRestoredClips
 import com.playerid.app.ui.icons.CrossedLacrosseSticksIcon
 import com.playerid.app.ui.icons.GroundBallIcon
@@ -200,6 +227,9 @@ import com.playerid.app.viewmodels.PlayerViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -550,9 +580,14 @@ fun ClipsScreenRefactored(
     teamViewModel: TeamViewModel,
     playerViewModel: PlayerViewModel,
     cameraHandoffToken: Int = 0,
-    onNavigateToTeams: () -> Unit
+    goMode: Boolean = false,
+    goRecentRequests: MutableState<List<String>>? = null,
+    onNavigateToTeams: () -> Unit,
+    onNavigate: (LibraryNavigationRequest) -> Unit,
+    onOpenMore: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val actionKeyboard = LocalSoftwareKeyboardController.current
     val cameraTeam by teamViewModel.selectedTeam.collectAsState()
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
     val playerOptions by teamViewModel.kidOptions.collectAsState()
@@ -564,8 +599,16 @@ fun ClipsScreenRefactored(
     var clips by remember { mutableStateOf<List<VideoClip>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var showAllTeams by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
-    var animatedSearchHint by remember { mutableStateOf("") }
+    val searchRosterFlow = remember(showAllTeams, subscribedTeams, localTeamName) {
+        val teams = if (showAllTeams) subscribedTeams.map { it.name } else listOfNotNull(localTeamName)
+        if (teams.isEmpty()) flowOf(emptyList<Player>())
+        else combine(teams.map(playerViewModel::observeTeamRoster)) { rosters -> rosters.flatMap { it } }
+    }
+    val searchRoster by searchRosterFlow.collectAsState(initial = emptyList())
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val localRecentRequests = rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var recentGoRequests by (goRecentRequests ?: localRecentRequests)
+    var goRequestStarted by rememberSaveable { mutableStateOf(false) }
     var showTeamFilterMenu by remember { mutableStateOf(false) }
     var showPlayerFilterMenu by remember { mutableStateOf(false) }
     var showSeasonFilterMenu by remember { mutableStateOf(false) }
@@ -575,11 +618,19 @@ fun ClipsScreenRefactored(
     var selectedOpponentKey by remember(localTeamName) { mutableStateOf<String?>(null) }
     var opponentMetadataVersion by remember { mutableStateOf(0) }
     var showReelsOnly by remember(localTeamName) { mutableStateOf(false) }
+    var goBrowsing by rememberSaveable { mutableStateOf(false) }
     var isClipsMenuExpanded by rememberSaveable { mutableStateOf(true) }
     val clipsGridState = rememberLazyGridState()
     var selectedVideoUri by remember { mutableStateOf<Uri?>(null) }
     var selectedVideoClip by remember { mutableStateOf<VideoClip?>(null) }
+    var temporaryPlaylist by remember { mutableStateOf<List<VideoClip>>(emptyList()) }
     var selectedVideoStartsInShareFlow by remember { mutableStateOf(false) }
+    var requestedShareRecipient by remember { mutableStateOf<String?>(null) }
+    var actionAnswer by remember { mutableStateOf<String?>(null) }
+    var relatedScheduleGames by remember { mutableStateOf<List<ActionScheduleGame>>(emptyList()) }
+    var actionAnswerTitle by remember { mutableStateOf("Action bar") }
+    var lastScheduleAnswer by remember(localTeamName, showAllTeams) { mutableStateOf<ScheduleQuestionAnswer?>(null) }
+    var voiceSearchError by remember { mutableStateOf<String?>(null) }
     var editingClip by remember { mutableStateOf<VideoClip?>(null) }
     var editingClipAllowsTrim by remember { mutableStateOf(true) }
     var isTrimmingClip by remember { mutableStateOf(false) }
@@ -600,6 +651,9 @@ fun ClipsScreenRefactored(
     var showCollectionActionsMenu by remember { mutableStateOf(false) }
     var reelNameInput by remember { mutableStateOf("") }
     var draftReelIds by remember { mutableStateOf<List<String>?>(null) }
+    var reviewingSearchReel by remember { mutableStateOf(false) }
+    var shareReviewedReel by remember { mutableStateOf(false) }
+    var reviewedReelRecipient by remember { mutableStateOf<String?>(null) }
     var reelEditorSelectionIdsOverride by remember { mutableStateOf<List<String>?>(null) }
     var reelSelectionEditTarget by remember { mutableStateOf<VideoClip?>(null) }
     var pendingImports by remember { mutableStateOf<List<PendingClipImport>>(emptyList()) }
@@ -609,7 +663,7 @@ fun ClipsScreenRefactored(
     var cameraRollVideos by remember { mutableStateOf<List<CameraRollVideo>>(emptyList()) }
     var selectedCameraRollUris by remember { mutableStateOf<Set<Uri>>(emptySet()) }
     var isLoadingCameraRoll by remember { mutableStateOf(false) }
-    var pendingSpokenReelCommand by remember { mutableStateOf<String?>(null) }
+    var pendingActionRequest by remember { mutableStateOf<String?>(null) }
     var showTeammateReview by rememberSaveable { mutableStateOf(false) }
     var teammateReviewClip by remember { mutableStateOf<TeammateReviewClip?>(null) }
     var sharedPlayers by remember { mutableStateOf<List<String>?>(null) }
@@ -636,25 +690,8 @@ fun ClipsScreenRefactored(
     }
     val isClipSelectionMode = showDeletePicker || showReelPickerDialog || showSharePicker
 
-    LaunchedEffect(showReelPickerDialog) {
-        if (showReelPickerDialog) return@LaunchedEffect
-        var previousIndex = 0
-        var previousOffset = 0
-        val scrollPositions = snapshotFlow {
-            clipsGridState.firstVisibleItemIndex to clipsGridState.firstVisibleItemScrollOffset
-        }
-        scrollPositions.collect { (index, offset) ->
-            val atTop = index == 0 && offset < 8
-            val scrollingDown = index > previousIndex || (index == previousIndex && offset > previousOffset + 8)
-            val scrollingUp = index < previousIndex || (index == previousIndex && offset < previousOffset - 8)
-            when {
-                atTop -> isClipsMenuExpanded = true
-                scrollingDown -> isClipsMenuExpanded = false
-                scrollingUp -> isClipsMenuExpanded = true
-            }
-            previousIndex = index
-            previousOffset = offset
-        }
+    val filterScroll = rememberMemoryFilterScroll(clipsGridState) {
+        if (!isClipSelectionMode) isClipsMenuExpanded = it
     }
     LaunchedEffect(isClipsMenuExpanded) {
         if (!isClipsMenuExpanded) {
@@ -702,6 +739,48 @@ fun ClipsScreenRefactored(
         if (granted) openCameraRollPicker()
         else Toast.makeText(context, "Video access is needed to upload memories", Toast.LENGTH_SHORT).show()
     }
+    val submitActionBar: (String) -> Unit = submit@{ text ->
+        if (goMode && text.isNotBlank()) {
+            goRequestStarted = true
+            recentGoRequests = (listOf(text.trim()) + recentGoRequests)
+                .distinctBy { it.lowercase() }.take(4)
+        }
+        actionAnswer = null
+        relatedScheduleGames = emptyList()
+        goBrowsing = false
+        voiceSearchError = null
+        actionKeyboard?.hide()
+        parseLibraryNavigation(text)?.let { request ->
+            pendingActionRequest = null
+            lastScheduleAnswer = null
+            val resolved = resolveLibraryNavigation(request, subscribedTeams.map { it.name },
+                localTeamName.takeUnless { showAllTeams })
+            resolved.error?.let { actionAnswerTitle = "Navigation"; actionAnswer = it }
+            resolved.request?.let {
+                searchQuery = ""
+                when (it.destination) {
+                    LibraryDestination.MEMORIES -> { showReelsOnly = false; goBrowsing = true }
+                    LibraryDestination.REELS -> { showReelsOnly = true; goBrowsing = true }
+                    else -> onNavigate(it)
+                }
+            }
+            return@submit
+        }
+        val request = parseLibraryActionRequest(text)
+        if (request !is LibraryActionRequest.Schedule) lastScheduleAnswer = null
+        if (parseMemoryQuestion(text) != null) {
+            pendingActionRequest = null
+            searchQuery = text
+        } else if (request != null) {
+            pendingActionRequest = text
+            if (request !is LibraryActionRequest.Roster && request !is LibraryActionRequest.Schedule) searchQuery = ""
+            if (request is LibraryActionRequest.Reel) {
+                selectedKid = null
+                selectedOpponentKey = null
+                showReelsOnly = false
+            }
+        } else searchQuery = text
+    }
     val searchVoiceLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -712,22 +791,10 @@ fun ClipsScreenRefactored(
                 ?.trim()
                 .orEmpty()
             if (spoken.isNotEmpty()) {
-                val spokenWords = spoken.lowercase()
-                    .split(Regex("[^a-z]+"))
-                    .filter(String::isNotBlank)
-                val isReelCommand = spokenWords.any { it in setOf("make", "create", "build") } &&
-                    spokenWords.any { it in setOf("reel", "reels", "real") }
-                pendingSpokenReelCommand = spoken.takeIf { isReelCommand }
-                if (isReelCommand) {
-                    selectedKid = null
-                    selectedSeasonKey = null
-                    selectedOpponentKey = null
-                    showReelsOnly = false
-                    searchQuery = ""
-                } else {
-                    searchQuery = spoken
-                }
-            }
+                submitActionBar(spoken)
+            } else voiceSearchError = "No speech was heard. Try again or type your request."
+        } else if (result.resultCode != Activity.RESULT_CANCELED) {
+            voiceSearchError = "Voice recognition stopped. Try again or type your request."
         }
     }
 
@@ -1438,35 +1505,23 @@ fun ClipsScreenRefactored(
             }
             .sortedBy { it.label.lowercase() }
     }
-    val searchHintExamples = remember(availableKidOptions, availableOpponents) {
-        val playerName = availableKidOptions.firstOrNull()?.substringBefore(" ") ?: "Tyson"
+    val searchHintExamples = remember(availableKidOptions, availableOpponents, searchRoster) {
+        val playerName = availableKidOptions.firstOrNull()
         val opponentName = availableOpponents
             .firstOrNull { it.label != NO_OPPONENT_FILTER_RESTORED }
             ?.label
-            ?: "Penn Trafford"
-        listOf(
-            "Find all goals against $opponentName",
-            "Create Reel of all ${playerName}'s goals this season",
-            "Find the last save against $opponentName",
-            "Create Reel of ${playerName}'s favorite plays",
+        searchRoster.firstOrNull { it.isActive && it.number.isNotBlank() }
+            ?.let { listOf("Who is number ${it.number}?") }.orEmpty() + listOf(
+            playerName?.let { "How many faceoff wins did $it have yesterday?" } ?: "How many faceoff wins did I record yesterday?",
+            "Who is our next opponent?",
+            opponentName?.let { "When do we play $it?" } ?: "When is our next game?",
+            opponentName?.let { "Find all goals against $it" } ?: "Find all goals",
+            playerName?.let { "Create Reel of all $it's goals this season" } ?: "Create Reel of all goals this season",
+            opponentName?.let { "Find the last save against $it" } ?: "Find the last save",
+            playerName?.let { "Create Reel of $it's favorite plays" } ?: "Create Reel of favorite plays",
             "Find all defensive stops this season",
-            "Create Reel of goals against $opponentName"
+            opponentName?.let { "Create Reel of goals against $it" } ?: "Create Reel of all goals"
         ).distinct()
-    }
-    LaunchedEffect(searchQuery, searchHintExamples) {
-        if (searchQuery.isNotEmpty()) return@LaunchedEffect
-        var exampleIndex = 0
-        while (true) {
-            val example = searchHintExamples[exampleIndex % searchHintExamples.size]
-            animatedSearchHint = ""
-            val typingDelayMs = (760L / example.length.coerceAtLeast(1)).coerceIn(12L, 28L)
-            example.forEachIndexed { index, _ ->
-                animatedSearchHint = example.take(index + 1)
-                delay(typingDelayMs)
-            }
-            delay(1_800L)
-            exampleIndex += 1
-        }
     }
     val opponentScopedVideos = remember(clips, kidLookup, kidFilter, selectedSeasonKey, selectedOpponentKey, opponentLookup, reelIncludedClipIds, clipsById) {
         clips.filter { clipMatchesKid(it) && clipMatchesSeason(it) && clipMatchesOpponent(it) }
@@ -1477,83 +1532,157 @@ fun ClipsScreenRefactored(
             else -> opponentScopedVideos.filterNot(::isReelTaggedClip)
         }
     }
-    val searchedVideos = remember(reelScopedVideos, searchQuery, kidLookup, opponentLookup) {
-        filterRestoredClipsBySearchQuery(
+    val searchPlayers = remember(searchRoster) { searchRoster.map { it.toProfile() } }
+    val assignedPlayerNames = remember(searchPlayers, kidLookup, teamLookup) {
+        kidLookup.mapValues { (id, name) -> resolveMemoryPlayerAssignment(name, teamLookup[id], searchPlayers)?.name }
+    }
+    val parsedSearch = remember(searchQuery, searchPlayers, subscribedTeams, opponentLookup, selectedSeasonKey, availableSeasons) {
+        interpretAskPlayloom(searchQuery, searchPlayers,
+            subscribedTeams.map { it.name }, opponentLookup.values.filterNotNull())
+            .withSelectedSeasonYear(availableSeasons.firstOrNull { it.key == selectedSeasonKey }?.startYear?.toString())
+    }
+    var searchOverride by remember(searchQuery, parsedSearch) { mutableStateOf<AskPlayloomQuery?>(null) }
+    val interpretedSearch = searchOverride ?: parsedSearch
+    LaunchedEffect(parsedSearch) {
+        if (searchQuery.isNotBlank() && parsedSearch.issue == null) {
+            if (parsedSearch.players.isNotEmpty()) selectedKid = null
+            if (parsedSearch.opponents.isNotEmpty()) selectedOpponentKey = null
+            if (parsedSearch.filters.seasonIntent != MemorySeasonIntent.CURRENT &&
+                (parsedSearch.filters.dateFrom != null || parsedSearch.filters.seasonIntent != null ||
+                    parsedSearch.filters.seasonYear != null)) selectedSeasonKey = null
+        }
+    }
+    val noteLookup = remember(clips, searchQuery) { clips.associate { it.id to loadClipCommentary(context, it) } }
+    val searchReelSources = remember(reelIncludedClipIds, clipsById) {
+        reelIncludedClipIds.mapValues { (_, ids) -> ids.mapNotNull(clipsById::get) }
+    }
+    val searchedVideos = remember(reelScopedVideos, searchQuery, assignedPlayerNames, opponentLookup, interpretedSearch, teamLookup, noteLookup, searchReelSources,
+        clips, relatedScheduleGames, actionAnswer, pendingActionRequest) {
+        if (goMode && (actionAnswer != null || pendingActionRequest != null)) {
+            val now = System.currentTimeMillis()
+            clips.filter { clip ->
+                !isReelTaggedClip(clip) && clip.createdAt <= now &&
+                    matchesScheduleOpponent(relatedScheduleGames, teamLookup[clip.id],
+                        opponentLookup[clip.id], opponentLookup.values.filterNotNull() + relatedScheduleGames.map { it.opponent })
+            }
+        } else filterRestoredClipsBySearchQuery(
             videos = reelScopedVideos,
             query = searchQuery,
-            kidLookup = kidLookup,
-            opponentLookup = opponentLookup
+            kidLookup = assignedPlayerNames,
+            opponentLookup = opponentLookup,
+            interpretation = interpretedSearch,
+            teamLookup = teamLookup,
+            noteLookup = noteLookup,
+            reelSources = searchReelSources
         )
     }
-    LaunchedEffect(pendingSpokenReelCommand, clips, kidLookup, opponentLookup) {
-        val reelCommand = pendingSpokenReelCommand ?: return@LaunchedEffect
+    LaunchedEffect(pendingActionRequest, isLoading) {
+        val text = pendingActionRequest ?: return@LaunchedEffect
+        if (isLoading) return@LaunchedEffect
+        val request = parseLibraryActionRequest(text) ?: return@LaunchedEffect
+        actionAnswerTitle = when (request) {
+            is LibraryActionRequest.Roster -> "Roster lookup"
+            is LibraryActionRequest.Schedule -> "Schedule"
+            else -> "Action bar"
+        }
+        when (request) {
+            is LibraryActionRequest.Roster -> {
+                try {
+                    val selectedTeam = localTeamName.takeUnless { showAllTeams }
+                    val teams = selectedTeam?.let(::listOf) ?: subscribedTeams.map { it.name }
+                    val roster = teams.distinct().flatMap { team ->
+                        playerViewModel.observeTeamRoster(team).first().map { it.toProfile() }
+                    }
+                    actionAnswer = answerRosterQuestion(request, roster, selectedTeam)
+                } catch (failure: android.database.sqlite.SQLiteException) {
+                    Log.e("ClipsScreenRefactored", "Unable to read roster for voice lookup", failure)
+                    actionAnswer = "Couldn't read the saved roster. Please try again or open Teams."
+                }
+                pendingActionRequest = null
+                return@LaunchedEffect
+            }
+            is LibraryActionRequest.Count -> {
+                searchQuery = text
+                pendingActionRequest = null
+                return@LaunchedEffect
+            }
+            is LibraryActionRequest.Schedule -> {
+                try {
+                    val teams = if (showAllTeams || localTeamName == null) subscribedTeams.map { it.name } else listOfNotNull(localTeamName)
+                    val games = teams.flatMap { team ->
+                        teamViewModel.getGamesForTeam(team).first().map { game ->
+                            ActionScheduleGame(game.id, team, game.opponentName, game.scheduledStartMs, game.locationName)
+                        }
+                    }
+                    val answer = scheduleQuestionAnswer(request, games, previousAnswer = lastScheduleAnswer)
+                    lastScheduleAnswer = answer
+                    relatedScheduleGames = answer.games
+                    showReelsOnly = false
+                    actionAnswer = answer.text
+                } catch (failure: android.database.sqlite.SQLiteException) {
+                    android.util.Log.e("ClipsScreen", "Unable to read schedule for action bar", failure)
+                    actionAnswer = "Couldn't read the saved schedule. Please try again."
+                    lastScheduleAnswer = null
+                }
+                pendingActionRequest = null
+                return@LaunchedEffect
+            }
+            is LibraryActionRequest.Unsupported -> {
+                actionAnswer = request.message
+                pendingActionRequest = null
+                return@LaunchedEffect
+            }
+            is LibraryActionRequest.Share -> {
+                searchQuery = request.query
+                actionAnswer = "Select the matching memories, then tap Share to send them to ${request.recipient}."
+                pendingActionRequest = null
+                return@LaunchedEffect
+            }
+            is LibraryActionRequest.Reel -> Unit
+        }
+        val criteria = interpretAskPlayloom(request.command.searchQuery, searchPlayers,
+            subscribedTeams.map { it.name }, opponentLookup.values.filterNotNull())
+            .withSelectedSeasonYear(availableSeasons.firstOrNull { it.key == selectedSeasonKey }?.startYear?.toString())
+        if (criteria.issue != null) {
+            actionAnswer = criteria.issue
+            pendingActionRequest = null
+            return@LaunchedEffect
+        }
         val matchingClips = filterRestoredClipsBySearchQuery(
-            videos = clips.filterNot(::isReelTaggedClip),
-            query = reelCommand,
-            kidLookup = kidLookup,
-            opponentLookup = opponentLookup
-        )
-        if (matchingClips.isEmpty()) {
-            pendingSpokenReelCommand = null
-            Toast.makeText(context, "No memories matched that reel request", Toast.LENGTH_SHORT).show()
+            videos = clips.filterNot(::isReelTaggedClip).filter { clip ->
+                selectedSeasonKey == null || criteria.filters.dateFrom != null ||
+                    criteria.filters.seasonYear != null ||
+                    parseRestoredSeasonKey(clip.gameDate)?.key == selectedSeasonKey
+            },
+            query = request.command.searchQuery,
+            kidLookup = assignedPlayerNames,
+            opponentLookup = opponentLookup,
+            interpretation = criteria,
+            teamLookup = teamLookup,
+            noteLookup = noteLookup,
+            reelSources = searchReelSources
+        ).sortedBy { it.createdAt }
+        if (matchingClips.size < 2) {
+            pendingActionRequest = null
+            actionAnswer = if (matchingClips.isEmpty()) "No saved videos matched that reel request. Check the saved player, tags, dates and opponent."
+                else "Only 1 saved video matched. A reel needs at least 2 videos."
             return@LaunchedEffect
         }
         val selectedTeamName = localTeamName
         if (selectedTeamName.isNullOrBlank()) {
-            pendingSpokenReelCommand = null
+            pendingActionRequest = null
             Toast.makeText(context, "Select a team before creating a reel", Toast.LENGTH_SHORT).show()
             return@LaunchedEffect
         }
-        val reelTitle = reelCommand.trim()
-            .replace(Regex("(?i)^(please\\s+)?(make|create|build)\\s+(me\\s+)?a?\\s*(reel|reels|real)(\\s+of)?\\s*"), "")
-            .trim()
-            .replaceFirstChar(Char::uppercase)
-            .ifBlank { "Voice Reel" }
-        searchQuery = ""
-        Toast.makeText(
-            context,
-            "Creating reel from ${matchingClips.size} ${if (matchingClips.size == 1) "memory" else "memories"}...",
-            Toast.LENGTH_SHORT
-        ).show()
-        isBuildingReel = true
-        try {
-            val clipUris = matchingClips.mapNotNull { resolveClipUriForReel(it.filePath) }
-            if (clipUris.size != matchingClips.size) {
-                Toast.makeText(context, "Some matching memories are unavailable", Toast.LENGTH_SHORT).show()
-                return@LaunchedEffect
-            }
-            val reelUri = buildShareableReelForRefactored(
-                context = context,
-                clipUris = clipUris,
-                reelTitle = reelTitle,
-                teamName = selectedTeamName,
-                opponentName = null
-            )
-            if (reelUri == null) {
-                Toast.makeText(context, "Unable to build reel video", Toast.LENGTH_SHORT).show()
-                return@LaunchedEffect
-            }
-            persistReelClipSummary(context, reelUri, matchingClips)
-            persistReelClipIds(context, reelUri, matchingClips.map { it.id })
-            clips = if (showAllTeams) {
-                subscribedTeams
-                    .flatMap { team -> loadRestoredClips(context, team.name) }
-                    .distinctBy { it.id }
-                    .sortedByDescending { it.createdAt }
-            } else {
-                loadRestoredClips(context, selectedTeamName)
-            }
-            completedReelUri = reelUri
-            Toast.makeText(context, "Reel created", Toast.LENGTH_SHORT).show()
-        } catch (error: kotlinx.coroutines.CancellationException) {
-            throw error
-        } catch (error: Throwable) {
-            Log.e("ClipsScreenRefactored", "Voice reel creation failed", error)
-            Toast.makeText(context, "Reel creation failed", Toast.LENGTH_SHORT).show()
-        } finally {
-            isBuildingReel = false
-            pendingSpokenReelCommand = null
-        }
+        searchQuery = request.command.searchQuery
+        reelNameInput = request.command.title
+        reelEditorSelectionIdsOverride = null
+        reelSelectionEditTarget = null
+        reviewingSearchReel = true
+        shareReviewedReel = request.share
+        reviewedReelRecipient = request.recipient
+        draftReelIds = matchingClips.map { it.id }
+        pendingActionRequest = null
     }
     // Fraction of a reel's included clips that satisfy the active filters, so a reel that's entirely
     // one opponent/player/season ranks above one with only a single matching clip.
@@ -1611,6 +1740,12 @@ fun ClipsScreenRefactored(
     val visibleVideos = remember(visibleSections) {
         visibleSections.flatMap { it.videos }
     }
+    LaunchedEffect(visibleVideos, showSharePicker) {
+        if (showSharePicker) {
+            val visibleIds = visibleVideos.map { it.id }.toSet()
+            shareSelectionIds = shareSelectionIds.intersect(visibleIds)
+        }
+    }
     val reelPickerMemoryGroups = remember(visibleVideos, opponentLookup) {
         buildReelPickerMemoryGroups(visibleVideos, opponentLookup)
     }
@@ -1637,6 +1772,9 @@ fun ClipsScreenRefactored(
         }
         VideoPlaybackScreen(
             videoUri = videoUri,
+            playlistClips = temporaryPlaylist,
+            playlistUris = temporaryPlaylist.map { Uri.parse(it.filePath) },
+            temporaryPlaylist = temporaryPlaylist.isNotEmpty(),
             clipMetadata = matchingClip,
             detectedPlayers = if (matchingClip?.id == SHARE_DEMO_CLIP_ID) {
                 (teamRoster + debugShareRoster(localTeamName.orEmpty())).distinctBy { it.id }
@@ -1648,11 +1786,14 @@ fun ClipsScreenRefactored(
             startInShareFlow = selectedVideoStartsInShareFlow,
             showPlaybackUi = !selectedVideoStartsInShareFlow,
             shareVideoUris = selectedShareVideoUris,
+            requestedRecipient = requestedShareRecipient,
             onNavigateBack = {
+                temporaryPlaylist = emptyList()
                 selectedVideoUri = null
                 selectedVideoClip = null
                 selectedVideoStartsInShareFlow = false
                 selectedShareVideoUris = emptyList()
+                requestedShareRecipient = null
             },
             onEditReel = matchingClip?.takeIf(::isReelTaggedClip)?.let { reelClip ->
                 {
@@ -1729,7 +1870,10 @@ fun ClipsScreenRefactored(
             },
             onClose = {
                 draftReelIds = null
-                showReelPickerDialog = true
+                showReelPickerDialog = !reviewingSearchReel
+                reviewingSearchReel = false
+                shareReviewedReel = false
+                reviewedReelRecipient = null
             },
             onSave = { orderedIds, newTitle ->
                 val selectedTeamName = localTeamName
@@ -1741,8 +1885,8 @@ fun ClipsScreenRefactored(
                         try {
                             val orderedClips = orderedIds.mapNotNull { id -> clips.firstOrNull { it.id == id } }
                             val clipUris = orderedClips.mapNotNull { resolveClipUriForReel(it.filePath) }
-                            if (clipUris.size != orderedClips.size || clipUris.isEmpty()) {
-                                Toast.makeText(context, "Some selected memories are unavailable", Toast.LENGTH_SHORT).show()
+                            if (orderedClips.size != orderedIds.size || clipUris.size != orderedClips.size || orderedClips.size < 2) {
+                                Toast.makeText(context, "A reel needs at least 2 available selected videos", Toast.LENGTH_SHORT).show()
                                 return@launch
                             }
                             val reelUri = buildShareableReelForRefactored(
@@ -1756,13 +1900,23 @@ fun ClipsScreenRefactored(
                                 persistReelClipSummary(context, reelUri, orderedClips)
                                 persistReelClipIds(context, reelUri, orderedIds)
                                 reloadClipsForCurrentScope()
-                                completedReelUri = reelUri
+                                if (shareReviewedReel) {
+                                    requestedShareRecipient = reviewedReelRecipient
+                                    selectedVideoStartsInShareFlow = true
+                                    selectedShareVideoUris = listOf(reelUri)
+                                    selectedVideoUri = reelUri
+                                } else completedReelUri = reelUri
+                                reviewingSearchReel = false
+                                shareReviewedReel = false
+                                reviewedReelRecipient = null
                                 draftReelIds = null
                                 reelSelectionIds = emptySet()
                                 Toast.makeText(context, "Reel saved to Movies/Spotr", Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(context, "Unable to build reel video", Toast.LENGTH_SHORT).show()
                             }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
                         } catch (t: Throwable) {
                             Log.e("ClipsScreenRefactored", "Make Reel failed", t)
                             Toast.makeText(context, "Reel creation failed", Toast.LENGTH_SHORT).show()
@@ -1912,7 +2066,40 @@ fun ClipsScreenRefactored(
         )
     }
 
+    val goLanding = goMode && !goRequestStarted && !goBrowsing && !isClipSelectionMode && !showReelPickerDialog
+    val goSearchBar: @Composable () -> Unit = {
+        CaptureLibrarySearchBar(
+            query = searchQuery,
+            onQueryChange = {
+                actionAnswer = null; goBrowsing = false; pendingActionRequest = null; searchQuery = it
+                if (it.isBlank()) goRequestStarted = false
+            },
+            onSubmit = submitActionBar,
+            voiceError = voiceSearchError,
+            onDismissVoiceError = { voiceSearchError = null },
+            onVoiceSearch = {
+                voiceSearchError = null
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Playloom Go")
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                    putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                }
+                try {
+                    searchVoiceLauncher.launch(intent)
+                } catch (failure: android.content.ActivityNotFoundException) {
+                    Log.e("ClipsScreenRefactored", "No voice recognition activity available", failure)
+                    voiceSearchError = "Voice search is unavailable. Enable a speech recognition service in Android Settings, or type your request."
+                } catch (failure: SecurityException) {
+                    Log.e("ClipsScreenRefactored", "Voice recognition permission denied", failure)
+                    voiceSearchError = "Voice access was denied. Check microphone permissions for your speech recognition service in Android Settings, or type your request."
+                }
+            }
+        )
+    }
     Column(modifier = Modifier.fillMaxSize()) {
+        if (!goLanding) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1920,11 +2107,19 @@ fun ClipsScreenRefactored(
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             AnimatedVisibility(
-                visible = isClipsMenuExpanded,
+                visible = goMode,
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
                 Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = {
+                    actionKeyboard?.hide()
+                    searchQuery = ""; actionAnswer = null; pendingActionRequest = null
+                    goBrowsing = false; goRequestStarted = false
+                }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to Playloom Go") }
+                Text("Playloom Go", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1932,101 +2127,68 @@ fun ClipsScreenRefactored(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(PrimaryClipsControlHeight),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(15.dp)
-                        )
-                        Box(modifier = Modifier.weight(1f)) {
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = animatedSearchHint,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                textStyle = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurface
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
-                            )
-                        }
-                        if (searchQuery.isNotBlank()) {
-                            Icon(
-                                Icons.Default.Clear,
-                                contentDescription = "Clear search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .clickable {
-                                        searchQuery = ""
-                                        isClipsMenuExpanded = true
-                                    }
-                            )
-                        }
-                        Icon(
-                            Icons.Default.Mic,
-                            contentDescription = "Search by voice",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clickable {
-                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                        putExtra(
-                                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                                        )
-                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Find plays or create a reel")
-                                        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                                    }
-                                    runCatching { searchVoiceLauncher.launch(intent) }
-                                        .onFailure {
-                                            Toast.makeText(
-                                                context,
-                                                "Voice search is unavailable",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                }
-                        )
+                goSearchBar()
+            }
+            if (actionAnswer != null) {
+                AskPlayloomAnswer(actionAnswerTitle, actionAnswer.orEmpty())
+            } else if (pendingActionRequest == null && searchQuery.isNotBlank()) AskPlayloomResults(
+                interpretedSearch, visibleVideos.size, showReelsOnly,
+                onChange = { searchOverride = it },
+                onClear = { searchQuery = ""; searchOverride = null },
+                playableCount = if (showReelsOnly) 0 else visibleVideos.size,
+                onPlayAll = if (isLoading || showReelsOnly || visibleVideos.isEmpty()) null else ({
+                    actionKeyboard?.hide()
+                    temporaryPlaylist = visibleVideos.distinctBy { it.id }.sortedBy { it.createdAt }.toList()
+                    selectedVideoClip = temporaryPlaylist.first()
+                    selectedVideoStartsInShareFlow = false
+                    selectedShareVideoUris = emptyList()
+                    requestedShareRecipient = null
+                    selectedVideoUri = Uri.parse(temporaryPlaylist.first().filePath)
+                }),
+                onCreateReel = if (isLoading || isBuildingReel || showReelsOnly || isClipSelectionMode) null else ({
+                    if (localTeamName.isNullOrBlank()) {
+                        Toast.makeText(context, "Select a team before creating a reel", Toast.LENGTH_SHORT).show()
+                    } else {
+                        actionKeyboard?.hide()
+                        reelNameInput = "Highlight Reel"
+                        reviewingSearchReel = true
+                        shareReviewedReel = false
+                        reviewedReelRecipient = null
+                        reelEditorSelectionIdsOverride = null
+                        reelSelectionEditTarget = null
+                        draftReelIds = visibleVideos.distinctBy { it.id }.sortedBy { it.createdAt }.map { it.id }
                     }
-                }
-            }
+                }),
+                onShare = if (isLoading || isBuildingReel || isClipSelectionMode) null else ({
+                    actionKeyboard?.hide()
+                    shareSelectionIds = visibleVideos.map { it.id }.toSet()
+                    requestedShareRecipient = null
+                    showSharePicker = true
+                }),
+                answer = if (isLoading) null else answerMemoryQuestion(
+                    interpretedSearch, visibleVideos.size, showReelsOnly,
+                    opponents = visibleVideos.mapNotNull { opponentLookup[it.id] },
+                    firstDate = visibleVideos.firstOrNull()?.let {
+                        java.time.Instant.ofEpochMilli(it.createdAt).atZone(java.time.ZoneId.systemDefault())
+                            .toLocalDate().toString()
+                    }
+                )
+            )
 
                 }
             }
 
+            AnimatedVisibility(visible = (isClipsMenuExpanded || isClipSelectionMode) &&
+                (!goMode || actionAnswer == null && pendingActionRequest == null)) {
+            Column(Modifier.fillMaxWidth().padding(top = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.8.dp)) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(top = 6.dp),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Box {
-                    FilterMenuLabel(
-                        label = selectedKid ?: "Player",
+                Box(Modifier.weight(1f)) {
+                    com.playerid.app.ui.components.MemoryFilterControl(
+                        category = "Player", value = selectedKid ?: "All",
                         isActive = selectedKid != null,
                         onClick = { showPlayerFilterMenu = true }
                     )
@@ -2044,9 +2206,9 @@ fun ClipsScreenRefactored(
                         }
                     }
                 }
-                Box {
-                    FilterMenuLabel(
-                        label = availableSeasons.firstOrNull { it.key == selectedSeasonKey }?.label ?: "Season",
+                Box(Modifier.weight(1f)) {
+                    com.playerid.app.ui.components.MemoryFilterControl(
+                        category = "Season", value = availableSeasons.firstOrNull { it.key == selectedSeasonKey }?.label ?: "All",
                         isActive = selectedSeasonKey != null,
                         onClick = { showSeasonFilterMenu = true }
                     )
@@ -2060,9 +2222,11 @@ fun ClipsScreenRefactored(
                         }
                     }
                 }
-                Box {
-                    FilterMenuLabel(
-                        label = if (showAllTeams) "All Teams" else localTeamName ?: "Team",
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.weight(1f)) {
+                    com.playerid.app.ui.components.MemoryFilterControl(
+                        category = "Team", value = if (showAllTeams) "All Teams" else localTeamName ?: "All",
                         isActive = !showAllTeams && !localTeamName.isNullOrBlank(),
                         onClick = { showTeamFilterMenu = true }
                     )
@@ -2089,9 +2253,9 @@ fun ClipsScreenRefactored(
                         }
                     }
                 }
-                Box {
-                    FilterMenuLabel(
-                        label = availableOpponents.firstOrNull { it.key == selectedOpponentKey }?.label ?: "Opponent",
+                Box(Modifier.weight(1f)) {
+                    com.playerid.app.ui.components.MemoryFilterControl(
+                        category = "Opponent", value = availableOpponents.firstOrNull { it.key == selectedOpponentKey }?.label ?: "All",
                         isActive = selectedOpponentKey != null,
                         onClick = { showOpponentFilterMenu = true }
                     )
@@ -2107,6 +2271,10 @@ fun ClipsScreenRefactored(
                 }
             }
 
+            }
+            }
+            if ((!goMode || actionAnswer == null && pendingActionRequest == null) &&
+                (!goMode || searchQuery.isNotBlank() || goBrowsing || isClipSelectionMode || showReelPickerDialog)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2126,6 +2294,7 @@ fun ClipsScreenRefactored(
                             enabled = !isBuildingReel && !showReelPickerDialog,
                             onClick = {
                                 showReelsOnly = false
+                                goBrowsing = true
                                 showReelPickerDialog = false
                             }
                         )
@@ -2136,6 +2305,7 @@ fun ClipsScreenRefactored(
                             enabled = !isBuildingReel && !showReelPickerDialog,
                             onClick = {
                                 showReelsOnly = true
+                                goBrowsing = true
                                 showReelPickerDialog = false
                             }
                         )
@@ -2147,8 +2317,19 @@ fun ClipsScreenRefactored(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        IconButton(
+                        Box {
+                            IconButton(onClick = { showCollectionActionsMenu = true }) {
+                                Icon(Icons.Default.MoreHoriz, contentDescription = "Memory actions")
+                            }
+                            DropdownMenu(
+                                expanded = showCollectionActionsMenu,
+                                onDismissRequest = { showCollectionActionsMenu = false }
+                            ) {
+                        DropdownMenuItem(
+                            text = { Text("Upload memory") },
+                            leadingIcon = { Icon(Icons.Default.Add, null) },
                             onClick = {
+                                showCollectionActionsMenu = false
                                 val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     Manifest.permission.READ_MEDIA_VIDEO
                                 } else {
@@ -2160,17 +2341,7 @@ fun ClipsScreenRefactored(
                                     cameraRollPermissionLauncher.launch(permission)
                                 }
                             }
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Upload memory")
-                        }
-                        Box {
-                            TextButton(onClick = { showCollectionActionsMenu = true }) {
-                                Text("Select")
-                            }
-                            DropdownMenu(
-                                expanded = showCollectionActionsMenu,
-                                onDismissRequest = { showCollectionActionsMenu = false }
-                            ) {
+                        )
                             DropdownMenuItem(
                                 text = { Text("Remove memories") },
                                 leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
@@ -2216,12 +2387,23 @@ fun ClipsScreenRefactored(
                                     showSharePicker = true
                                 }
                             )
+                            DropdownMenuItem(
+                                text = { Text("Teams") },
+                                leadingIcon = { Icon(Icons.Default.Groups, null) },
+                                onClick = { showCollectionActionsMenu = false; onNavigateToTeams() }
+                            )
+                            if (!goMode) DropdownMenuItem(
+                                text = { Text("Settings & more") },
+                                leadingIcon = { Icon(Icons.Default.Settings, null) },
+                                onClick = { showCollectionActionsMenu = false; onOpenMore() }
+                            )
                             }
                         }
                     }
                 }
             }
 
+            }
             AnimatedVisibility(
                 visible = isClipsMenuExpanded &&
                     teammateReviewClips.isNotEmpty() &&
@@ -2412,6 +2594,9 @@ fun ClipsScreenRefactored(
                             reelSelectionEditTarget = null
                             reelEditorSelectionIdsOverride = null
                             draftReelIds = null
+                            reviewingSearchReel = false
+                            shareReviewedReel = false
+                            reviewedReelRecipient = null
                         }
                     ) {
                         Text("Cancel")
@@ -2423,7 +2608,8 @@ fun ClipsScreenRefactored(
                                 val orderedSelectedIds = reelEditorSelectionIdsOverride
                                     .orEmpty()
                                     .filter { it in selectedIdSet } +
-                                    selectedClips.map { it.id }.filterNot { it in reelEditorSelectionIdsOverride.orEmpty() }
+                                    selectedClips.sortedBy { it.createdAt }.map { it.id }
+                                        .filterNot { it in reelEditorSelectionIdsOverride.orEmpty() }
                                 reelEditorSelectionIdsOverride = orderedSelectedIds
                                 val editTarget = reelSelectionEditTarget
                                 if (editTarget != null) {
@@ -2444,7 +2630,7 @@ fun ClipsScreenRefactored(
         }
 
         if (showSharePicker) {
-            val selectedClips = (visibleVideos + clips)
+            val selectedClips = visibleVideos
                 .distinctBy { it.id }
                 .filter { it.id in shareSelectionIds }
             Column(
@@ -2538,19 +2724,39 @@ fun ClipsScreenRefactored(
             )
         }
 
+        }
+        if (goMode && actionAnswer != null && relatedScheduleGames.isNotEmpty() && !isLoading) {
+            Text(if (visibleVideos.isEmpty()) "No past saved memories against this opponent."
+                else "Past memories against ${relatedScheduleGames.map { it.opponent }.distinct().joinToString()}",
+                Modifier.padding(12.dp), style = MaterialTheme.typography.titleSmall)
+        }
         when {
+            goLanding -> PlayloomGoPage(
+                hints = searchHintExamples,
+                recentRequests = recentGoRequests,
+                onSubmit = submitActionBar,
+                onClearRecent = { recentGoRequests = emptyList() },
+                searchBar = goSearchBar
+            )
             isLoading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Loading memories...", style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            localTeamName.isNullOrBlank() && !showAllTeams -> {
+            goMode && (actionAnswer != null || pendingActionRequest != null) && visibleVideos.isEmpty() ->
+                Spacer(Modifier.fillMaxSize())
+            goMode && actionAnswer == null && pendingActionRequest == null && searchQuery.isBlank() &&
+                !goBrowsing && !isClipSelectionMode && !showReelPickerDialog ->
+                Spacer(Modifier.fillMaxSize())
+            localTeamName.isNullOrBlank() && !showAllTeams && !(goMode && actionAnswer != null) -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Select a team to view memories", style = MaterialTheme.typography.bodyMedium)
                 }
             }
             visibleVideos.isEmpty() -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (!showReelsOnly && interpretedSearch.question != null && interpretedSearch.issue == null) {
+                    Spacer(Modifier.fillMaxSize())
+                } else Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         "No videos yet",
                         style = MaterialTheme.typography.bodyMedium
@@ -2563,6 +2769,7 @@ fun ClipsScreenRefactored(
                     columns = GridCells.Fixed(gridColumnCount),
                     state = clipsGridState,
                     modifier = Modifier
+                        .nestedScroll(filterScroll)
                         .then(
                             if (isClipSelectionMode) Modifier.weight(1f) else Modifier.fillMaxSize()
                         )
@@ -3843,12 +4050,14 @@ private fun EditReelScreen(
                 )
                 Button(
                     onClick = { onSave(orderedIds, editedTitle.trim().ifBlank { initialTitle }) },
-                    enabled = !isSaving && orderedIds.isNotEmpty(),
+                    enabled = !isSaving && orderedIds.size >= 2,
                     modifier = Modifier.padding(end = 6.dp)
                 ) {
                     Text(if (isSaving) "Saving..." else "Save")
                 }
             }
+            if (!isSaving) Text("Review the title, clips and order. Save creates the reel.",
+                Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
 
             LazyColumn(
                 modifier = Modifier
@@ -4490,27 +4699,7 @@ private fun FilterMenuLabel(
     isActive: Boolean,
     onClick: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-        Icon(
-            imageVector = Icons.Default.KeyboardArrowDown,
-            contentDescription = "Open $label filter",
-            tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(16.dp)
-        )
-    }
+    com.playerid.app.ui.components.MemoryFilterMenuLabel(label, isActive, onClick)
 }
 
 @Composable
@@ -4521,32 +4710,7 @@ private fun ClipsFileTab(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .widthIn(min = 72.dp)
-            .height(PrimaryClipsControlHeight)
-            .padding(horizontal = 8.dp)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Medium,
-            color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            softWrap = false
-        )
-        if (underlined) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .width(48.dp)
-                    .height(3.dp)
-                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
-            )
-        }
-    }
+    com.playerid.app.ui.components.MemoryCollectionTab(label, highlighted, underlined, enabled, onClick)
 }
 
 @Composable
@@ -5657,27 +5821,58 @@ private fun filterRestoredClipsBySearchQuery(
     videos: List<VideoClip>,
     query: String,
     kidLookup: Map<String, String?>,
-    opponentLookup: Map<String, String?>
+    opponentLookup: Map<String, String?>,
+    interpretation: AskPlayloomQuery? = null,
+    teamLookup: Map<String, String?> = emptyMap(),
+    noteLookup: Map<String, String> = emptyMap(),
+    reelSources: Map<String, List<VideoClip>> = emptyMap()
 ): List<VideoClip> {
-    val searchQuery = parseMemorySearchQuery(query)
-    if (searchQuery.momentTag == null && searchQuery.seasonIntent == null && searchQuery.terms.isEmpty()) {
+    if (interpretation?.issue != null) return emptyList()
+    val searchQuery = interpretation?.filters ?: parseMemorySearchQuery(query)
+    val dateFrom = searchQuery.dateFrom
+    if (searchQuery.momentTag == null && searchQuery.seasonIntent == null && searchQuery.terms.isEmpty() &&
+        searchQuery.dateFrom == null && searchQuery.resultSelection == null &&
+        !searchQuery.favoritesOnly && searchQuery.mediaType == null && searchQuery.seasonYear == null &&
+        interpretation?.players.orEmpty().isEmpty() && interpretation?.teams.orEmpty().isEmpty() &&
+        interpretation?.opponents.orEmpty().isEmpty()) {
         return videos
     }
 
-    val currentSeasonStartYear = currentRestoredSeasonStartYear()
-    val requestedSeasonStartYear = when (searchQuery.seasonIntent) {
+    val currentSeasonStartYear = java.time.LocalDate.now().year
+    val requestedSeasonStartYear = searchQuery.seasonYear?.toIntOrNull() ?: when (searchQuery.seasonIntent) {
         MemorySeasonIntent.PREVIOUS -> currentSeasonStartYear - 1
         MemorySeasonIntent.CURRENT -> currentSeasonStartYear
         else -> null
     }
 
+    val knownOpponents = opponentLookup.values.filterNotNull()
     val matches = videos.filter { video ->
-        val matchesSeason = requestedSeasonStartYear == null ||
-            parseRestoredSeasonKey(video.gameDate)?.startYear == requestedSeasonStartYear
-        val matchesTag = searchQuery.momentTag == null || canonicalMomentTag(video.momentTag) == searchQuery.momentTag
-        if (!matchesSeason || !matchesTag) return@filter false
+        val sources = if (interpretation != null && isReelTaggedClip(video)) reelSources[video.id].orEmpty()
+            else listOf(video)
+        val assignedSources = if (interpretation == null) sources else sources.filter { source ->
+            interpretation.matchesAssignment(null, kidLookup[source.id], teamLookup[source.id], opponentLookup[source.id])
+        }
+        val hasIdentityFilter = interpretation != null && (interpretation.players.isNotEmpty() ||
+            interpretation.teams.isNotEmpty() || interpretation.opponents.isNotEmpty())
+        if (hasIdentityFilter && assignedSources.isEmpty()) return@filter false
+        if (dateFrom != null) {
+            val capturedDate = java.time.Instant.ofEpochMilli(video.createdAt)
+                .atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+            if (capturedDate < dateFrom || capturedDate > searchQuery.dateThrough.orEmpty()) return@filter false
+        }
+        if (searchQuery.favoritesOnly && !video.isHighlight) return@filter false
+        if (searchQuery.mediaType == "photo") return@filter false
+        if (searchQuery.mediaType == "reel" && !isReelTaggedClip(video)) return@filter false
+        val metadataSources = if (assignedSources.isEmpty() && !hasIdentityFilter) listOf(video) else assignedSources
+        if (metadataSources.none { source ->
+                (requestedSeasonStartYear == null ||
+                    (parseRestoredSeasonKey(source.gameDate)?.startYear
+                        ?: java.time.Instant.ofEpochMilli(source.createdAt)
+                            .atZone(java.time.ZoneId.systemDefault()).year) == requestedSeasonStartYear) &&
+                    (searchQuery.momentTag == null || canonicalMomentTag(source.momentTag) == searchQuery.momentTag)
+            }) return@filter false
 
-        val bubbleNames = try {
+        val bubbleNames = if (interpretation != null) emptyList() else try {
             val bubbles = JSONArray(video.bubbleMetadata)
             (0 until bubbles.length()).flatMap { index ->
                 val bubble = bubbles.optJSONObject(index) ?: return@flatMap emptyList()
@@ -5696,23 +5891,30 @@ private fun filterRestoredClipsBySearchQuery(
             video.gameDate,
             video.momentTag.orEmpty(),
             kidLookup[video.id].orEmpty(),
-            opponentLookup[video.id].orEmpty()
+            opponentLookup[video.id].orEmpty(),
+            noteLookup[video.id].orEmpty()
         ) + bubbleNames
 
-        val searchable = searchableText.joinToString(" ")
+        val opponent = opponentLookup[video.id]
+        val opponentAlias = opponent?.let { name ->
+            com.playerid.app.domain.team.opponentSearchName(name, knownOpponents)
+        }.orEmpty()
+        val searchable = (searchableText + opponentAlias).joinToString(" ")
             .lowercase(Locale.getDefault())
             .replace("’s", " ")
             .replace("'s", " ")
+            .map { if (it.isLetterOrDigit() || it == '#') it else ' ' }.joinToString("")
+        val compact = searchable.replace(" ", "")
 
         searchQuery.terms.all { term ->
-            searchable.contains(term) ||
+            searchable.contains(term) || compact.contains(term) ||
                 (term.endsWith("s") && term.length > 3 && searchable.contains(term.dropLast(1)))
         }
     }
 
     return when {
-        searchQuery.resultSelection == MemoryResultSelection.FIRST -> matches.minWithOrNull(compareBy<VideoClip> { it.gameDate }.thenBy { it.createdAt })?.let(::listOf).orEmpty()
-        searchQuery.resultSelection == MemoryResultSelection.LAST -> matches.maxWithOrNull(compareBy<VideoClip> { it.gameDate }.thenBy { it.createdAt })?.let(::listOf).orEmpty()
+        searchQuery.resultSelection == MemoryResultSelection.FIRST -> matches.sortedBy { it.createdAt }.take(searchQuery.resultLimit)
+        searchQuery.resultSelection == MemoryResultSelection.LAST -> matches.sortedByDescending { it.createdAt }.take(searchQuery.resultLimit)
         else -> matches
     }
 }
@@ -6585,4 +6787,3 @@ private fun persistReelVideoToMediaStore(context: android.content.Context, file:
     }
     return uri
 }
-

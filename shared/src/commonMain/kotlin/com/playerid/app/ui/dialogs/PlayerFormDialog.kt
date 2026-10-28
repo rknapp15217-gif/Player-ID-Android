@@ -40,6 +40,16 @@ import com.playerid.app.domain.team.PlayerFormSubmission
 internal expect fun rememberSoftwareKeyboardDismissHandler(): () -> Unit
 
 @Composable
+internal fun rememberDialogKeyboardDismissHandler(): () -> Unit {
+    val focusManager = LocalFocusManager.current
+    val hideSoftwareKeyboard = rememberSoftwareKeyboardDismissHandler()
+    return {
+        focusManager.clearFocus(force = true)
+        hideSoftwareKeyboard()
+    }
+}
+
+@Composable
 fun PlayerFormDialog(
     title: String,
     submitLabel: String,
@@ -53,15 +63,11 @@ fun PlayerFormDialog(
     contactPhone: String = "",
     contactEmail: String = "",
     onContactPhoneChange: (String) -> Unit = {},
-    onContactEmailChange: (String) -> Unit = {}
+    onContactEmailChange: (String) -> Unit = {},
+    onDelete: (() -> Unit)? = null
 ) {
-    val focusManager = LocalFocusManager.current
     Dialog(onDismissRequest = onDismiss) {
-        val hideSoftwareKeyboard = rememberSoftwareKeyboardDismissHandler()
-        fun dismissKeyboard() {
-            hideSoftwareKeyboard()
-            focusManager.clearFocus(force = true)
-        }
+        val dismissKeyboard = rememberDialogKeyboardDismissHandler()
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -70,6 +76,11 @@ fun PlayerFormDialog(
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(text = title, style = MaterialTheme.typography.headlineSmall)
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) {
+                        Text("Delete player", color = MaterialTheme.colorScheme.error)
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End

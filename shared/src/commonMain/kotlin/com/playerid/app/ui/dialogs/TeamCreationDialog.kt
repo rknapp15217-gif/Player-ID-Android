@@ -5,6 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +41,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -53,41 +58,85 @@ import kotlin.math.atan2
 fun TeamCreationDialog(
     existingTeams: List<String>,
     onDismiss: () -> Unit,
-    onSubmit: (TeamCreationSubmission) -> Unit
+    onSubmit: (TeamCreationSubmission) -> Unit,
+    initialState: TeamCreationFormState = TeamCreationFormState(),
+    title: String = "Add New Team",
+    submitLabel: String? = null,
+    allowTeamNameEdit: Boolean = true
 ) {
-    var formState by remember { mutableStateOf(TeamCreationFormState()) }
+    var formState by remember { mutableStateOf(initialState) }
     var activeColorTarget by remember { mutableStateOf<TeamColorTarget?>(null) }
     var sportDropdownExpanded by remember { mutableStateOf(false) }
+    var editingTeamName by remember { mutableStateOf(allowTeamNameEdit) }
     val similarTeams = remember(formState.teamName, existingTeams) {
         formState.similarTeams(existingTeams)
     }
+    val hideSoftwareKeyboard = rememberSoftwareKeyboardDismissHandler()
+    fun dismissKeyboard() {
+        hideSoftwareKeyboard()
+    }
+    fun dismiss() {
+        dismissKeyboard()
+        onDismiss()
+    }
+    val submit = {
+        dismissKeyboard()
+        formState.submission()?.let(onSubmit)
+        Unit
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add New Team") },
+        onDismissRequest = { dismiss() },
+        title = { Text(title) },
         text = {
-            Column {
-                OutlinedTextField(
-                    value = formState.teamName,
-                    onValueChange = {
-                        formState = formState.reduce(TeamCreationEvent.TeamNameChanged(it))
-                    },
-                    label = { Text("Team Name") },
-                    supportingText = {
-                        if (similarTeams.isNotEmpty()) {
-                            Text(
-                                "\u26A0\uFE0F Similar teams found - check before creating",
-                                color = MaterialTheme.colorScheme.error
-                            )
+            val dismissDialogKeyboard = rememberDialogKeyboardDismissHandler()
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (editingTeamName) {
+                    OutlinedTextField(
+                        value = formState.teamName,
+                        onValueChange = {
+                            formState = formState.reduce(TeamCreationEvent.TeamNameChanged(it))
+                        },
+                        label = { Text("Team Name") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            editingTeamName = false
+                            dismissDialogKeyboard()
+                        }),
+                        supportingText = {
+                            if (similarTeams.isNotEmpty()) {
+                                Text(
+                                    "\u26A0\uFE0F Similar teams found - check before creating",
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        },
+                        isError = similarTeams.isNotEmpty()
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Team Name", style = MaterialTheme.typography.labelMedium)
+                            Text(formState.teamName.ifBlank { "No name entered" })
                         }
-                    },
-                    isError = similarTeams.isNotEmpty()
-                )
+                        if (allowTeamNameEdit) {
+                            TextButton(onClick = { editingTeamName = true }) { Text("Edit") }
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
                 OutlinedButton(
-                    onClick = { sportDropdownExpanded = !sportDropdownExpanded },
+                    onClick = {
+                        editingTeamName = false
+                        dismissDialogKeyboard()
+                        sportDropdownExpanded = !sportDropdownExpanded
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Sport: ${formState.sport}")
@@ -142,6 +191,8 @@ fun TeamCreationDialog(
                                         shape = CircleShape
                                     )
                                     .clickable {
+                                        editingTeamName = false
+                                        dismissDialogKeyboard()
                                         activeColorTarget = if (activeColorTarget == target) null else target
                                     }
                             )
@@ -196,17 +247,20 @@ fun TeamCreationDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = { formState.submission()?.let(onSubmit) },
-                enabled = formState.canSubmit
-            ) {
-                Text(if (similarTeams.isNotEmpty()) "Create Anyway" else "Create Team")
+            val dismissDialogKeyboard = rememberDialogKeyboardDismissHandler()
+            Button(onClick = {
+                dismissDialogKeyboard()
+                submit()
+            }, enabled = formState.canSubmit) {
+                Text(submitLabel ?: if (similarTeams.isNotEmpty()) "Create Anyway" else "Create Team")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
+            val dismissDialogKeyboard = rememberDialogKeyboardDismissHandler()
+            TextButton(onClick = {
+                dismissDialogKeyboard()
+                dismiss()
+            }) { Text("Cancel") }
         }
     )
 }
@@ -344,7 +398,7 @@ private fun TeamColorWheelPicker(
     }
 }
 
-private fun teamComposeColor(hex: String): Color {
+internal fun teamComposeColor(hex: String): Color {
     val rgb = hex.removePrefix("#").toLongOrNull(16) ?: 0L
     return Color(0xFF000000L or rgb)
 }

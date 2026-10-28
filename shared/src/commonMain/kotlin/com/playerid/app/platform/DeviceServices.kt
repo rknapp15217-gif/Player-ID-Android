@@ -22,6 +22,14 @@ interface CameraService {
     suspend fun capturePhoto(): MediaReference
     suspend fun startRecording()
     suspend fun stopRecording(): MediaReference
+    suspend fun listSavedCaptures(): List<MediaReference> = emptyList()
+}
+
+interface RollingCameraService {
+    suspend fun startRollingBuffer()
+    suspend fun rotateRollingBuffer()
+    suspend fun saveRollingBuffer(): MediaReference
+    suspend fun discardRollingBuffer()
 }
 
 data class VideoCompositionRequest(
@@ -36,7 +44,13 @@ interface VideoService {
 
 interface SpeechRecognitionService {
     suspend fun recognizeOnce(): String?
+    suspend fun recognizeOnce(onPartialResult: (String) -> Unit): String? = recognizeOnce()
     fun cancel()
+}
+
+interface SpeechSynthesisService {
+    fun speak(text: String)
+    fun stop()
 }
 
 interface PreferencesStore {

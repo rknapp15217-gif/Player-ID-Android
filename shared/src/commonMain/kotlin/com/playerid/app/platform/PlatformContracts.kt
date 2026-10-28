@@ -1,9 +1,12 @@
 package com.playerid.app.platform
 
+import kotlinx.serialization.Serializable
+
 /**
  * Platform-neutral reference to media owned by Android MediaStore, Apple Photos,
  * app storage, or a remote service. Shared code must not persist native URI types.
  */
+@Serializable
 data class MediaReference(
     val identifier: String,
     val kind: MediaKind,

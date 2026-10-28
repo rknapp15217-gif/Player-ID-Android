@@ -6,7 +6,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// Native Android typography keeps the interface familiar and respects system font scaling.
+// Preserve the Android app's type scale on both platforms, using each system's font.
 val Typography = Typography(
     displayLarge = TextStyle(
         fontFamily = FontFamily.Default,

@@ -2,61 +2,20 @@ package com.playerid.app.ui.theme
 
 import android.app.Activity
 import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val DarkColorScheme = darkColorScheme(
-    primary = SpotrPrimaryBlue,
-    onPrimary = Color.White,
-    secondary = SpotrHighlightOrange,
-    onSecondary = Color.White,
-    tertiary = SpotrSuccessGreen,
-    onTertiary = Color.White,
-    background = SpotrDarkSurface,
-    onBackground = Color.White,
-    surface = SpotrSurfaceDark,
-    onSurface = Color.White,
-    surfaceVariant = Color(0xFF1B344D),
-    onSurfaceVariant = Color(0xFFB8C7D9),
-    error = ErrorRed,
-    onError = Color.White,
-    outline = SpotrOutlineDark,
-    outlineVariant = Color(0xFF29445F)
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = SpotrPrimaryBlue,
-    onPrimary = Color.White,
-    secondary = SpotrHighlightOrange,
-    onSecondary = Color.White,
-    tertiary = SpotrSuccessGreen,
-    onTertiary = Color.White,
-    background = SpotrLightBackground,
-    onBackground = SpotrText,
-    surface = SpotrSurfaceLight,
-    onSurface = SpotrText,
-    surfaceVariant = Color(0xFFE8F0F5),
-    onSurfaceVariant = Color(0xFF526477),
-    error = ErrorRed,
-    onError = Color.White,
-    outline = SpotrOutline,
-    outlineVariant = Color(0xFFE1EAF0)
-)
-
 @Composable
 fun PlayerIDTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    // PlayerID always uses its light look, regardless of the phone's dark mode setting.
+    darkTheme: Boolean = false,
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
@@ -67,8 +26,8 @@ fun PlayerIDTheme(
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        darkTheme -> PlayerIDDarkColorScheme
+        else -> PlayerIDLightColorScheme
     }
     val view = LocalView.current
     if (!view.isInEditMode) {

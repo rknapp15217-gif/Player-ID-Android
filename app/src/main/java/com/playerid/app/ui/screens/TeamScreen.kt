@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -163,6 +164,7 @@ fun TeamScreen(
     playerViewModel: PlayerViewModel,
     initialTeamName: String? = null,
     openRosterInitially: Boolean = false,
+    initialPage: TeamDetailPage? = null,
     startCreateTeamInitially: Boolean = false,
     openRosterAfterCreate: Boolean = false,
     teamSnapRepository: TeamSnapRepository? = null,
@@ -176,6 +178,7 @@ fun TeamScreen(
         playerViewModel = playerViewModel,
         initialTeamName = initialTeamName,
         openRosterInitially = openRosterInitially,
+        initialPage = initialPage,
         startCreateTeamInitially = startCreateTeamInitially,
         openRosterAfterCreate = openRosterAfterCreate,
         teamSnapRepository = teamSnapRepository,
@@ -193,6 +196,7 @@ fun TeamSelectionView(
     playerViewModel: PlayerViewModel,
     initialTeamName: String? = null,
     openRosterInitially: Boolean = false,
+    initialPage: TeamDetailPage? = null,
     startCreateTeamInitially: Boolean = false,
     openRosterAfterCreate: Boolean = false,
     teamSnapRepository: TeamSnapRepository? = null,
@@ -259,6 +263,7 @@ fun TeamSelectionView(
             onNavigateToScheduleImport = onNavigateToScheduleImport,
             onNavigateToContactImport = onNavigateToContactImport,
             openRosterInitially = selectionState.shouldOpenRoster(openRosterInitially),
+            initialPage = initialPage,
             startSetupInitially = selectionState.createdTeamName == selectionState.selectedTeamName
         )
     } else {
@@ -422,6 +427,7 @@ fun TeamManagementView(
     onNavigateToScheduleImport: (String, String) -> Unit,
     onNavigateToContactImport: (String, String) -> Unit,
     openRosterInitially: Boolean = false,
+    initialPage: TeamDetailPage? = null,
     startSetupInitially: Boolean = false
 ) {
     val subscribedTeams by teamViewModel.subscribedTeams.collectAsState()
@@ -480,8 +486,8 @@ fun TeamManagementView(
     var showDeletePlayerDialog by remember { mutableStateOf(false) }
     var playerToDelete by remember { mutableStateOf<Player?>(null) }
     var showOcrImportDialog by remember { mutableStateOf(false) }
-    var detailPage by rememberSaveable(teamName, openRosterInitially) {
-        mutableStateOf(initialTeamDetailPage(openRosterInitially))
+    var detailPage by rememberSaveable(teamName, openRosterInitially, initialPage) {
+        mutableStateOf(initialPage ?: initialTeamDetailPage(openRosterInitially))
     }
     var rosterSearch by rememberSaveable(teamName) { mutableStateOf("") }
     var scheduleSearch by rememberSaveable(teamName) { mutableStateOf("") }
@@ -680,6 +686,7 @@ fun TeamManagementView(
                 val icon = when (destination) {
                     TeamOverviewDestination.Roster -> Icons.Default.Groups
                     TeamOverviewDestination.Schedule -> Icons.Default.CalendarMonth
+                    TeamOverviewDestination.Contacts -> Icons.Default.Contacts
                     TeamOverviewDestination.Invite -> Icons.Default.Share
                     TeamOverviewDestination.Settings -> Icons.Default.Settings
                 }
@@ -762,6 +769,8 @@ fun TeamManagementView(
                 )
             }
         )
+        // Android keeps its own contact import flow; the shared Contacts page is iPhone-only for now.
+        TeamDetailPage.Contacts -> LaunchedEffect(Unit) { detailPage = TeamDetailPage.Overview }
     }
 
     if (managementState.activeDialog == TeamManagementDialog.TeamSettings) {

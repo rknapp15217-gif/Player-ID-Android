@@ -3,7 +3,8 @@ package com.playerid.app.domain.team
 enum class TeamDetailPage {
     Overview,
     Roster,
-    Schedule
+    Schedule,
+    Contacts
 }
 
 fun initialTeamDetailPage(openRosterInitially: Boolean): TeamDetailPage {
@@ -14,10 +15,12 @@ fun TeamDetailPage.reduce(event: TeamDetailNavigationEvent): TeamDetailPage = wh
     TeamDetailNavigationEvent.OverviewSelected -> TeamDetailPage.Overview
     TeamDetailNavigationEvent.RosterSelected -> TeamDetailPage.Roster
     TeamDetailNavigationEvent.ScheduleSelected -> TeamDetailPage.Schedule
+    TeamDetailNavigationEvent.ContactsSelected -> TeamDetailPage.Contacts
 }
 
 enum class TeamDetailNavigationEvent {
     OverviewSelected,
     RosterSelected,
-    ScheduleSelected
+    ScheduleSelected,
+    ContactsSelected
 }

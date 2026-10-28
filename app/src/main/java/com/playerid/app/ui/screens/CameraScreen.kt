@@ -113,6 +113,9 @@ import com.playerid.app.utils.performRecordButtonPressHaptic
 import com.playerid.app.utils.performRecordingCapturedDoubleHaptic
 import com.playerid.app.utils.RecordingManager
 import com.playerid.app.utils.RecordingState
+import com.playerid.app.ui.components.CameraModeButton
+import com.playerid.app.data.repositories.toProfile
+import com.playerid.app.ui.components.CameraShutterVisual
 import com.playerid.app.video.VideoProcessingManager
 import com.playerid.app.video.VideoSharePreparationCache
 import com.playerid.app.viewmodels.PlayerViewModel
@@ -376,18 +379,7 @@ fun CameraScreen(
             .mapValues { (_, teams) -> teams.sortedBy { it.name.lowercase(java.util.Locale.getDefault()) } }
     }
     val teamJerseyOptions = remember(selectedTeamMeta) {
-        if (selectedTeamMeta?.name == "North Allegheny Lacrosse") {
-            listOf(
-                "Black" to "#000000",
-                "White" to "#FFFFFF",
-                "Gold" to "#FFB81C"
-            )
-        } else {
-            listOf(
-                "Home" to (selectedTeamMeta?.homeJerseyColor ?: selectedTeamMeta?.color ?: "#1976D2"),
-                "Away" to (selectedTeamMeta?.awayJerseyColor ?: selectedTeamMeta?.awayColor ?: "#FFFFFF")
-            )
-        }
+        com.playerid.app.domain.camera.cameraJerseyOptions(selectedTeamMeta?.toProfile())
     }
     val teamPrimary = parseCameraScreenColor(selectedTeamMeta?.color, SpotrPrimaryBlue)
     val teamJerseyColor = parseCameraScreenColor(
@@ -480,6 +472,11 @@ fun CameraScreen(
         rosterHighlightedIds = emptySet()
         when (r) {
             is VoiceAssistantResult.Success -> {
+                if (r.rosterAnswer) {
+                    rosterSelectedPlayer = null
+                    rosterVoiceBubble = null
+                    return@LaunchedEffect
+                }
                 val ids = buildSet<String> {
                     r.player?.let { add(it.id) }
                     r.players.forEach { add(it.id) }
@@ -495,6 +492,17 @@ fun CameraScreen(
         delay(4000)
         rosterVoiceBubble = null
         rosterHighlightedIds = emptySet()
+    }
+    val rosterAnswer = (voiceResult as? VoiceAssistantResult.Success)?.takeIf { it.rosterAnswer }
+    if (rosterAnswer != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearVoiceResult() },
+            title = { Text("Roster lookup") },
+            text = { Text(rosterAnswer.message, modifier = Modifier.verticalScroll(rememberScrollState())) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearVoiceResult() }) { Text("Done") }
+            }
+        )
     }
 
     fun capturePhoto() {
@@ -936,28 +944,7 @@ fun CameraScreen(
             contentColor = Color.White,
             floatingActionButton = {
                 if (!isStandby && !showSelectionSheet) {
-                    val recordAlpha = if (isCameraReady && !isCapturingPhoto) 1f else 0.45f
                     val recordButtonSize = 64.dp
-                    val innerColor = when (selectedCameraFeature) {
-                        CameraFeature.PHOTO -> Color.White
-                        CameraFeature.VIDEO -> Color.Red
-                        CameraFeature.CAPTURE_PAST -> MaterialTheme.colorScheme.secondaryContainer
-                    }
-                    val innerSize by animateDpAsState(
-                        targetValue = when {
-                            selectedCameraFeature == CameraFeature.PHOTO -> 34.dp
-                            isRecording -> 28.dp
-                            else -> 42.dp
-                        },
-                        animationSpec = tween(durationMillis = 200),
-                        label = "recordInnerSize"
-                    )
-                    val rollingSpin by rememberInfiniteTransition(label = "rollingCaptureSpin").animateFloat(
-                        initialValue = 0f,
-                        targetValue = 360f,
-                        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1800, easing = LinearEasing)),
-                        label = "rollingCaptureSpinAngle"
-                    )
                     Box(modifier = Modifier.padding(bottom = cameraViewportBottomPadding)) {
                         FloatingActionButton(
                             modifier = Modifier.size(recordButtonSize),
@@ -986,53 +973,12 @@ fun CameraScreen(
                             containerColor = Color.Transparent,
                             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp)
                         ) {
-                            Box(
-                                modifier = Modifier.size(recordButtonSize).alpha(recordAlpha),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(recordButtonSize)
-                                        .background(Color.Transparent, CircleShape)
-                                        .border(width = 2.dp, color = Color.White, shape = CircleShape)
-                                )
-                                if (selectedCameraFeature == CameraFeature.CAPTURE_PAST) {
-                                    Canvas(modifier = Modifier.size(recordButtonSize + 4.dp)) {
-                                        val strokeWidth = 5.0.dp.toPx()
-                                        val radius = (size.minDimension / 2f) - (strokeWidth / 2f)
-                                        val center = Offset(size.width / 2f, size.height / 2f)
-                                        val cometColor = Color(0xFFB8FF6A)
-
-                                        for (i in 0..5) {
-                                            val alpha = 1f - (i * 0.16f)
-                                            val start = rollingSpin - (i * 11f)
-                                            drawArc(
-                                                color = cometColor.copy(alpha = alpha.coerceAtLeast(0.08f)),
-                                                startAngle = start,
-                                                sweepAngle = 9f,
-                                                useCenter = false,
-                                                topLeft = Offset(center.x - radius, center.y - radius),
-                                                size = androidx.compose.ui.geometry.Size(radius * 2f, radius * 2f),
-                                                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                                            )
-                                        }
-
-                                        val angleRad = Math.toRadians(rollingSpin.toDouble())
-                                        val headX = center.x + (radius * cos(angleRad)).toFloat()
-                                        val headY = center.y + (radius * sin(angleRad)).toFloat()
-                                        drawCircle(
-                                            color = cometColor,
-                                            radius = 3.2.dp.toPx(),
-                                            center = Offset(headX, headY)
-                                        )
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .size(innerSize)
-                                        .background(innerColor, CircleShape)
-                                )
-                            }
+                            CameraShutterVisual(
+                                photo = selectedCameraFeature == CameraFeature.PHOTO,
+                                rolling = selectedCameraFeature == CameraFeature.CAPTURE_PAST,
+                                recording = isRecording,
+                                enabled = isCameraReady && !isCapturingPhoto
+                            )
                         }
                     }
                 }
@@ -1160,16 +1106,6 @@ fun CameraScreen(
                         }
                     }
                 }
-                val setupPillPulse by rememberInfiniteTransition(label = "setupPillPulse").animateFloat(
-                    initialValue = 0f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 850),
-                        repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-                    ),
-                    label = "setupPillProgress"
-                )
-                val visibleSetupPillPulse = if (hasOpenedGameSetup) 0f else setupPillPulse
                 Column(
                     modifier = Modifier
                         .align(androidx.compose.ui.Alignment.TopStart)
@@ -1177,105 +1113,20 @@ fun CameraScreen(
                     horizontalAlignment = Alignment.Start,
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                Row(
-                    modifier = Modifier
-                        .background(
-                            color = if (hasOpenedGameSetup) {
-                                Color.Black.copy(alpha = 0.58f)
-                            } else {
-                                Color(0xFFC65D21).copy(alpha = 0.28f + (visibleSetupPillPulse * 0.28f))
-                            },
-                            shape = RoundedCornerShape(50)
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = if (hasOpenedGameSetup) {
-                                Color.White.copy(alpha = 0.2f)
-                            } else {
-                                Color(0xFFFFA062).copy(alpha = 0.35f + (visibleSetupPillPulse * 0.45f))
-                            },
-                            shape = RoundedCornerShape(50)
-                        )
-                        .clickable {
-                            rosterDrawerOpen = false
-                            rosterDrawerFull = false
-                            CameraSessionState.hasOpenedGameSetup = true
-                            hasOpenedGameSetup = true
-                            showSelectionSheet = true
-                        }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (selectedTeam != null) {
-                        Box(modifier = Modifier.size(26.dp)) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_jersey),
-                                contentDescription = "Jersey color",
-                                tint = teamJerseyColor,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                            )
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_jersey_outline),
-                                contentDescription = null,
-                                tint = Color.Unspecified,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                            )
-                        }
+                com.playerid.app.ui.components.CameraGameSetupPill(
+                    teamName = selectedTeam,
+                    opponent = selectedOpponent,
+                    player = selectedKid,
+                    jerseyColor = teamJerseyColor,
+                    hasOpened = hasOpenedGameSetup,
+                    onClick = {
+                        rosterDrawerOpen = false
+                        rosterDrawerFull = false
+                        CameraSessionState.hasOpenedGameSetup = true
+                        hasOpenedGameSetup = true
+                        showSelectionSheet = true
                     }
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        if (selectedTeam != null) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(7.dp)
-                            ) {
-                                Text(
-                                    text = selectedTeam,
-                                    color = Color.White.copy(alpha = 0.92f),
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 15.sp,
-                                    maxLines = 1
-                                )
-                                if (selectedOpponent.isNotBlank()) {
-                                    Box(modifier = Modifier.size(7.dp).background(Color.White.copy(alpha = 0.9f), CircleShape))
-                                    Text(
-                                        text = selectedOpponent,
-                                        color = Color.White.copy(alpha = 0.92f),
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 15.sp,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = "Select Team",
-                                color = Color.White.copy(alpha = 0.92f),
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 15.sp
-                            )
-                        }
-                        if (selectedTeam != null) {
-                            Text(
-                                text = "Player: $selectedKid",
-                                color = Color.White.copy(alpha = 0.78f),
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                    Icon(
-                        imageVector = Icons.Default.ExpandMore,
-                        contentDescription = "Choose team and opponent",
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
+                )
                 if (isLiveRecording) {
                     val elapsedSeconds = (liveElapsedMs / 1000).toInt()
                     val minutes = elapsedSeconds / 60
@@ -1315,9 +1166,11 @@ fun CameraScreen(
                         modes.forEach { (mode, label) ->
                             val selected = selectedCameraFeature == mode
                             val enabled = !isLiveRecording || selected
-                            Button(
+                            CameraModeButton(
+                                label = label,
+                                selected = selected,
                                 onClick = {
-                                    if (!enabled) return@Button
+                                    if (!enabled) return@CameraModeButton
                                     if (mode == CameraFeature.CAPTURE_PAST) {
                                         selectedCameraFeature = CameraFeature.CAPTURE_PAST
                                         if (!capturePastMode) {
@@ -1340,41 +1193,8 @@ fun CameraScreen(
                                     }
                                 },
                                 enabled = enabled,
-                                shape = RoundedCornerShape(18.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (selected) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.14f),
-                                    contentColor = Color.White,
-                                    disabledContainerColor = Color.Black.copy(alpha = 0.14f),
-                                    disabledContentColor = Color.White.copy(alpha = 0.55f)
-                                ),
-                                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
-                                modifier = Modifier
-                                    .zIndex(10f)
-                                    .alpha(if (enabled) 1f else 0.35f)
-                                    .defaultMinSize(minWidth = 136.dp, minHeight = 80.dp)
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = label,
-                                        color = Color.White,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                        fontSize = 20.sp
-                                    )
-                                    if (selected) {
-                                        Box(
-                                            modifier = Modifier
-                                                .padding(top = 5.dp)
-                                                .size(6.dp)
-                                                .background(Color.White, CircleShape)
-                                        )
-                                    } else {
-                                        Spacer(modifier = Modifier.height(11.dp))
-                                    }
-                                }
-                            }
+                                modifier = Modifier.zIndex(10f)
+                            )
                         }
                     }
                 }
@@ -2332,62 +2152,14 @@ private fun RosterDrawerSheet(
                 }
 
                 selectedPlayer?.let { player ->
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF1A223D).copy(alpha = 0.95f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "#${player.number}",
-                                color = Color.White,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 15.sp
-                            )
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = player.name,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 15.sp
-                                )
-                                Text(
-                                    text = "Position: ${player.position.ifBlank { "Unknown" }}",
-                                    color = Color.White.copy(alpha = 0.82f),
-                                    fontSize = 12.sp
-                                )
-                                Text(
-                                    text = "Grad Year: ${player.academicYear.ifBlank { "Unknown" }}",
-                                    color = Color.White.copy(alpha = 0.82f),
-                                    fontSize = 12.sp
-                                )
-                                if (detailsExpanded) {
-                                    Text(
-                                        text = "Team: ${player.team.ifBlank { "Unknown" }}",
-                                        color = Color.White.copy(alpha = 0.78f),
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.weight(1f))
-                            IconButton(onClick = {
-                                if (detailsExpanded) onPlayerSelect(null)
-                                else detailsExpanded = true
-                            }) {
-                                Icon(
-                                    imageVector = if (detailsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                    contentDescription = if (detailsExpanded) "Collapse details" else "Expand details",
-                                    tint = Color.White.copy(alpha = 0.8f)
-                                )
-                            }
+                    com.playerid.app.ui.components.CameraRosterPlayerDetails(
+                        player = player.toProfile(),
+                        expanded = detailsExpanded,
+                        onToggle = {
+                            if (detailsExpanded) onPlayerSelect(null)
+                            else detailsExpanded = true
                         }
-                    }
+                    )
                 }
 
                 if (players.isEmpty()) {
@@ -2459,34 +2231,12 @@ private fun RosterDrawerSheet(
                             val pendingMemoryCount = pendingSharedMemoryCounts[
                                 player.name.trim().lowercase(java.util.Locale.getDefault())
                             ] ?: 0
-                            val rowBg by animateColorAsState(
-                                targetValue = if (isSelected) Color(0xFF2E7D32).copy(alpha = 0.42f)
-                                    else if (isHighlighted) Color(0xFF1565C0).copy(alpha = 0.40f)
-                                    else Color.Transparent,
-                                animationSpec = tween(300),
-                                label = "rowBg_${player.id}"
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(rowBg, RoundedCornerShape(8.dp))
-                                    .clickable { onPlayerSelect(player) }
-                                    .padding(horizontal = 8.dp, vertical = 11.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            com.playerid.app.ui.components.CameraRosterPlayerRow(
+                                player = player.toProfile(),
+                                selected = isSelected,
+                                highlighted = isHighlighted,
+                                onClick = { onPlayerSelect(player) }
                             ) {
-                                Text(
-                                    text = "#${player.number}",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    modifier = Modifier.width(52.dp)
-                                )
-                                Text(
-                                    text = player.name,
-                                    color = Color.White.copy(alpha = 0.88f),
-                                    fontSize = 16.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
                                 if (pendingMemoryCount > 0) {
                                     Surface(
                                         onClick = { onInvite(player) },
@@ -2935,4 +2685,3 @@ private fun MomentActionButton(
         }
     }
 }
-

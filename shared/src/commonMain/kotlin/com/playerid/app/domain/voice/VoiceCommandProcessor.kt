@@ -1,6 +1,9 @@
 package com.playerid.app.domain.voice
 
 import com.playerid.app.domain.team.PlayerProfile
+import com.playerid.app.domain.team.LibraryActionRequest
+import com.playerid.app.domain.team.answerRosterQuestion
+import com.playerid.app.domain.team.parseRosterQuestion
 import kotlin.math.max
 
 sealed class VoiceCommandDecision {
@@ -12,6 +15,7 @@ sealed class VoiceCommandDecision {
         val players: List<PlayerProfile>
     ) : VoiceCommandDecision()
     data class Error(val message: String) : VoiceCommandDecision()
+    data class Answer(val message: String, val speech: String = message) : VoiceCommandDecision()
 }
 
 class VoiceCommandProcessor {
@@ -35,11 +39,35 @@ class VoiceCommandProcessor {
         }
         if (selectedTeam == null) return VoiceCommandDecision.Error("Please select a team first")
 
-        val roster = players.filter { it.teamName == selectedTeam }
-        val processedInputs = cleanInputs.map(::preprocessVoiceQuery).filter(String::isNotBlank)
+        cleanInputs.firstOrNull()?.let { text ->
+            parseRosterQuestion(text)?.let { query ->
+                return VoiceCommandDecision.Answer(
+                    message = answerRosterQuestion(
+                        LibraryActionRequest.Roster(query), players, selectedTeam,
+                        compact = true,
+                        includeCount = Regex("\\b(how many|count|number of)\\b").containsMatchIn(text)
+                    ),
+                    speech = answerRosterQuestion(
+                        LibraryActionRequest.Roster(query), players, selectedTeam,
+                        compact = true,
+                        includeCount = Regex("\\b(how many|count|number of)\\b").containsMatchIn(text),
+                        summarizeLargeList = true
+                    )
+                )
+            }
+        }
+        return lookupRoster(cleanInputs, players.filter { it.teamName == selectedTeam })
+    }
+
+    fun lookupRoster(
+        queries: List<String>,
+        players: List<PlayerProfile>,
+        allowApproximateNames: Boolean = true
+    ): VoiceCommandDecision {
+        val roster = players.filter { it.isActive }
+        val processedInputs = queries.map { preprocessVoiceQuery(it.lowercase()) }.filter(String::isNotBlank)
         val jerseyNumber = processedInputs.asSequence()
-            .map { query -> query.filter(Char::isDigit) }
-            .firstOrNull(String::isNotEmpty)
+            .firstOrNull { it.matches(Regex("#?[0-9]{1,3}")) }?.removePrefix("#")
         if (jerseyNumber != null) {
             val jerseyMatches = roster.filter { it.number == jerseyNumber }
             if (jerseyMatches.size == 1) {
@@ -54,6 +82,28 @@ class VoiceCommandProcessor {
                 val message = "I found ${jerseyMatches.size} players with #$jerseyNumber"
                 return VoiceCommandDecision.Match(message, message, jerseyMatches)
             }
+            return VoiceCommandDecision.Error("No active roster player has #$jerseyNumber.")
+        }
+
+        val fullNameMatches = roster.filter { player ->
+            processedInputs.any { normalize(it) == normalize(player.name) }
+        }
+        val exactMatches = fullNameMatches.ifEmpty { roster.filter { player ->
+            processedInputs.any { query ->
+                val tokens = normalize(query).split(' ').filter(String::isNotBlank)
+                val nameTokens = normalize(player.name).split(' ')
+                tokens.isNotEmpty() && tokens.all { it in nameTokens }
+            } }
+        }
+        if (exactMatches.isNotEmpty() || !allowApproximateNames) {
+            return if (exactMatches.isEmpty()) VoiceCommandDecision.Error("No active roster player matches that name.")
+            else VoiceCommandDecision.Match(
+                if (exactMatches.size == 1) "Number #${exactMatches.single().number} ${exactMatches.single().name}"
+                    else exactMatches.joinToString("\n") { "${it.name} #${it.number}" },
+                if (exactMatches.size == 1) "Number ${exactMatches.single().number}"
+                    else "I found multiple players with that name",
+                exactMatches
+            )
         }
 
         val scored = processedInputs.mapNotNull { query ->
@@ -87,9 +137,18 @@ class VoiceCommandProcessor {
     }
 
     private fun preprocessVoiceQuery(raw: String): String {
-        var processed = raw
+        var processed = raw.trim().trimEnd('?', '.', '!').replace(Regex("\\s+"), " ")
         FILLER_WORDS.forEach { word -> processed = processed.replace("\\b$word\\b".toRegex(), "").trim() }
-        NUMBER_WORDS.forEach { (word, digit) -> if (processed == word) processed = digit }
+        processed = processed.replace(Regex("\\s+"), " ").replace(Regex("#\\s+"), "#")
+        NUMBER_WORDS[processed]?.let { return it }
+        val parts = processed.replace('-', ' ').split(' ').filter(String::isNotBlank)
+        val tens = mapOf("twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50,
+            "sixty" to 60, "seventy" to 70, "eighty" to 80, "ninety" to 90)
+        tens[parts.firstOrNull()]?.let { ten ->
+            if (parts.size == 1) return ten.toString()
+            val units = NUMBER_WORDS[parts.getOrNull(1)]?.toIntOrNull()
+            if (parts.size == 2 && units != null && units in 1..9) return (ten + units).toString()
+        }
         return processed
     }
 
@@ -168,6 +227,8 @@ class VoiceCommandProcessor {
         val NUMBER_WORDS = mapOf(
             "zero" to "0", "one" to "1", "two" to "2", "three" to "3", "four" to "4",
             "five" to "5", "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10",
+            "eleven" to "11", "twelve" to "12", "thirteen" to "13", "fourteen" to "14",
+            "fifteen" to "15", "sixteen" to "16", "seventeen" to "17", "eighteen" to "18", "nineteen" to "19",
             "double zero" to "00", "zero zero" to "00"
         )
         val WAKE_WORDS_REGEX = Regex("(?i)^(spotter|spottr|spotr|sport|spot|potter|hey spotter|hey spotr|hey spottr)\\b")

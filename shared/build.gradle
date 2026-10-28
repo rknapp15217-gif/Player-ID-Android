@@ -1,5 +1,6 @@
 plugins {
     id 'org.jetbrains.kotlin.multiplatform'
+    id 'org.jetbrains.kotlin.plugin.serialization'
     id 'com.android.library'
     id 'org.jetbrains.compose'
 }
@@ -27,14 +28,32 @@ kotlin {
                 implementation compose.ui
                 implementation compose.foundation
                 implementation compose.material3
+                implementation compose.materialIconsExtended
                 implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
                 implementation 'org.jetbrains.kotlinx:kotlinx-datetime:0.4.1'
+                implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0'
+                implementation 'io.ktor:ktor-client-core:2.3.7'
+                implementation 'io.ktor:ktor-client-content-negotiation:2.3.7'
+                implementation 'io.ktor:ktor-serialization-kotlinx-json:2.3.7'
             }
         }
         commonTest {
             dependencies {
                 implementation kotlin('test')
                 implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3'
+                implementation 'io.ktor:ktor-client-mock:2.3.7'
+            }
+        }
+        androidMain {
+            dependencies {
+                implementation 'io.ktor:ktor-client-okhttp:2.3.7'
+            }
+        }
+        if (System.getProperty('os.name').toLowerCase().contains('mac')) {
+            iosMain {
+                dependencies {
+                    implementation 'io.ktor:ktor-client-darwin:2.3.7'
+                }
             }
         }
     }

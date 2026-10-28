@@ -2,7 +2,9 @@ package com.playerid.app.domain.team
 
 import com.playerid.app.platform.MediaReference
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class ChildProfileRecord(
     val id: String,
     val displayName: String,
@@ -11,6 +13,7 @@ data class ChildProfileRecord(
     val isActive: Boolean = true
 )
 
+@Serializable
 data class SportSeasonProfile(
     val id: String,
     val childId: String,
@@ -22,6 +25,7 @@ data class SportSeasonProfile(
     val isActive: Boolean = true
 )
 
+@Serializable
 data class GameScheduleProfile(
     val id: String,
     val sportSeasonId: String,
@@ -37,6 +41,7 @@ data class GameScheduleProfile(
     val updatedAt: Long
 )
 
+@Serializable
 data class MemoryItemProfile(
     val id: String,
     val media: MediaReference,

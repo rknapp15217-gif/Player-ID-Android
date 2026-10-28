@@ -211,7 +211,9 @@ fun VideoPlaybackScreen(
     reelScenario: String? = null,
     activeReelId: String? = null,
     onSaveAsGoatReel: ((String) -> Unit)? = null,
-    onEditReel: (() -> Unit)? = null
+    onEditReel: (() -> Unit)? = null,
+    requestedRecipient: String? = null,
+    temporaryPlaylist: Boolean = false
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -290,7 +292,7 @@ fun VideoPlaybackScreen(
     }
     val reelClipCountLabel = if (totalVideos == 1) "1 clip" else "$totalVideos clips"
     var showReelIntroOverlay by remember(isPlaylistMode, reelTitle, reelSeasonLabel, reelOpponents, totalVideos) {
-        mutableStateOf(isPlaylistMode)
+        mutableStateOf(isPlaylistMode && !temporaryPlaylist)
     }
     val reelIntroAlpha by animateFloatAsState(
         targetValue = if (showReelIntroOverlay && isPlaylistMode) 1f else 0f,
@@ -352,6 +354,10 @@ fun VideoPlaybackScreen(
     }
 
     fun resolveShareUri(onResolved: (Uri) -> Unit) {
+        if (temporaryPlaylist) {
+            onResolved(playlistUris.getOrNull(currentVideoIndex) ?: videoUri)
+            return
+        }
         composedReelPlaybackUri?.let {
             onResolved(it)
             return
@@ -852,6 +858,13 @@ fun VideoPlaybackScreen(
             selectedPhoneContactKeys = emptySet()
             shareRecipientQuery = ""
             allContactsForShare = loadAllPhoneContactsForShare(context)
+            if (requestedRecipient != null) {
+                val matches = (favoritePhoneContacts + allContactsForShare).distinctBy { it.cacheKey }
+                    .filter { com.playerid.app.domain.team.actionRecipientMatches(requestedRecipient, it.displayName) }
+                selectedPhoneContactKeys = matches.singleOrNull()?.let { setOf(it.cacheKey) } ?: emptySet()
+                showFavoriteShareContacts = true
+                phoneContactPickerQuery = requestedRecipient
+            }
         }
     }
 
@@ -1165,13 +1178,8 @@ fun VideoPlaybackScreen(
         Scaffold(
         topBar = {
             if (!isPlaylistMode) {
-                TopAppBar(
-                    title = {},
-                    navigationIcon = {
-                        IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                        }
-                    },
+                com.playerid.app.ui.components.MemoryViewerToolbar(
+                    onBack = onNavigateBack,
                     actions = {
                         if (!isReviewMode) {
                         Surface(
@@ -1210,13 +1218,7 @@ fun VideoPlaybackScreen(
                             }
                         }
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        titleContentColor = Color.White,
-                        navigationIconContentColor = Color.White,
-                        actionIconContentColor = Color.White
-                    )
+                    }
                 )
             }
         }
@@ -1246,7 +1248,7 @@ fun VideoPlaybackScreen(
                         .clip(RectangleShape)
                         .pointerInput(videoUri, currentVideoIndex) {
                             detectTransformGestures { _, _, zoomChange, _ ->
-                                playbackZoom = (playbackZoom * zoomChange).coerceIn(1f, 4f)
+                                playbackZoom = com.playerid.app.domain.memory.memoryViewerZoomAfterGesture(playbackZoom, zoomChange)
                             }
                         }
                             .pointerInput(isPlaylistMode, exoPlayer) {
@@ -2143,6 +2145,24 @@ fun VideoPlaybackScreen(
                         }
                     }
                     HorizontalDivider()
+                    if (requestedRecipient != null) {
+                        val matches = availablePhoneContacts.filter {
+                            com.playerid.app.domain.team.actionRecipientMatches(requestedRecipient, it.displayName)
+                        }
+                        Column(Modifier.fillMaxWidth().heightIn(max = 160.dp).verticalScroll(rememberScrollState()).padding(12.dp)) {
+                            Text("Requested recipient: $requestedRecipient. Review the reel and people before sharing.",
+                                fontWeight = FontWeight.SemiBold)
+                            if (matches.isEmpty()) Text("No saved contact matched. Use Phone contacts to choose $requestedRecipient.")
+                            if (matches.size > 1) {
+                                Text("More than one contact matches. Choose the correct person:")
+                                matches.forEach { contact ->
+                                    TextButton(onClick = { selectedPhoneContactKeys = setOf(contact.cacheKey) }) {
+                                        Text("${contact.displayName} — ${contact.phoneNumber ?: contact.email.orEmpty()}")
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2576,7 +2596,7 @@ fun VideoPlaybackScreen(
                         onClick = {
                             draftPhoneContactKeys = selectedPhoneContactKeys
                             draftFavoriteContactKeys = favoritePhoneContacts.mapTo(mutableSetOf()) { it.cacheKey }
-                            phoneContactPickerQuery = ""
+                            phoneContactPickerQuery = requestedRecipient.orEmpty()
                             if (ContextCompat.checkSelfPermission(
                                     context,
                                     Manifest.permission.READ_CONTACTS
@@ -3242,64 +3262,9 @@ internal fun ClipMetadataTicket(
     metadata: PlaybackClipMetadata,
     modifier: Modifier = Modifier
 ) {
-    if (metadata.tag == null && metadata.opponent == null && metadata.date == null) return
-
-    Surface(
-        modifier = modifier.widthIn(max = 360.dp),
-        color = Color.Black.copy(alpha = 0.52f),
-        contentColor = Color.White,
-        shape = RoundedCornerShape(8.dp),
-        shadowElevation = 8.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            metadata.tag?.let { tag ->
-                Text(
-                    text = tag,
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-            }
-            if (metadata.tag != null && (metadata.opponent != null || metadata.date != null)) {
-                Box(
-                    modifier = Modifier
-                        .size(4.dp)
-                        .background(Color.White, CircleShape)
-                )
-            }
-            metadata.opponent?.let { opponent ->
-                Text(
-                    text = "vs $opponent",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            if (metadata.opponent != null && metadata.date != null) {
-                Box(
-                    modifier = Modifier
-                        .size(4.dp)
-                        .background(Color.White, CircleShape)
-                )
-            }
-            metadata.date?.let { date ->
-                Text(
-                    text = date,
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
-            }
-        }
-    }
+    com.playerid.app.ui.components.MemoryMetadataTicket(
+        tag = metadata.tag, opponent = metadata.opponent, date = metadata.date, modifier = modifier
+    )
 }
 
 internal fun loadPlaybackClipMetadata(context: Context, clip: VideoClip): PlaybackClipMetadata {

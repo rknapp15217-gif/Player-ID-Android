@@ -16,7 +16,8 @@ enum class TeamSelectionDialog {
 data class TeamSelectionState(
     val selectedTeamName: String? = null,
     val createdTeamName: String? = null,
-    val activeDialog: TeamSelectionDialog? = null
+    val activeDialog: TeamSelectionDialog? = null,
+    val initialPage: TeamDetailPage? = null
 ) {
     fun shouldOpenRoster(openRosterInitially: Boolean): Boolean {
         return openRosterInitially || (
@@ -25,8 +26,8 @@ data class TeamSelectionState(
     }
 
     fun reduce(event: TeamSelectionEvent): TeamSelectionState = when (event) {
-        is TeamSelectionEvent.TeamSelected -> copy(selectedTeamName = event.teamName)
-        TeamSelectionEvent.TeamCleared -> copy(selectedTeamName = null)
+        is TeamSelectionEvent.TeamSelected -> copy(selectedTeamName = event.teamName, initialPage = null)
+        TeamSelectionEvent.TeamCleared -> copy(selectedTeamName = null, initialPage = null)
         is TeamSelectionEvent.DialogRequested -> copy(activeDialog = event.dialog)
         TeamSelectionEvent.DialogDismissed -> copy(activeDialog = null)
         is TeamSelectionEvent.TeamCreated -> copy(

@@ -38,7 +38,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier // Keep only one import
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
@@ -53,7 +52,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import com.playerid.app.ui.components.BottomNavItem
-import com.playerid.app.ui.components.SpotrBottomNavigationBar
+import com.playerid.app.domain.navigation.AppDestination
+import com.playerid.app.domain.navigation.AppNavigationState
+import com.playerid.app.ui.navigation.PlayerIDAppShell
+import com.playerid.app.ui.screens.MorePage
 import com.playerid.app.ui.screens.CameraScreen
 import com.playerid.app.ui.screens.TeamScreen
 import com.playerid.app.ui.screens.ReferralScreen
@@ -62,6 +64,7 @@ import com.playerid.app.ui.screens.WebRosterImportScreen
 import com.playerid.app.ui.screens.AppRosterImportScreen
 import com.playerid.app.ui.screens.ClipsScreenRefactored
 import com.playerid.app.ui.screens.ScheduleImportScreen
+import androidx.compose.material.icons.filled.Search
 import com.playerid.app.ui.screens.ContactImportScreen
 import com.playerid.app.ui.screens.OnboardingScreen
 import androidx.compose.ui.platform.LocalContext
@@ -69,6 +72,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.playerid.app.R
 import com.playerid.app.memory.MemoryIngestionViewModel
+import com.playerid.app.platform.AndroidAccount
+import com.playerid.app.ui.screens.AccountPage
 
 val LocalPlayerViewModel = compositionLocalOf<PlayerViewModel> { error("No PlayerViewModel provided") }
 val LocalTeamViewModel = compositionLocalOf<TeamViewModel> { error("No TeamViewModel provided") }
@@ -85,6 +90,8 @@ fun reelVideoRelativePathsForRestoredClips(): List<String> = listOf(
 @Composable
 fun PlayerIDApp() {
     val context = LocalContext.current
+    val account = remember(context.applicationContext) { AndroidAccount(context.applicationContext) }
+    LaunchedEffect(account) { account.auth.restore() }
     val onboardingPrefs = remember(context) {
         context.getSharedPreferences("onboarding", Context.MODE_PRIVATE)
     }
@@ -103,16 +110,20 @@ fun PlayerIDApp() {
     val navItems = listOf(
         BottomNavItem(stringResource(R.string.clips_tab), Icons.Filled.PhotoLibrary, "clips"),
         BottomNavItem(stringResource(R.string.camera_tab), Icons.Filled.CameraAlt, "camera"),
-        BottomNavItem(stringResource(R.string.settings_title), Icons.Filled.Settings, "more")
+        BottomNavItem("Go", Icons.Filled.Search, "go")
     )
     val selectedIndex = when {
         currentRoute == "clips" -> 0
         currentRoute == "camera" -> 1
-        currentRoute == "more" || currentRoute == "settings" -> 2
-        else -> 2
+        currentRoute == "go" -> 2
+        else -> -1
     }
     var previousRoute by remember { mutableStateOf(currentRoute) }
     var cameraHandoffToken by remember { mutableStateOf(0) }
+    var goOpenGeneration by remember { mutableStateOf(0) }
+    val goRecentRequests = androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf(emptyList<String>())
+    }
 
     // Camera is master only when leaving Camera to any other screen.
     LaunchedEffect(currentRoute) {
@@ -225,12 +236,34 @@ fun PlayerIDApp() {
             androidx.compose.foundation.layout.Box(
                 modifier = Modifier.fillMaxSize()
             ) {
-                androidx.compose.foundation.layout.Column(
-                    modifier = androidx.compose.ui.Modifier.fillMaxSize()
+                PlayerIDAppShell(
+                    state = AppNavigationState(
+                        destination = when (selectedIndex) {
+                            0 -> AppDestination.Memories
+                            1 -> AppDestination.Camera
+                            2 -> AppDestination.Go
+                            else -> AppDestination.More
+                        }
+                    ),
+                    memoriesLabel = navItems[0].label,
+                    cameraLabel = navItems[1].label,
+                    onTabSelected = { idx ->
+                        val targetRoute = navItems[idx].route
+                        if (targetRoute == "go") goOpenGeneration++
+                        val returnedToCamera = targetRoute == "camera" &&
+                            navController.popBackStack(route = "camera", inclusive = false)
+                        if (!returnedToCamera && currentRoute != targetRoute) {
+                            navController.navigate(targetRoute) {
+                                popUpTo(navController.graph.startDestinationId) {
+                                    inclusive = false
+                                    saveState = targetRoute != "camera"
+                                }
+                                launchSingleTop = true
+                                restoreState = targetRoute != "camera"
+                            }
+                        }
+                    }
                 ) {
-                    androidx.compose.foundation.layout.Box(
-                        modifier = androidx.compose.ui.Modifier.weight(1f)
-                    ) {
                         NavHost(
                             navController = navController,
                             startDestination = postOnboardingRoute ?: "camera"
@@ -244,16 +277,7 @@ fun PlayerIDApp() {
                             }
                             composable("more") {
                                 MoreScreen(
-                                    onNavigateToTeams = {
-                                        navController.navigate("teams") {
-                                            popUpTo(navController.graph.startDestinationId) {
-                                                inclusive = false
-                                                saveState = true
-                                            }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    },
+                                    onNavigateToAccount = { navController.navigate("account") },
                                     onNavigateToSettings = {
                                         navController.navigate("settings") {
                                             popUpTo(navController.graph.startDestinationId) {
@@ -265,6 +289,9 @@ fun PlayerIDApp() {
                                         }
                                     }
                                 )
+                            }
+                            composable("account") {
+                                AccountPage(account.auth, onBack = { navController.popBackStack() })
                             }
                             composable("teams") {
                                 TeamScreen(
@@ -311,14 +338,19 @@ fun PlayerIDApp() {
                                 )
                             }
                             composable(
-                                route = "teams/roster/{teamName}",
-                                arguments = listOf(navArgument("teamName") { type = NavType.StringType })
+                                route = "teams/{page}/{teamName}",
+                                arguments = listOf(
+                                    navArgument("teamName") { type = NavType.StringType },
+                                    navArgument("page") { type = NavType.StringType }
+                                )
                             ) { backStackEntry ->
                                 TeamScreen(
                                     teamViewModel = teamViewModel,
                                     playerViewModel = playerViewModel,
                                     initialTeamName = backStackEntry.arguments?.getString("teamName"),
-                                    openRosterInitially = true,
+                                    openRosterInitially = backStackEntry.arguments?.getString("page") != "schedule",
+                                    initialPage = if (backStackEntry.arguments?.getString("page") == "schedule")
+                                        com.playerid.app.domain.team.TeamDetailPage.Schedule else null,
                                     onNavigateToWebImport = { teamName ->
                                         navController.navigate("webRosterImport/${Uri.encode(teamName)}")
                                     },
@@ -336,13 +368,31 @@ fun PlayerIDApp() {
                                     }
                                 )
                             }
-                            composable("clips") {
+                            listOf("clips", "go").forEach { libraryRoute ->
+                            composable(libraryRoute) {
+                                androidx.compose.runtime.key(if (libraryRoute == "go") goOpenGeneration else 0) {
                                 ClipsScreenRefactored(
                                     teamViewModel = teamViewModel,
                                     playerViewModel = playerViewModel,
                                     cameraHandoffToken = cameraHandoffToken,
-                                    onNavigateToTeams = { navController.navigate("teams") }
+                                    goMode = libraryRoute == "go",
+                                    goRecentRequests = if (libraryRoute == "go") goRecentRequests else null,
+                                    onOpenMore = { navController.navigate("more") },
+                                    onNavigateToTeams = { navController.navigate("teams") },
+                                    onNavigate = { request ->
+                                        when (request.destination) {
+                                            com.playerid.app.domain.team.LibraryDestination.ROSTER ->
+                                                navController.navigate("teams/roster/${Uri.encode(request.teamName)}")
+                                            com.playerid.app.domain.team.LibraryDestination.SCHEDULE ->
+                                                navController.navigate("teams/schedule/${Uri.encode(request.teamName)}")
+                                            com.playerid.app.domain.team.LibraryDestination.TEAMS -> navController.navigate("teams")
+                                            com.playerid.app.domain.team.LibraryDestination.CAMERA -> navController.navigate("camera")
+                                            else -> Unit
+                                        }
+                                    }
                                 )
+                                }
+                            }
                             }
                             composable(
                                 route = "webRosterImport/{teamName}",
@@ -426,26 +476,6 @@ fun PlayerIDApp() {
                                 )
                             }
                         }
-                    }
-                    SpotrBottomNavigationBar(
-                        items = navItems,
-                        selectedIndex = selectedIndex,
-                        onItemSelected = { idx ->
-                            val targetRoute = navItems[idx].route
-                            val returnedToCamera = targetRoute == "camera" &&
-                                navController.popBackStack(route = "camera", inclusive = false)
-                            if (!returnedToCamera && currentRoute != targetRoute) {
-                                navController.navigate(targetRoute) {
-                                    popUpTo(navController.graph.startDestinationId) {
-                                        inclusive = false
-                                        saveState = targetRoute != "camera"
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = targetRoute != "camera"
-                                }
-                            }
-                        }
-                    )
                 }
             }
         }
@@ -454,96 +484,14 @@ fun PlayerIDApp() {
 
 @Composable
 private fun MoreScreen(
-    onNavigateToTeams: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToAccount: () -> Unit
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.background,
-        modifier = Modifier.fillMaxSize()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 24.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.more),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(bottom = 20.dp)
-            )
-
-            MoreDestinationRow(
-                icon = Icons.Filled.Group,
-                title = stringResource(R.string.teams),
-                subtitle = stringResource(R.string.manage_teams_and_rosters),
-                onClick = onNavigateToTeams
-            )
-
-            MoreDestinationRow(
-                icon = Icons.Filled.Settings,
-                title = stringResource(R.string.settings_title),
-                subtitle = stringResource(R.string.account_referrals_and_settings),
-                onClick = onNavigateToSettings
-            )
-
-            Spacer(modifier = Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun MoreDestinationRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = androidx.compose.foundation.shape.CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(18.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Icon(
-                imageVector = Icons.Filled.PlayArrow,
-                contentDescription = stringResource(R.string.open_destination),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .width(30.dp)
-                    .height(30.dp)
-            )
-        }
-    }
+    MorePage(
+        onNavigateToSettings = onNavigateToSettings,
+        onNavigateToAccount = onNavigateToAccount,
+        settingsLabel = stringResource(R.string.settings_title),
+        settingsSubtitle = stringResource(R.string.account_referrals_and_settings),
+        openDestinationLabel = stringResource(R.string.open_destination)
+    )
 }

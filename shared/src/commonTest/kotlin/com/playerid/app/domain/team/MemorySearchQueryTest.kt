@@ -5,11 +5,13 @@ import kotlin.test.assertEquals
 
 class MemorySearchQueryTest {
     @Test
-    fun allSavesInYearKeepsOnlyYearAsTextTerm() {
+    fun allSavesInYearUsesCalendarDateRange() {
         val query = parseMemorySearchQuery("Show me all saves from 2026")
 
         assertEquals("Save", query.momentTag)
-        assertEquals(listOf("2026"), query.terms)
+        assertEquals(emptyList(), query.terms)
+        assertEquals("2026-01-01", query.dateFrom)
+        assertEquals("2026-12-31", query.dateThrough)
     }
 
     @Test
@@ -69,5 +71,26 @@ class MemorySearchQueryTest {
 
         assertEquals("Save", query.momentTag)
         assertEquals(listOf("tyson"), query.terms)
+    }
+
+    @Test
+    fun reelCommandsAreDetectedAndTitledLikeAndroid() {
+        assertEquals(MemoryReelCommand("All scores", "all scores"), parseMemoryReelCommand("create reel of all scores"))
+        assertEquals(MemoryReelCommand("Tyson's goals against Penn Trafford", "Tyson's goals against Penn Trafford"),
+            parseMemoryReelCommand("Please make me a reel of Tyson's goals against Penn Trafford."))
+        assertEquals("All saves", parseMemoryReelCommand("Build a real from all saves")?.title)
+        assertEquals(MemoryReelCommand("Voice Reel", ""), parseMemoryReelCommand("Create a reel"))
+        assertEquals(null, parseMemoryReelCommand("Show face off wins"))
+        assertEquals(null, parseMemoryReelCommand("Find my reels"))
+    }
+
+    @Test
+    fun reelCommandSelectsMatchingMemories() {
+        val goal = com.playerid.app.platform.MediaReference("file:///m/goal.mov", com.playerid.app.platform.MediaKind.VIDEO)
+        val goal2 = com.playerid.app.platform.MediaReference("file:///m/goal2.mov", com.playerid.app.platform.MediaKind.VIDEO)
+        val save = com.playerid.app.platform.MediaReference("file:///m/save.mov", com.playerid.app.platform.MediaKind.VIDEO)
+        val snapshot = TeamWorkspaceSnapshot(captureMomentTags = mapOf("goal.mov" to "Goal", "goal2.mov" to "Goal", "save.mov" to "Save"))
+        val command = parseMemoryReelCommand("create reel of all scores")!!
+        assertEquals(listOf(goal, goal2), searchCaptureLibrary(listOf(goal, save, goal2), snapshot, command.searchQuery))
     }
 }

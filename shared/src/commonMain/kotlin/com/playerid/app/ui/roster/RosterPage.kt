@@ -78,7 +78,7 @@ fun RosterPage(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "$totalCount players",
+                    text = "${visiblePlayers.size} of $totalCount players",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 TextButton(onClick = onImport) {
@@ -110,7 +110,7 @@ fun RosterPage(
             }
         }
         item {
-            TextButton(onClick = onAdd, modifier = Modifier.padding(vertical = 8.dp)) {
+            TextButton(onClick = onAdd, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                 addPlayerIcon()
                 Spacer(Modifier.width(8.dp))
                 Text("Add player")
